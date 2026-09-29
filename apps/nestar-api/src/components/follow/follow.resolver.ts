@@ -32,9 +32,9 @@ export class FollowResolver {
 
 	@UseGuards(WithoutGuard)
 	@Query(() => Followings)
-	public async getMemberfollowings(
+	public async getMemberFollowings(
 		@Args('input') input: FollowInquiry,
-		@AuthMember('memberId') memberId: ObjectId,
+		@AuthMember('_id') memberId: ObjectId,
 	): Promise<Followings> {
 		console.log('Query: getMemberfollowings');
 		const { followerId } = input.search;
