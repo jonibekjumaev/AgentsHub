@@ -122,7 +122,7 @@ export class PropertyResolver {
 
 	@Roles(MemberType.ADMIN)
 	@UseGuards(RolesGuard)
-	@Query(() => Property)
+	@Mutation(() => Property)
 	public async updatePropertyByAdmin(@Args('input') input: PropertyUpdate): Promise<Property> {
 		console.log('Query: updatePropertyByAdmin');
 		input._id = shapeInToMongoObjectId(input._id);

@@ -227,7 +227,7 @@ export class PropertyService {
 		const sort = { [input?.sort ?? 'createdAt']: input?.direction ?? Direction.DESC };
 
 		if (propertyStatus) match.propertyStatus = propertyStatus;
-		if (propertyLocationList) match.propertyLocation = { $ne: propertyLocationList };
+		if (propertyLocationList) match.propertyLocation = { $in: propertyLocationList };
 
 		const result = await this.propertyModel
 			.aggregate([

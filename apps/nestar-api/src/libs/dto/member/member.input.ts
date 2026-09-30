@@ -45,6 +45,14 @@ export class LoginInput {
 @InputType()
 class AISearch {
 	@IsOptional()
+	@Field(() => MemberStatus, { nullable: true })
+	memberStatus?: MemberStatus;
+
+	@IsOptional()
+	@Field(() => MemberType, { nullable: true })
+	memberType?: MemberType;
+
+	@IsOptional()
 	@Field(() => String, { nullable: true })
 	text?: string;
 }
