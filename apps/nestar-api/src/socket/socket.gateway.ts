@@ -10,26 +10,42 @@ import {
 import { Server, WebSocket } from 'ws';
 import { AuthService } from '../components/auth/auth.service';
 import { Member } from '../libs/dto/member/member';
+import { MemberType } from '../libs/enums/member.enum';
+import type { ObjectId } from '../libs/types/common';
 import * as url from 'url';
+
+/** Only these member fields may reach chat clients (D-19, D-07). Guests get null. */
+interface PublicMember {
+	_id: ObjectId;
+	memberNick: string;
+	memberImage: string;
+	memberType: MemberType;
+}
 
 interface MessagePayload {
 	event: string;
 	text: string;
-	memberData: Member;
+	memberData: PublicMember | null;
 }
 
 interface InfoPayload {
 	event: string;
 	totalClients: number;
-	memberData: Member;
+	memberData: PublicMember | null;
 	action: string;
 }
+
+const toPublicMember = (member: Member | null | undefined): PublicMember | null => {
+	if (!member) return null;
+	const { _id, memberNick, memberImage, memberType } = member;
+	return { _id, memberNick, memberImage, memberType };
+};
 
 @WebSocketGateway({ transports: ['websocket'], secure: false })
 export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
 	private logger: Logger = new Logger('SocketEventsGateways');
 	private summaryClient: number = 0;
-	private clientsAuthMap = new Map<WebSocket, Member>();
+	private clientsAuthMap = new Map<WebSocket, Member | null>();
 	private messagesList: MessagePayload[] = [];
 
 	constructor(private authService: AuthService) {}
@@ -41,7 +57,7 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 		this.logger.verbose(`WebSocket Server Initialized & total: [${this.summaryClient}]`);
 	}
 
-	private async retrieveAuth(req: any): Promise<Member> {
+	private async retrieveAuth(req: any): Promise<Member | null> {
 		try {
 			const parseUrl = url.parse(req.url, true);
 			const { token } = parseUrl.query;
@@ -63,7 +79,7 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 		const infoMsg: InfoPayload = {
 			event: 'info',
 			totalClients: this.summaryClient,
-			memberData: authMember,
+			memberData: toPublicMember(authMember),
 			action: 'joined',
 		};
 
@@ -83,7 +99,7 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 		const infoMsg: InfoPayload = {
 			event: 'info',
 			totalClients: this.summaryClient,
-			memberData: authMember,
+			memberData: toPublicMember(authMember),
 			action: 'left',
 		};
 		// Dis client
@@ -93,7 +109,7 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 	@SubscribeMessage('message')
 	public handleMessage(client: WebSocket, payload: string): void {
 		const authMember = this.clientsAuthMap.get(client);
-		const newMessage: MessagePayload = { event: 'message', text: payload, memberData: authMember };
+		const newMessage: MessagePayload = { event: 'message', text: payload, memberData: toPublicMember(authMember) };
 
 		const clientNick: string = authMember?.memberNick ?? 'Guest';
 		this.logger.verbose(`NEW MESSAGE [${clientNick}] : [${payload}]`);
