@@ -31,10 +31,6 @@ export class MemberUpdate {
 
 	@IsOptional()
 	@Field(() => String, { nullable: true })
-	memberAdress?: string;
-
-	@IsOptional()
-	@Field(() => String, { nullable: true })
 	memberDesc?: string;
 
 	deletedAt?: Date;
@@ -73,10 +69,6 @@ export class MemberUpdateByAdmin {
 	@IsString()
 	@Field(() => String, { nullable: true })
 	memberImage?: string;
-
-	@IsOptional()
-	@Field(() => String, { nullable: true })
-	memberAdress?: string;
 
 	@IsOptional()
 	@Field(() => String, { nullable: true })

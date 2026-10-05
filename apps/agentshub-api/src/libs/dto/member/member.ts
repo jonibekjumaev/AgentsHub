@@ -32,14 +32,22 @@ export class Member {
 	@Field(() => String)
 	memberImage!: string;
 
-	@Field(() => String, { nullable: true })
-	memberAddress?: string;
+	/** No @Field until guests get null for contact info (D-07) */
+	memberEmail?: string;
+
+	memberWhatsapp?: string;
 
 	@Field(() => String, { nullable: true })
 	memberDesc?: string;
 
 	@Field(() => Int)
 	memberProperties!: number;
+
+	@Field(() => Int)
+	memberProducts!: number;
+
+	@Field(() => Int)
+	memberBriefs!: number;
 
 	@Field(() => Int)
 	memberArticles!: number;

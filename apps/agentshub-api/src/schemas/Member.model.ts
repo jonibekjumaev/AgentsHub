@@ -48,15 +48,34 @@ const MemberSchema = new Schema(
 			default: '',
 		},
 
-		memberAddress: {
+		// Contact info: returned only to logged-in members (D-07)
+		memberEmail: {
 			type: String,
+			trim: true,
+			lowercase: true,
+		},
+
+		memberWhatsapp: {
+			type: String,
+			trim: true,
 		},
 
 		memberDesc: {
 			type: String,
 		},
 
+		// Replaced by memberProducts; removed in Step 6 when Property code is converted
 		memberProperties: {
+			type: Number,
+			default: 0,
+		},
+
+		memberProducts: {
+			type: Number,
+			default: 0,
+		},
+
+		memberBriefs: {
 			type: Number,
 			default: 0,
 		},
