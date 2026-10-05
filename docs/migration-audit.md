@@ -73,7 +73,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - `text: "a.b"` matches only the literal `a.b`
   - Step 6 uses the same helper in `property.service.ts:158`.
 - [ ] **S9 — JWT payload carries the whole member (D-07)**
-  - **When:** added during Step 5. It is **not** fixed in Step 2.5. It must be fixed **before D-07 exposes `memberEmail` / `memberWhatsapp`** in GraphQL.
+  - **When:** added during Step 5. It is **not** fixed in Step 2.5. It must be fixed **before D-07 exposes `memberEmail` / `memberWhatsapp`** in GraphQL, i.e. before [Step 9](#step-9--contact-visibility-d-07) starts.
   - **Where:**
     - `api/components/auth/auth.service.ts:21–31` (`createToken` copies every member key except `memberPassword`)
     - its callers `api/components/member/member.service.ts:36` (signup), `:65` (login) and `:83` (`updateMember`)
@@ -228,7 +228,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - `memberProperties` → `memberProducts` (41–42)
   - add `memberBriefs`, plus `memberEmail` and `memberWhatsapp` as nullable fields
 
-  **Done in Step 5:** `memberAddress` removed; `memberProducts` and `memberBriefs` added. **Still open:** removing `memberProperties` (Step 6); `memberEmail`/`memberWhatsapp` are plain properties without `@Field` until D-07 is implemented.
+  **Done in Step 5:** `memberAddress` removed; `memberProducts` and `memberBriefs` added. **Still open:** removing `memberProperties` (Step 6); `memberEmail`/`memberWhatsapp` are plain properties without `@Field` until [Step 9](#step-9--contact-visibility-d-07) (D-07).
 - [x] `member.input.ts`:
   - `AgentsInquiry` (61) → `CreatorsInquiry`
   - its `AISearch` class (46) → e.g. `CISearch`
@@ -247,11 +247,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [x] `getAgents` (123) → `getCreators`. It filters `memberType: MemberType.AGENT` (126).
 - [x] `getAgents` checks `if (!result)` instead of `!result.length` (144). Make it consistent with the other list queries.
   - Fixed in `getCreators` (Step 5, its own `fix:` commit). No behaviour change: `$facet` always returns one document, so an empty result is `list: []`, not an error.
-- [ ] `getMember` (87) and the list queries return the whole document. The contact-visibility hook for `memberEmail`/`memberWhatsapp` goes here (D-07; the approach is chosen in **step 9**). Paths that must hide them from guests:
-  - `getMember` (and `getMember(null, …)` when it is embedded as `memberData` in product, brief and article getters)
-  - `getCreators`
-  - `lookupMember`, `lookupFollowingData`, `lookupFollowerData`, `lookupFavorite` and `lookupVisit` in `api/libs/config.ts`
-  - `lookupMember`, which `getProducts` / `getBriefs` / comments use
+- Contact visibility for `memberEmail` / `memberWhatsapp` (D-07): `getMember` (87), the list queries and the `$lookup`s return the whole document. **Moved to [Step 9 — Contact visibility (D-07)](#step-9--contact-visibility-d-07)**, together with the list of paths that must hide the fields from guests.
 - [ ] `memberStatsEditor` callers that pass `'memberProperties'` are listed in Step 6.
 
 ### Resolver — `api/components/member/member.resolver.ts`
@@ -499,6 +495,56 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - D-19 conditions 1, 2, 3, 4 and 7 (public fields only, authenticated senders, validation, rate limit, status on connection) are security fixes on surviving code, so they're fixed in Step 2.5 (S3–S7).
 - [ ] After Step 4/5, check that the public chat member still has exactly `{ _id, memberNick, memberImage, memberType }`, and that the new `memberEmail` / `memberWhatsapp` fields are not added to it.
 - [ ] Never log the socket connection URL (D-19, accepted risk: the token is in `?token=`). Keep `socket.gateway.ts:46` parse-only. Don't add the URL or the token to any log line. When deploying, check that the reverse proxy's access logs exclude the query string for the socket endpoint.
+
+---
+
+## Step 9 — Contact visibility (D-07)
+
+> **Depends on S9** (slim JWT, Step 2.5). Do not start this step until S9 is done. Once the contacts are GraphQL fields, every path outside GraphQL that could leak them must already be closed.
+> Moved here from Step 5. Since Step 5, `memberEmail` / `memberWhatsapp` are stored in the schema and accepted as validated, write-only inputs (`MemberUpdate`, `MemberUpdateByAdmin`). They are plain TS properties without `@Field` on `Member`, so no query returns them yet.
+
+### Goal
+- [ ] Add `memberEmail` and `memberWhatsapp` to the GraphQL `Member` type as `@Field(() => String, { nullable: true })` (`api/libs/dto/member/member.ts`). Remove the "no `@Field` until D-07" comment.
+- [ ] A request without a valid token (a guest) gets `null` for both fields **everywhere a `Member` is returned**. A logged-in member gets the stored value, or `null` if it isn't set.
+
+### Approach
+- [ ] Record the chosen approach in `docs/decisions.md` as a **Proposed** decision before implementing it. D-07 says the approach is chosen in this step.
+- **Preferred: one field-level check**, so the rule lives in one place and is not repeated in every query.
+  - Example: a `@ResolveField` for each contact field on a `@Resolver(() => Member)` class. GraphQL runs a field resolver for every `Member` object in a response, however that object was loaded: `findOne`, a list `$facet`, or a `$lookup` `memberData`. Existing queries need no change, and new queries are covered automatically.
+  - Alternative, if field resolvers turn out impractical: a single serializer or interceptor that walks the response and sets the fields to `null` for guests. This is still one place.
+  - **Not acceptable:** hiding the fields per query (a `$project` in each service or lookup). It is easy to miss one path, and D-07 requires the rule to be enforced in the API.
+- **Auth inside the field check:**
+  - The route guards don't cover it. They put `authMember` on `req.body` only for guarded operations, and `signup` / `login` have no guard.
+  - Read the `Authorization` header from the GraphQL context request and verify it with `AuthService.verifyToken`.
+  - Verify **once per request** and cache the result on the request. Otherwise a list of 50 members verifies the token 100 times.
+  - A missing, invalid or expired token means a guest (`null`), never an error.
+- **Open questions** (answer them in the same decision):
+  - **Blocked or deleted members:** is a valid token whose member is now `BLOCK` / `DELETE` "logged in"? After S9 the token has no `memberStatus`. Options: treat it as logged in (as the guards do today), or load the status once per request.
+  - **Own data in `signup` / `login` responses:** the request has no token yet, so a token-based check returns `null` for the member's own contacts. Accept this (the client calls `getMember` afterwards), or treat the returned member as the caller.
+
+### Paths that must return `null` to guests
+The field-level check covers all of them automatically. Keep the list as the verification checklist; the Step 5 audit listed them first.
+- [ ] `getMember` (`member.service.ts:87`), including `getMember(null, …)` embedded as `memberData` in `getBoardArticle` and `getProperty` (→ `getProduct`, Step 6). `follow.service.ts:28,53` also calls `getMember(null, …)`, but only as an existence check; the result is not returned.
+- [ ] `Members.list`: `getCreators`, and `getAllMembersByAdmin` (admins are logged in, so they see contacts).
+- [ ] Member-returning mutations: `signup`, `login`, `updateMember`, `likeTargetMember`, `updateMemberByAdmin`.
+- [ ] Every `$lookup` in `api/libs/config.ts`:
+  - `lookupMember` → `memberData` in `getBoardArticles`, `getAllBoardArticlesByAdmin`, `getComments`, and the property (product, Step 6) and brief (Step 7) lists
+  - `lookupFollowingData` / `lookupFollowerData` → `followingData` / `followerData` in `getMemberFollowings` / `getMemberFollowers`
+  - `lookupFavorite` / `lookupVisit` → `favoriteProduct.memberData` / `visitedProduct.memberData` in `getFavorities` / `getVisited` (renamed in Step 8)
+- [ ] Output types that embed a `Member`, so the check is visible in the schema: `BoardArticle.memberData`, `Comment.memberData`, `Follower.followerData`, `Following.followingData`, `Property.memberData` (→ `Product.memberData`, Step 6), `Brief.memberData` (Step 7).
+
+### Outside GraphQL
+- [ ] JWT: covered by S9 (the payload is only `_id`, `memberType`, `memberNick`).
+- [ ] Socket chat: still sends only `{ _id, memberNick, memberImage, memberType }` (S3; also listed in Step 8 → Socket).
+
+### Verify
+- Give member A an email and a WhatsApp number. Then:
+  - a guest calls `getMember(A)` → both `null`
+  - member B (logged in) calls `getMember(A)` → the stored values
+  - an invalid or expired token → both `null` (guest), and no error
+- As a guest, every path above that embeds A (`getCreators`, `getBoardArticles`, `getComments`, `getMemberFollowers` / `getMemberFollowings`, and later products, briefs, favorites and visited) → both `null`.
+- The schema shows both fields as nullable `String` on `Member`.
+- A list request verifies the token only once (check with a log line or a counter during the test).
 
 ---
 
