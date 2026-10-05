@@ -383,7 +383,8 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - keep the `ACTIVE`-only target check (207). It rejects likes **and** unlikes on `PAUSED` products (D-16).
 - [ ] `getAllPropertiesByAdmin` (224–251): `propertyLocationList` filter → category filter. Admins see every status, including `PAUSED` (D-16).
 - [ ] `updatePropertyByAdmin` (253–275): the same `SOLD`/`soldAt` removal, plus `'memberProperties'` (269).
-- [ ] `removePropertyByAdmin` (277–286) (bug, fix in its own commit): `findByIdAndDelete(search)` passes an object as the id. Use `findOneAndDelete(search)`.
+- [x] `removePropertyByAdmin` (277–286) (bug, fix in its own commit): `findByIdAndDelete(search)` passes an object as the id. Use `findOneAndDelete(search)`.
+  - Fixed in Step 6 part 1. Mongoose cast the object to its `_id` and dropped the `propertyStatus: DELETE` condition, so `ACTIVE` properties were hard-deleted too. Now only a property that is already `DELETE` can be removed.
 - [ ] (bug, D-22, fix in its own commit) Self-engagement on own products:
   - `getProduct` must not record a view when the caller owns the product (`property.service.ts:61`)
   - `likeTargetProduct` must reject liking your own product (`:206`)

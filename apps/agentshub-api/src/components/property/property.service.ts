@@ -280,7 +280,7 @@ export class PropertyService {
 			propertyStatus: PropertyStatus.DELETE,
 		};
 
-		const result = await this.propertyModel.findByIdAndDelete(search).exec();
+		const result = await this.propertyModel.findOneAndDelete(search).exec();
 		if (!result) throw new InternalServerErrorException(Message.REMOVE_FAILED);
 		return result;
 	}
