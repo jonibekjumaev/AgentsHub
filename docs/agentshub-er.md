@@ -232,8 +232,9 @@ Unique index: `{ followingId: 1, followerId: 1 }`.
 | LikeGroup | `MEMBER`, `PRODUCT`, `ARTICLE` | likes.likeGroup |
 | ViewGroup | `MEMBER`, `PRODUCT`, `BRIEF`, `ARTICLE` | views.viewGroup |
 | CommentGroup | `MEMBER`, `PRODUCT`, `BRIEF`, `ARTICLE` | comments.commentGroup |
+| NotificationGroup | `MEMBER`, `PRODUCT`, `BRIEF`, `ARTICLE` | notifications.notificationGroup (Nestar `PROPERTY` → `PRODUCT`, plus `BRIEF`) |
 
-All other enums (MemberStatus, MemberAuthType, article, notice and notification enums) stay as in Nestar.
+All other enums (MemberStatus, MemberAuthType, article and notice enums, NotificationType, NotificationStatus) stay as in Nestar.
 
 ---
 

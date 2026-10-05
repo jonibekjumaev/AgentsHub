@@ -21,6 +21,12 @@ export enum Message {
 	SELF_SUBSCRIPTION_DENIED = 'Self subscription is denied!',
 	INVALID_CHAT_MESSAGE = 'Message must be text of 1 to 500 characters!',
 	CHAT_RATE_LIMITED = 'You can send at most 1 message per second!',
+
+	PRICE_REQUIRED = 'Price greater than 0 is required for ONE_TIME and SUBSCRIPTION pricing!',
+	PRICE_NOT_ALLOWED = 'Price is not allowed for FREE and CUSTOM pricing!',
+	INVALID_BUDGET = 'Budget must be greater than 0!',
+	DEADLINE_IN_PAST = 'Deadline must be in the future!',
+	BRIEF_ALREADY_CLOSED = 'This brief is already closed!',
 }
 
 export enum Direction {

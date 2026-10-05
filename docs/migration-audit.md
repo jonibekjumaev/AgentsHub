@@ -177,24 +177,25 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 
 ## Step 4 — Enums (`api/libs/enums/`)
 
-- [ ] `member.enum.ts:5`: `MemberType.AGENT = 'AGENT'` → `CREATOR = 'CREATOR'`.
-- [ ] `property.enum.ts` → rename to `product.enum.ts`:
-  - [ ] Delete `PropertyType` (APARTMENT/VILLA/HOUSE, lines 3–10).
-  - [ ] Delete `PropertyLocation` (Korean cities, lines 21–34) (D-10).
-  - [ ] `PropertyStatus { ACTIVE, SOLD, DELETE }` → `ProductStatus { ACTIVE, PAUSED, DELETE }`. `SOLD` goes away together with `soldAt` (D-10).
-  - [ ] Add `ProductPricing { FREE, ONE_TIME, SUBSCRIPTION, CUSTOM }` (D-03).
-- [ ] New `AgentCategory { CUSTOMER_SUPPORT, SALES, MARKETING, CONTENT, DATA_ANALYSIS, AUTOMATION, EDUCATION, OTHER }`. Put it in its own file (e.g. `agent-category.enum.ts`), because products and briefs share it (D-09).
-- [ ] New `brief.enum.ts`: `BriefStatus { OPEN, CLOSED, DELETE }`.
-- [ ] `like.enum.ts:5`: `LikeGroup.PROPERTY` → `PRODUCT`. **No** `BRIEF` (briefs can't be liked).
-- [ ] `view.enum.ts:6`: `ViewGroup.PROPERTY` → `PRODUCT`, and add `BRIEF`.
-- [ ] `comment.enum.ts:14`: `CommentGroup.PROPERTY` → `PRODUCT`, and add `BRIEF`.
-- [ ] `notification.enum.ts:22`: `NotificationGroup.PROPERTY` → `PRODUCT`, and add `BRIEF`.
-- [ ] `common.enum.ts`: add `Message` strings for the new rules, such as:
+- [x] `member.enum.ts:5`: `MemberType.AGENT = 'AGENT'` → `CREATOR = 'CREATOR'`. All users changed in the same step: signup `@IsIn` (S1), `@Roles` in `checkAuthRoles` and `property.resolver.ts`, the `getAgents` match, and the batch ranking (`batch.service.ts`). Existing dev members with `memberType: 'AGENT'` must be migrated with `updateMany` and log in again.
+- [ ] `property.enum.ts` → rename to `product.enum.ts`. **Deferred to Step 6:** the Property schema, DTOs, services and the batch still use this file, so the rename and the deletes below happen when their users go (the build must stay green).
+  - [ ] Delete `PropertyType` (APARTMENT/VILLA/HOUSE, lines 3–10). Step 6.
+  - [ ] Delete `PropertyLocation` (Korean cities, lines 21–34) (D-10). Step 6.
+  - [x] `PropertyStatus { ACTIVE, SOLD, DELETE }` → `ProductStatus { ACTIVE, PAUSED, DELETE }`. `SOLD` goes away together with `soldAt` (D-10). `ProductStatus` is added in a new `product.enum.ts`; deleting `PropertyStatus` is Step 6.
+  - [x] Add `ProductPricing { FREE, ONE_TIME, SUBSCRIPTION, CUSTOM }` (D-03). In `product.enum.ts`.
+- [x] New `AgentCategory { CUSTOMER_SUPPORT, SALES, MARKETING, CONTENT, DATA_ANALYSIS, AUTOMATION, EDUCATION, OTHER }`. Put it in its own file (e.g. `agent-category.enum.ts`), because products and briefs share it (D-09).
+- [x] New `brief.enum.ts`: `BriefStatus { OPEN, CLOSED, DELETE }`.
+- [x] `like.enum.ts:5`: `LikeGroup.PROPERTY` → `PRODUCT`. **No** `BRIEF` (briefs can't be liked). `PRODUCT` is added; `PROPERTY` is removed in Step 6.
+- [x] `view.enum.ts:6`: `ViewGroup.PROPERTY` → `PRODUCT`, and add `BRIEF`. `PROPERTY` is removed in Step 6.
+- [x] `comment.enum.ts:14`: `CommentGroup.PROPERTY` → `PRODUCT`, and add `BRIEF`. `PROPERTY` is removed in Step 6.
+- [x] `notification.enum.ts:22`: `NotificationGroup.PROPERTY` → `PRODUCT`, and add `BRIEF`. `PROPERTY` is removed in Step 6.
+- [x] `common.enum.ts`: add `Message` strings for the new rules, such as:
   - price required, or price not allowed, for the given pricing (D-03)
   - budget must be > 0 (D-04)
   - deadline must be in the future (D-05)
   - brief already closed
-- [ ] Each rename changes the GraphQL enum value. Changing them together with Steps 5–8 keeps the API compiling. Every usage is listed below.
+- [x] Each rename changes the GraphQL enum value. Changing them together with Steps 5–8 keeps the API compiling. Every usage is listed below.
+- [ ] **Step 6 cleanup:** remove `PROPERTY` from `LikeGroup`, `ViewGroup`, `CommentGroup` and `NotificationGroup`, and delete `property.enum.ts`.
 
 ---
 

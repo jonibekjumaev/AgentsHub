@@ -26,7 +26,7 @@ export class BatchService {
 			.updateMany(
 				{
 					memberStatus: MemberStatus.ACTIVE,
-					memberType: MemberType.AGENT,
+					memberType: MemberType.CREATOR,
 				},
 				{
 					memberRank: 0,
@@ -55,7 +55,7 @@ export class BatchService {
 	public async batchAgents(): Promise<void> {
 		const agents: Member[] = await this.memberModel
 			.find({
-				memberType: MemberType.AGENT,
+				memberType: MemberType.CREATOR,
 				memberStatus: MemberStatus.ACTIVE,
 				memberRank: 0,
 			})

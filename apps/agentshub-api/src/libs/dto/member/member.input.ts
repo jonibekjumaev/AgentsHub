@@ -21,7 +21,7 @@ export class MemberInput {
 	memberPhone!: string;
 
 	@IsNotEmpty()
-	@IsIn([MemberType.USER, MemberType.AGENT])
+	@IsIn([MemberType.USER, MemberType.CREATOR])
 	@Field(() => MemberType)
 	memberType!: MemberType;
 
