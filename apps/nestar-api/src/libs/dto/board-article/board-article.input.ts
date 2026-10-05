@@ -1,10 +1,10 @@
 import { Field, InputType, Int } from '@nestjs/graphql';
-import { IsIn, IsNotEmpty, IsOptional, Length, Min } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, Length, MaxLength, Min } from 'class-validator';
 
 import { BoardArticleCategory, BoardArticleStatus } from '../../enums/board-article.enum';
 import { Direction } from '../../enums/common.enum';
 import type { ObjectId } from '../../types/common';
-import { aviableBoardArticleSorts } from '../../config';
+import { aviableBoardArticleSorts, searchTextMaxLength } from '../../config';
 
 @InputType()
 export class BoardArticleInput {
@@ -36,6 +36,7 @@ class BAISearch {
 	articleCategory?: BoardArticleCategory;
 
 	@IsOptional()
+	@MaxLength(searchTextMaxLength)
 	@Field(() => String, { nullable: true })
 	text?: string;
 

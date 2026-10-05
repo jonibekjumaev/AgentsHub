@@ -1,8 +1,8 @@
 import { Field, InputType, Int } from '@nestjs/graphql';
-import { IsIn, IsNotEmpty, IsOptional, Length, Min } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, Length, MaxLength, Min } from 'class-validator';
 import { MemberAuthType, MemberStatus, MemberType } from '../../enums/member.enum';
 import { Direction } from '../../enums/common.enum';
-import { aviableAgentSorts, aviableMemberSorts } from '../../config';
+import { aviableAgentSorts, aviableMemberSorts, searchTextMaxLength } from '../../config';
 
 @InputType()
 export class MemberInput {
@@ -54,6 +54,7 @@ class AISearch {
 	memberType?: MemberType;
 
 	@IsOptional()
+	@MaxLength(searchTextMaxLength)
 	@Field(() => String, { nullable: true })
 	text?: string;
 }
@@ -95,6 +96,7 @@ class MISearch {
 	memberType?: MemberType;
 
 	@IsOptional()
+	@MaxLength(searchTextMaxLength)
 	@Field(() => String, { nullable: true })
 	text?: string;
 }

@@ -15,7 +15,7 @@ import { ViewInput } from '../../libs/dto/view/view.input';
 import { ViewGroup } from '../../libs/enums/view.enum';
 import { ViewService } from '../view/view.service';
 import { BoardArticleUpdate } from '../../libs/dto/board-article/board-article.update';
-import { lookupAuthMemberLiked, lookupMember, shapeInToMongoObjectId } from '../../libs/config';
+import { escapeRegex, lookupAuthMemberLiked, lookupMember, shapeInToMongoObjectId } from '../../libs/config';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { LikeService } from '../like/like.service';
@@ -100,7 +100,7 @@ export class BoardArticleService {
 		const sort: T = { [input?.sort ?? 'createdAt']: input?.direction ?? Direction.DESC };
 
 		if (articleCategory) match.articleCategory = articleCategory;
-		if (text) match.articleTitle = { $regex: new RegExp(text, 'i') };
+		if (text) match.articleTitle = { $regex: new RegExp(escapeRegex(text), 'i') };
 		if (input.search?.memberId) {
 			match.memberId = shapeInToMongoObjectId(input.search.memberId);
 		}

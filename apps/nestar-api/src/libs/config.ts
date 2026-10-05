@@ -20,6 +20,15 @@ export const aviableBoardArticleSorts = ['createdAt', 'updatedAt', 'articleLikes
 
 export const availableCommentSorts = ['createdAt', 'updatedAt'];
 
+/**  SEARCH CONFIGURATION  **/
+
+export const searchTextMaxLength = 100;
+
+// User search text is plain text, never a regex pattern (S8)
+export const escapeRegex = (text: string): string => {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
 /**  IMAGE CONFIGURATION  **/
 
 export const validMimeTypes = ['image/png', 'image/jpg', 'image/jpeg'];
