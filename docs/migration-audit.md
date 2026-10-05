@@ -51,7 +51,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **Where:** `socket.gateway.ts:93–105`
   - **Fix:** if `clientsAuthMap.get(client)` is `null`, don't store or broadcast. Reply only to the sender with an `error` event.
   - **Verify:** a guest sends `{ "event": "message", "data": "hi" }` → the sender gets `error`, other clients receive nothing, and the history is unchanged.
-- [ ] **S6 — Chat: message validation (D-19 condition 3)**
+- [x] **S6 — Chat: message validation (D-19 condition 3)**
   - **Where:** `socket.gateway.ts:94–96`
   - **Fix:** reject payloads that aren't strings. `trim()` the text, and reject it if empty or longer than 500 characters. Store and broadcast the trimmed text.
   - **Verify:**
@@ -59,7 +59,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - 501 characters → `error`
     - `123` (a number) → `error`
     - `"  hi  "` → broadcast as `"hi"`
-- [ ] **S7 — Chat: rate limit (D-19 condition 4)**
+- [x] **S7 — Chat: rate limit (D-19 condition 4)**
   - **Where:** `socket.gateway.ts:93–105`
   - **Fix:** keep an in-memory `Map<memberId, lastSentAt>`. A message less than 1000 ms after the member's previous one is rejected with `error`.
   - **Verify:**

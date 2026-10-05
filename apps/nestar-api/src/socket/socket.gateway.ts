@@ -44,6 +44,7 @@ interface ErrorPayload {
 }
 
 const MESSAGE_MAX_LENGTH = 500;
+const MESSAGE_RATE_LIMIT_MS = 1000;
 
 const toPublicMember = (member: PublicMember | null | undefined): PublicMember | null => {
 	if (!member) return null;
@@ -57,6 +58,8 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 	private summaryClient: number = 0;
 	private clientsAuthMap = new Map<WebSocket, PublicMember | null>();
 	private messagesList: MessagePayload[] = [];
+	/** memberId → time of the member's last accepted message, shared by all their sockets (D-19 condition 4) */
+	private lastSentAtMap = new Map<string, number>();
 
 	constructor(
 		private authService: AuthService,
@@ -147,6 +150,18 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 			return;
 		}
 
+		// At most 1 message per second per member _id, across all their sockets (D-19 condition 4)
+		const memberId = String(authMember._id);
+		const now = Date.now();
+		const lastSentAt = this.lastSentAtMap.get(memberId);
+		if (lastSentAt !== undefined && now - lastSentAt < MESSAGE_RATE_LIMIT_MS) {
+			this.logger.verbose(`REJECTED MESSAGE [${authMember.memberNick}] : rate limit`);
+			this.sendToClient(client, { event: 'error', message: Message.CHAT_RATE_LIMITED });
+			return;
+		}
+		this.pruneLastSentAt(now);
+		this.lastSentAtMap.set(memberId, now);
+
 		const newMessage: MessagePayload = { event: 'message', text, memberData: authMember };
 		this.logger.verbose(`NEW MESSAGE [${authMember.memberNick}] : [${text}]`);
 
@@ -154,6 +169,13 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 		if (this.messagesList.length > 5) this.messagesList.splice(0, this.messagesList.length - 5);
 
 		this.emitMessage(newMessage);
+	}
+
+	/** Drops entries older than the rate-limit window, so the map only holds members who sent in the last second */
+	private pruneLastSentAt(now: number) {
+		this.lastSentAtMap.forEach((sentAt, memberId) => {
+			if (now - sentAt >= MESSAGE_RATE_LIMIT_MS) this.lastSentAtMap.delete(memberId);
+		});
 	}
 
 	private sendToClient(client: WebSocket, message: ErrorPayload) {
