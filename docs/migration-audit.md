@@ -43,7 +43,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **Where:** `api/socket/socket.gateway.ts:15–26` (payload types), `66`, `86` (`info`), `96`, `101` (`message` and history), `72` (`getMessages`)
   - **Fix:** every `memberData` sent to clients is a public object `{ _id, memberNick, memberImage, memberType }`, or `null` for guests. Never send the token payload.
   - **Verify:** connect a guest and a logged-in member. On join, message and leave, the guest receives `memberData` with exactly those four keys: no `memberPhone`, `memberStatus`, counters, `iat` or `exp`.
-- [ ] **S4 — Chat: member status on connection (D-19 condition 7)**
+- [x] **S4 — Chat: member status on connection (D-19 condition 7)**
   - **Where:** `socket.gateway.ts:44–58`; `api/socket/socket.module.ts`
   - **Fix:** after `verifyToken`, load the member from the DB by `_id`. If they're missing or not `ACTIVE`, store `null` (a read-only guest). Build S3's public object from this DB record. Give `SocketModule` access to the `Member` model.
   - **Verify:** connect with a valid token of a member whose status is `BLOCK` → the join `info` shows `memberData: null`, and their messages are refused (S5).

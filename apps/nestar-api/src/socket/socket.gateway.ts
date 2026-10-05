@@ -7,10 +7,12 @@ import {
 	WebSocketGateway,
 	WebSocketServer,
 } from '@nestjs/websockets';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { Server, WebSocket } from 'ws';
 import { AuthService } from '../components/auth/auth.service';
 import { Member } from '../libs/dto/member/member';
-import { MemberType } from '../libs/enums/member.enum';
+import { MemberStatus, MemberType } from '../libs/enums/member.enum';
 import type { ObjectId } from '../libs/types/common';
 import * as url from 'url';
 
@@ -35,7 +37,7 @@ interface InfoPayload {
 	action: string;
 }
 
-const toPublicMember = (member: Member | null | undefined): PublicMember | null => {
+const toPublicMember = (member: PublicMember | null | undefined): PublicMember | null => {
 	if (!member) return null;
 	const { _id, memberNick, memberImage, memberType } = member;
 	return { _id, memberNick, memberImage, memberType };
@@ -45,10 +47,13 @@ const toPublicMember = (member: Member | null | undefined): PublicMember | null 
 export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
 	private logger: Logger = new Logger('SocketEventsGateways');
 	private summaryClient: number = 0;
-	private clientsAuthMap = new Map<WebSocket, Member | null>();
+	private clientsAuthMap = new Map<WebSocket, PublicMember | null>();
 	private messagesList: MessagePayload[] = [];
 
-	constructor(private authService: AuthService) {}
+	constructor(
+		private authService: AuthService,
+		@InjectModel('Member') private readonly memberModel: Model<Member>,
+	) {}
 
 	@WebSocketServer()
 	server: Server;
@@ -57,12 +62,22 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 		this.logger.verbose(`WebSocket Server Initialized & total: [${this.summaryClient}]`);
 	}
 
-	private async retrieveAuth(req: any): Promise<Member | null> {
+	/** Verifies the token, then loads the member from the DB (D-19 condition 7). Missing or not ACTIVE → guest (null). */
+	private async retrieveAuth(req: any): Promise<PublicMember | null> {
 		try {
 			const parseUrl = url.parse(req.url, true);
 			const { token } = parseUrl.query;
 
-			return await this.authService.verifyToken(token as string);
+			const { _id } = await this.authService.verifyToken(token as string);
+			if (!_id) return null;
+
+			const member = await this.memberModel
+				.findOne({ _id, memberStatus: MemberStatus.ACTIVE })
+				.select('_id memberNick memberImage memberType')
+				.lean<PublicMember>()
+				.exec();
+
+			return toPublicMember(member);
 		} catch (err) {
 			return null;
 		}
@@ -79,7 +94,7 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 		const infoMsg: InfoPayload = {
 			event: 'info',
 			totalClients: this.summaryClient,
-			memberData: toPublicMember(authMember),
+			memberData: authMember,
 			action: 'joined',
 		};
 
@@ -99,7 +114,7 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 		const infoMsg: InfoPayload = {
 			event: 'info',
 			totalClients: this.summaryClient,
-			memberData: toPublicMember(authMember),
+			memberData: authMember ?? null,
 			action: 'left',
 		};
 		// Dis client
@@ -109,7 +124,7 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 	@SubscribeMessage('message')
 	public handleMessage(client: WebSocket, payload: string): void {
 		const authMember = this.clientsAuthMap.get(client);
-		const newMessage: MessagePayload = { event: 'message', text: payload, memberData: toPublicMember(authMember) };
+		const newMessage: MessagePayload = { event: 'message', text: payload, memberData: authMember ?? null };
 
 		const clientNick: string = authMember?.memberNick ?? 'Guest';
 		this.logger.verbose(`NEW MESSAGE [${clientNick}] : [${payload}]`);
