@@ -10,10 +10,10 @@ import { Properties, Property } from '../../libs/dto/property/property';
 import {
 	AgentPropertiesInquiry,
 	AllPropertiesInquiry,
-	OrdinaryInquiry,
 	PropertiesInquiry,
 	PropertyInput,
 } from '../../libs/dto/property/property.input';
+import { OrdinaryInquiry } from '../../libs/dto/common.input';
 import { WithoutGuard } from '../auth/guards/without.guard';
 import { shapeInToMongoObjectId } from '../../libs/config';
 import { PropertyUpdate } from '../../libs/dto/property/property.update';

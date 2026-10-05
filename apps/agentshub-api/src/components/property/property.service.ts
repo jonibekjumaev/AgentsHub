@@ -4,10 +4,10 @@ import { Model } from 'mongoose';
 import {
 	AgentPropertiesInquiry,
 	AllPropertiesInquiry,
-	OrdinaryInquiry,
 	PropertiesInquiry,
 	PropertyInput,
 } from '../../libs/dto/property/property.input';
+import { OrdinaryInquiry } from '../../libs/dto/common.input';
 import { Properties, Property } from '../../libs/dto/property/property';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { MemberService } from '../member/member.service';

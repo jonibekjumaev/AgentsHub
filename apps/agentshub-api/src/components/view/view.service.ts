@@ -3,7 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { View } from '../../libs/dto/view/view';
 import { ViewInput } from '../../libs/dto/view/view.input';
 import { ObjectId, T } from '../../libs/types/common';
-import { OrdinaryInquiry } from '../../libs/dto/property/property.input';
+import { OrdinaryInquiry } from '../../libs/dto/common.input';
 import { ViewGroup } from '../../libs/enums/view.enum';
 import { PropertyStatus } from '../../libs/enums/property.enum';
 import { Properties } from '../../libs/dto/property/property';

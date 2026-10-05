@@ -337,7 +337,8 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [ ] `PropertiesInquiry` (144) → `ProductsInquiry`.
 - [ ] `AgentPropertiesInquiry` (177) → `CreatorProductsInquiry`. `APISearch.propertyStatus` → `productStatus`.
 - [ ] `AllPropertiesInquiry` (214) → `AllProductsInquiry`. In `ALPISearch`, `propertyLocationList` (209) → `productCategoryList`.
-- [ ] `OrdinaryInquiry` (240–250) is generic, but it lives in the property DTO and is imported by `like.service.ts:8` and `view.service.ts:6`. Move it to a shared place, e.g. `libs/dto/common.input.ts`.
+- [x] `OrdinaryInquiry` (240–250) is generic, but it lives in the property DTO and is imported by `like.service.ts:8` and `view.service.ts:6`. Move it to a shared place, e.g. `libs/dto/common.input.ts`.
+  - Moved to `libs/dto/common.input.ts` in Step 6 part 4. Like, view and the property service/resolver import it from there. The GraphQL type name and fields are unchanged, so it is not an API change.
 
 ### DTO — `property.update.ts` → `product.update.ts`
 - [ ] Remove Type, Location, Address, Square, Beds, Rooms, Barter, Rent, `soldAt` and `constructedAt`.
