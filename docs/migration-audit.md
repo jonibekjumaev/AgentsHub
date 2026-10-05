@@ -245,7 +245,8 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 
 ### Service — `api/components/member/member.service.ts`
 - [x] `getAgents` (123) → `getCreators`. It filters `memberType: MemberType.AGENT` (126).
-- [ ] `getAgents` checks `if (!result)` instead of `!result.length` (144). Make it consistent with the other list queries.
+- [x] `getAgents` checks `if (!result)` instead of `!result.length` (144). Make it consistent with the other list queries.
+  - Fixed in `getCreators` (Step 5, its own `fix:` commit). No behaviour change: `$facet` always returns one document, so an empty result is `list: []`, not an error.
 - [ ] `getMember` (87) and the list queries return the whole document. The contact-visibility hook for `memberEmail`/`memberWhatsapp` goes here (D-07; the approach is chosen in **step 9**). Paths that must hide them from guests:
   - `getMember` (and `getMember(null, …)` when it is embedded as `memberData` in product, brief and article getters)
   - `getCreators`
@@ -255,7 +256,8 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 
 ### Resolver — `api/components/member/member.resolver.ts`
 - [x] `getAgents` query (72–77) → `getCreators`, using `CreatorsInquiry`.
-- [ ] `checkAuthRoles` uses `@Roles(MemberType.USER, MemberType.AGENT)` (44).
+- [x] `checkAuthRoles` uses `@Roles(MemberType.USER, MemberType.AGENT)` (44).
+  - Already fixed in Step 4: `@Roles(MemberType.USER, MemberType.CREATOR)`.
 
 ### Config — `api/libs/config.ts`
 - [x] `aviableAgentSorts` (6) → `aviableCreatorSorts`. Consider adding `memberProducts`.
