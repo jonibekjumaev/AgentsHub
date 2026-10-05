@@ -1,7 +1,9 @@
 import { Field, InputType } from '@nestjs/graphql';
-import { IsNotEmpty, IsOptional, IsString, Length, ValidateIf } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, Length, Matches, MaxLength, ValidateIf } from 'class-validator';
 import { MemberStatus } from '../../enums/member.enum';
+import { Message } from '../../enums/common.enum';
 import type { ObjectId } from '../../types/common';
+import { memberEmailMaxLength, whatsappNumberRegex } from '../../config';
 
 @InputType()
 export class MemberUpdate {
@@ -28,6 +30,18 @@ export class MemberUpdate {
 	@IsString()
 	@Field(() => String, { nullable: true })
 	memberImage?: string;
+
+	// Write-only until D-07: not a field on the Member output type yet. Send null to remove the contact.
+	@IsOptional()
+	@IsEmail({}, { message: Message.INVALID_EMAIL })
+	@MaxLength(memberEmailMaxLength, { message: Message.INVALID_EMAIL })
+	@Field(() => String, { nullable: true })
+	memberEmail?: string;
+
+	@IsOptional()
+	@Matches(whatsappNumberRegex, { message: Message.INVALID_WHATSAPP })
+	@Field(() => String, { nullable: true })
+	memberWhatsapp?: string;
 
 	@IsOptional()
 	@Field(() => String, { nullable: true })
@@ -69,6 +83,18 @@ export class MemberUpdateByAdmin {
 	@IsString()
 	@Field(() => String, { nullable: true })
 	memberImage?: string;
+
+	// Write-only until D-07: not a field on the Member output type yet. Send null to remove the contact.
+	@IsOptional()
+	@IsEmail({}, { message: Message.INVALID_EMAIL })
+	@MaxLength(memberEmailMaxLength, { message: Message.INVALID_EMAIL })
+	@Field(() => String, { nullable: true })
+	memberEmail?: string;
+
+	@IsOptional()
+	@Matches(whatsappNumberRegex, { message: Message.INVALID_WHATSAPP })
+	@Field(() => String, { nullable: true })
+	memberWhatsapp?: string;
 
 	@IsOptional()
 	@Field(() => String, { nullable: true })

@@ -21,6 +21,8 @@ export enum Message {
 	SELF_SUBSCRIPTION_DENIED = 'Self subscription is denied!',
 	INVALID_CHAT_MESSAGE = 'Message must be text of 1 to 500 characters!',
 	CHAT_RATE_LIMITED = 'You can send at most 1 message per second!',
+	INVALID_EMAIL = 'Please provide a valid email of at most 254 characters!',
+	INVALID_WHATSAPP = 'WhatsApp number must be in international format, e.g. +998901234567 (8 to 15 digits)!',
 
 	PRICE_REQUIRED = 'Price greater than 0 is required for ONE_TIME and SUBSCRIPTION pricing!',
 	PRICE_NOT_ALLOWED = 'Price is not allowed for FREE and CUSTOM pricing!',

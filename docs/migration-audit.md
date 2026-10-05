@@ -72,6 +72,19 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - `getAgents` / `getAllMembersByAdmin` / `getBoardArticles` with `text: "("` → a normal (possibly empty) list. Today `new RegExp('(')` throws.
     - `text: "a.b"` matches only the literal `a.b`
   - Step 6 uses the same helper in `property.service.ts:158`.
+- [ ] **S9 — JWT payload carries the whole member (D-07)**
+  - **When:** added during Step 5. It is **not** fixed in Step 2.5. It must be fixed **before D-07 exposes `memberEmail` / `memberWhatsapp`** in GraphQL.
+  - **Where:**
+    - `api/components/auth/auth.service.ts:21–31` (`createToken` copies every member key except `memberPassword`)
+    - its callers `api/components/member/member.service.ts:36` (signup), `:65` (login) and `:83` (`updateMember`)
+  - **Problem:** the token holds `memberPhone`, and since Step 5 also `memberEmail` / `memberWhatsapp`, plus every counter. A JWT is only base64-encoded, so anyone who sees the token can read these fields: logs, browser storage, the socket `?token=` URL (D-19). The values also go stale until the next login.
+  - **Fix:** the JWT payload contains only `_id`, `memberType` and `memberNick`. It never contains contact fields, the phone, or the full member record. Everything else is loaded from the database.
+    - Current readers of token fields: `RolesGuard` (`memberType`), `checkAuth` (`memberNick`), `checkAuthRoles` (whole `authMember`), and the guard/socket logs (`memberNick`). All of them fit the slim payload.
+    - Any new code that needs another member field reads it from the DB.
+  - **Verify:**
+    - decode the `accessToken` from `signup`, `login` and `updateMember` (locally, not on a third-party site) → the claims are exactly `_id`, `memberType`, `memberNick`, `iat` and `exp`
+    - `checkAuth`, `checkAuthRoles`, the `@Roles` endpoints and the socket join still work
+  - Tokens issued before the fix keep the old payload until they expire (30 days). Rotate `SECRET_TOKEN` when the fix is deployed.
 
 ### Other bugs in surviving code
 - [x] **B1 — `MembersInquiry.search` type**
@@ -202,10 +215,10 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 ## Step 5 — Member
 
 ### Schema — `api/schemas/Member.model.ts`
-- [ ] Remove `memberAddress` (lines 51–53).
-- [ ] `memberProperties` → `memberProducts` (lines 59–62).
-- [ ] Add `memberBriefs: { type: Number, default: 0 }`.
-- [ ] Add `memberEmail` and `memberWhatsapp` (String, optional).
+- [x] Remove `memberAddress` (lines 51–53).
+- [ ] `memberProperties` → `memberProducts` (lines 59–62). **Expand done in Step 5:** `memberProducts` is added next to `memberProperties`. Removing `memberProperties` is Step 6, when the Property service and the batch stop using it (the build must stay green).
+- [x] Add `memberBriefs: { type: Number, default: 0 }`.
+- [x] Add `memberEmail` and `memberWhatsapp` (String, optional). Stored only; they are not GraphQL fields until D-07 is implemented.
 - [x] `memberImage` default stays `''` (line 48); the ER doc now matches (D-15). No schema change. Do **not** add Mongoose `required: true`, because it rejects `''`.
 - `memberImage: null` on update (D-15): fixed in Step 2.5 (B2).
 
@@ -214,15 +227,19 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - remove `memberAddress` (35–36)
   - `memberProperties` → `memberProducts` (41–42)
   - add `memberBriefs`, plus `memberEmail` and `memberWhatsapp` as nullable fields
+
+  **Done in Step 5:** `memberAddress` removed; `memberProducts` and `memberBriefs` added. **Still open:** removing `memberProperties` (Step 6); `memberEmail`/`memberWhatsapp` are plain properties without `@Field` until D-07 is implemented.
 - [ ] `member.input.ts`:
   - `AgentsInquiry` (61) → `CreatorsInquiry`
   - its `AISearch` class (46) → e.g. `CISearch`
   - the import of `aviableAgentSorts` (5, 73)
 - `MembersInquiry.search` type: fixed in Step 2.5 (B1).
 - Signup `memberType` restriction and removal from `MemberUpdateByAdmin` (D-14): fixed in Step 2.5 (S1). Keep the `@IsIn` list intact through step 4's `AGENT → CREATOR` rename.
-- [ ] `member.update.ts`:
+- [x] `member.update.ts`:
   - `memberAdress` (typo; it never matched the schema) at lines 32–33 and 80–81: remove it
   - add `memberEmail` (`@IsEmail`) and `memberWhatsapp` to `MemberUpdate` and `MemberUpdateByAdmin`
+
+  **Done in Step 5:** `memberAdress` removed from both inputs. `memberEmail` (`@IsEmail`, max 254 characters) and `memberWhatsapp` (E.164, e.g. `+998901234567`) added to both, with the limits in `libs/config.ts`. `null` removes a contact; `''` is rejected. They are write-only until D-07 adds them to the `Member` output type.
 
 ### Service — `api/components/member/member.service.ts`
 - [ ] `getAgents` (123) → `getCreators`. It filters `memberType: MemberType.AGENT` (126).
@@ -243,6 +260,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 
 ### Auth side effect
 - [ ] `api/components/auth/auth.service.ts:21–31` puts the **whole member** in the JWT, and `RolesGuard` (`guards/roles.guard.ts:30`) reads `memberType` from the token. Tokens issued before the rename still carry `AGENT` and `memberProperties` for up to 30 days. Rotate `SECRET_TOKEN` or force a re-login after the migration.
+  - The whole-member payload itself is a security item: see **S9** in Step 2.5 (fix before D-07).
 
 ---
 
