@@ -7,14 +7,14 @@ import { CommentInput, CommentsInquiry } from '../../libs/dto/comment/comment.in
 import { Comment, Comments } from '../../libs/dto/comment/comment';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { CommentGroup, CommentStatus } from '../../libs/enums/comment.enum';
-import { PropertyService } from '../property/property.service';
+import { ProductService } from '../product/product.service';
 import { BoardArticleService } from '../board-article/board-article.service';
 import { CommentUpdate } from '../../libs/dto/comment/comment.update';
 import { lookupMember } from '../../libs/config';
-import { Property } from '../../libs/dto/property/property';
+import { Product } from '../../libs/dto/product/product';
 import { BoardArticle } from '../../libs/dto/board-article/board-article';
 import { Member } from '../../libs/dto/member/member';
-import { PropertyStatus } from '../../libs/enums/property.enum';
+import { ProductStatus } from '../../libs/enums/product.enum';
 import { BoardArticleStatus } from '../../libs/enums/board-article.enum';
 import { MemberStatus } from '../../libs/enums/member.enum';
 
@@ -22,11 +22,11 @@ import { MemberStatus } from '../../libs/enums/member.enum';
 export class CommentService {
 	constructor(
 		@InjectModel('Comment') private readonly commentModel: Model<Comment>,
-		@InjectModel('Property') private readonly propertyModel: Model<Property>,
+		@InjectModel('Product') private readonly productModel: Model<Product>,
 		@InjectModel('BoardArticle') private readonly boardArticleModel: Model<BoardArticle>,
 		@InjectModel('Member') private readonly memberModel: Model<Member>,
 		private readonly memberService: MemberService,
-		private readonly propertyService: PropertyService,
+		private readonly productService: ProductService,
 		private readonly boardArticleService: BoardArticleService,
 	) {}
 
@@ -43,10 +43,10 @@ export class CommentService {
 		}
 
 		switch (input.commentGroup) {
-			case CommentGroup.PROPERTY:
-				await this.propertyService.propertyStatsEditor({
+			case CommentGroup.PRODUCT:
+				await this.productService.productStatsEditor({
 					_id: input.commentRefId,
-					targetKey: 'propertyComments',
+					targetKey: 'productComments',
 					modifier: 1,
 				});
 				break;
@@ -75,8 +75,8 @@ export class CommentService {
 
 		let exist: T | null = null;
 		switch (commentGroup) {
-			case CommentGroup.PROPERTY:
-				exist = await this.propertyModel.exists({ _id: commentRefId, propertyStatus: PropertyStatus.ACTIVE }).exec();
+			case CommentGroup.PRODUCT:
+				exist = await this.productModel.exists({ _id: commentRefId, productStatus: ProductStatus.ACTIVE }).exec();
 				break;
 			case CommentGroup.ARTICLE:
 				exist = await this.boardArticleModel

@@ -2,21 +2,21 @@ import { BadRequestException, Injectable, InternalServerErrorException } from '@
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import {
-	AgentPropertiesInquiry,
-	AllPropertiesInquiry,
-	PropertiesInquiry,
-	PropertyInput,
-} from '../../libs/dto/property/property.input';
+	CreatorProductsInquiry,
+	AllProductsInquiry,
+	ProductsInquiry,
+	ProductInput,
+} from '../../libs/dto/product/product.input';
 import { OrdinaryInquiry } from '../../libs/dto/common.input';
-import { Properties, Property } from '../../libs/dto/property/property';
+import { Products, Product } from '../../libs/dto/product/product';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { MemberService } from '../member/member.service';
 import { ObjectId, StatisticModifier, T } from '../../libs/types/common';
-import { PropertyStatus } from '../../libs/enums/property.enum';
+import { ProductStatus } from '../../libs/enums/product.enum';
 import { ViewGroup } from '../../libs/enums/view.enum';
 import { ViewService } from '../view/view.service';
 import { ViewInput } from '../../libs/dto/view/view.input';
-import { PropertyUpdate } from '../../libs/dto/property/property.update';
+import { ProductUpdate } from '../../libs/dto/product/product.update';
 import moment from 'moment';
 import { escapeRegex, lookupAuthMemberLiked, lookupMember, shapeInToMongoObjectId } from '../../libs/config';
 import { LikeService } from '../like/like.service';
@@ -24,17 +24,17 @@ import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
 
 @Injectable()
-export class PropertyService {
+export class ProductService {
 	constructor(
-		@InjectModel('Property') private readonly propertyModel: Model<Property>,
+		@InjectModel('Product') private readonly productModel: Model<Product>,
 		private memberService: MemberService,
 		private viewService: ViewService,
 		private likeService: LikeService,
 	) {}
 
-	public async createProperty(input: PropertyInput): Promise<Property> {
+	public async createProduct(input: ProductInput): Promise<Product> {
 		try {
-			const result = await this.propertyModel.create(input);
+			const result = await this.productModel.create(input);
 			//Increase memberProperty+
 			await this.memberService.memberStatsEditor({
 				_id: result.memberId,
@@ -49,46 +49,46 @@ export class PropertyService {
 		}
 	}
 
-	public async getProperty(memberId: ObjectId, propertyId: ObjectId): Promise<Property> {
+	public async getProduct(memberId: ObjectId, productId: ObjectId): Promise<Product> {
 		const search = {
-			_id: propertyId,
-			propertyStatus: PropertyStatus.ACTIVE,
+			_id: productId,
+			productStatus: ProductStatus.ACTIVE,
 		};
 
-		const targetProperty = await this.propertyModel.findOne(search).lean().exec();
-		if (!targetProperty) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
+		const targetProduct = await this.productModel.findOne(search).lean().exec();
+		if (!targetProduct) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
 
 		if (memberId) {
-			// own property views don't count (D-22)
-			const isOwnProperty = memberId.equals(targetProperty.memberId);
-			const viewInput: ViewInput = { memberId: memberId, viewRefId: propertyId, viewGroup: ViewGroup.PROPERTY };
-			const newView = isOwnProperty ? null : await this.viewService.recordView(viewInput);
+			// own product views don't count (D-22)
+			const isOwnProduct = memberId.equals(targetProduct.memberId);
+			const viewInput: ViewInput = { memberId: memberId, viewRefId: productId, viewGroup: ViewGroup.PRODUCT };
+			const newView = isOwnProduct ? null : await this.viewService.recordView(viewInput);
 			if (newView) {
-				await this.propertyStatsEditor({ _id: propertyId, targetKey: 'propertyViews', modifier: 1 });
-				targetProperty.propertyViews++;
+				await this.productStatsEditor({ _id: productId, targetKey: 'productViews', modifier: 1 });
+				targetProduct.productViews++;
 			}
 
 			//meLiked
-			const likeInput: LikeInput = { memberId: memberId, likeRefId: propertyId, likeGroup: LikeGroup.PROPERTY };
-			targetProperty.meLiked = await this.likeService.checkLikeExistence(likeInput);
+			const likeInput: LikeInput = { memberId: memberId, likeRefId: productId, likeGroup: LikeGroup.PRODUCT };
+			targetProduct.meLiked = await this.likeService.checkLikeExistence(likeInput);
 		}
 
-		targetProperty.memberData = await this.memberService.getMember(null, targetProperty.memberId);
-		return targetProperty;
+		targetProduct.memberData = await this.memberService.getMember(null, targetProduct.memberId);
+		return targetProduct;
 	}
 
-	public async updateProperty(memberId: ObjectId, input: PropertyUpdate): Promise<Property> {
-		const { propertyStatus } = input;
+	public async updateProduct(memberId: ObjectId, input: ProductUpdate): Promise<Product> {
+		const { productStatus } = input;
 
 		const search = {
 			_id: input._id,
 			memberId: memberId,
-			propertyStatus: PropertyStatus.ACTIVE,
+			productStatus: ProductStatus.ACTIVE,
 		};
 
-		if (propertyStatus === PropertyStatus.DELETE) input.deletedAt = moment().toDate();
+		if (productStatus === ProductStatus.DELETE) input.deletedAt = moment().toDate();
 
-		const result = await this.propertyModel.findOneAndUpdate(search, input, { new: true }).exec();
+		const result = await this.productModel.findOneAndUpdate(search, input, { new: true }).exec();
 		if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
 
 		if (input.deletedAt) {
@@ -101,14 +101,14 @@ export class PropertyService {
 		return result;
 	}
 
-	public async getProperties(memberId: ObjectId, input: PropertiesInquiry): Promise<Properties> {
-		const match = { propertyStatus: PropertyStatus.ACTIVE };
+	public async getProducts(memberId: ObjectId, input: ProductsInquiry): Promise<Products> {
+		const match = { productStatus: ProductStatus.ACTIVE };
 		const sort = { [input?.sort ?? 'createdAt']: input?.direction ?? Direction.DESC };
 
 		this.shapeMatchQuery(match, input);
 		console.log('match:', match);
 
-		const result = await this.propertyModel
+		const result = await this.productModel
 			.aggregate([
 				{ $match: match },
 				{ $sort: sort },
@@ -129,39 +129,39 @@ export class PropertyService {
 			])
 			.exec();
 		if (!result.length) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
-		return result[0] as Properties;
+		return result[0] as Products;
 	}
 
-	private shapeMatchQuery(match: T, input: PropertiesInquiry): void {
+	private shapeMatchQuery(match: T, input: ProductsInquiry): void {
 		const { memberId, periodsRange, pricesRange, text } = input.search;
 
 		if (memberId) match.memberId = shapeInToMongoObjectId(memberId);
 
-		if (pricesRange) match.propertyPrice = { $gte: pricesRange.start, $lte: pricesRange.end };
+		if (pricesRange) match.productPrice = { $gte: pricesRange.start, $lte: pricesRange.end };
 		if (periodsRange) match.createdAt = { $gte: periodsRange.start, $lte: periodsRange.end };
 
-		if (text) match.propertyTitle = { $regex: new RegExp(escapeRegex(text), 'i') };
+		if (text) match.productTitle = { $regex: new RegExp(escapeRegex(text), 'i') };
 	}
 
-	public async getFavorities(memberId: ObjectId, input: OrdinaryInquiry): Promise<Properties> {
-		return await this.likeService.getFavoriteProperties(memberId, input);
+	public async getFavorities(memberId: ObjectId, input: OrdinaryInquiry): Promise<Products> {
+		return await this.likeService.getFavoriteProducts(memberId, input);
 	}
 
-	public async getVisited(memberId: ObjectId, input: OrdinaryInquiry): Promise<Properties> {
-		return await this.viewService.getVisitedProperties(memberId, input);
+	public async getVisited(memberId: ObjectId, input: OrdinaryInquiry): Promise<Products> {
+		return await this.viewService.getVisitedProducts(memberId, input);
 	}
 
-	public async getAgentProperties(memberId: ObjectId, input: AgentPropertiesInquiry): Promise<Properties> {
-		const { propertyStatus } = input.search;
-		if (propertyStatus === PropertyStatus.DELETE) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
+	public async getCreatorProducts(memberId: ObjectId, input: CreatorProductsInquiry): Promise<Products> {
+		const { productStatus } = input.search;
+		if (productStatus === ProductStatus.DELETE) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
 
 		const match = {
 			memberId,
-			propertyStatus: propertyStatus ?? { $ne: PropertyStatus.DELETE },
+			productStatus: productStatus ?? { $ne: ProductStatus.DELETE },
 		};
 		const sort = { [input?.sort ?? 'createdAt']: input?.direction ?? Direction.DESC };
 
-		const result = await this.propertyModel
+		const result = await this.productModel
 			.aggregate([
 				{ $match: match },
 				{ $sort: sort },
@@ -180,36 +180,36 @@ export class PropertyService {
 			.exec();
 
 		if (!result.length) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
-		return result[0] as Properties;
+		return result[0] as Products;
 	}
 
-	public async likeTargetProperty(memberId: ObjectId, likeRefId: ObjectId): Promise<Property> {
-		const target = await this.propertyModel.findOne({ _id: likeRefId, propertyStatus: PropertyStatus.ACTIVE }).exec();
+	public async likeTargetProduct(memberId: ObjectId, likeRefId: ObjectId): Promise<Product> {
+		const target = await this.productModel.findOne({ _id: likeRefId, productStatus: ProductStatus.ACTIVE }).exec();
 		if (!target) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
 		if (memberId.equals(target.memberId)) throw new BadRequestException(Message.NOT_ALLOWED_REQUEST); // D-22
 
 		const input: LikeInput = {
 			memberId: memberId,
 			likeRefId: likeRefId,
-			likeGroup: LikeGroup.PROPERTY,
+			likeGroup: LikeGroup.PRODUCT,
 		};
 
 		//LIKE TOGGLE
 		const modifier: number = await this.likeService.toggleLike(input);
-		const result = await this.propertyStatsEditor({ _id: likeRefId, targetKey: 'propertyLikes', modifier: modifier });
+		const result = await this.productStatsEditor({ _id: likeRefId, targetKey: 'productLikes', modifier: modifier });
 
 		if (!result) throw new InternalServerErrorException(Message.SOMETHING_WENT_WRONG);
 		return result;
 	}
 
-	public async getAllPropertiesByAdmin(input: AllPropertiesInquiry): Promise<Properties> {
-		const { propertyStatus } = input.search;
+	public async getAllProductsByAdmin(input: AllProductsInquiry): Promise<Products> {
+		const { productStatus } = input.search;
 		const match: T = {};
 		const sort = { [input?.sort ?? 'createdAt']: input?.direction ?? Direction.DESC };
 
-		if (propertyStatus) match.propertyStatus = propertyStatus;
+		if (productStatus) match.productStatus = productStatus;
 
-		const result = await this.propertyModel
+		const result = await this.productModel
 			.aggregate([
 				{ $match: match },
 				{ $sort: sort },
@@ -227,19 +227,19 @@ export class PropertyService {
 			])
 			.exec();
 		if (!result.length) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
-		return result[0] as Properties;
+		return result[0] as Products;
 	}
 
-	public async updatePropertyByAdmin(input: PropertyUpdate): Promise<Property> {
-		const { propertyStatus } = input;
+	public async updateProductByAdmin(input: ProductUpdate): Promise<Product> {
+		const { productStatus } = input;
 		const search = {
 			_id: input._id,
-			propertyStatus: PropertyStatus.ACTIVE,
+			productStatus: ProductStatus.ACTIVE,
 		};
 
-		if (propertyStatus === PropertyStatus.DELETE) input.deletedAt = moment().toDate();
+		if (productStatus === ProductStatus.DELETE) input.deletedAt = moment().toDate();
 
-		const result = await this.propertyModel.findOneAndUpdate(search, input, { new: true }).exec();
+		const result = await this.productModel.findOneAndUpdate(search, input, { new: true }).exec();
 		if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
 
 		if (input.deletedAt) {
@@ -253,20 +253,20 @@ export class PropertyService {
 		return result;
 	}
 
-	public async removePropertyByAdmin(propertyId: ObjectId): Promise<Property> {
+	public async removeProductByAdmin(productId: ObjectId): Promise<Product> {
 		const search = {
-			_id: propertyId,
-			propertyStatus: PropertyStatus.DELETE,
+			_id: productId,
+			productStatus: ProductStatus.DELETE,
 		};
 
-		const result = await this.propertyModel.findOneAndDelete(search).exec();
+		const result = await this.productModel.findOneAndDelete(search).exec();
 		if (!result) throw new InternalServerErrorException(Message.REMOVE_FAILED);
 		return result;
 	}
 
-	public async propertyStatsEditor(input: StatisticModifier): Promise<Property> {
+	public async productStatsEditor(input: StatisticModifier): Promise<Product> {
 		const { _id, targetKey, modifier } = input;
-		const result = await this.propertyModel
+		const result = await this.productModel
 			.findByIdAndUpdate(
 				_id,
 				{

@@ -3,14 +3,14 @@ import { CommentResolver } from './comment.resolver';
 import { CommentService } from './comment.service';
 import { MongooseModule } from '@nestjs/mongoose';
 import CommentSchema from '../../schemas/Comment.model';
-import PropertySchema from '../../schemas/Property.model';
+import ProductSchema from '../../schemas/Product.model';
 import BoardArticleSchema from '../../schemas/BoardArticle.model';
 import MemberSchema from '../../schemas/Member.model';
 import { AuthModule } from '../auth/auth.module';
 import { MemberModule } from '../member/member.module';
 import { ViewModule } from '../view/view.module';
 import { BoardArticleModule } from '../board-article/board-article.module';
-import { PropertyModule } from '../property/property.module';
+import { ProductModule } from '../product/product.module';
 
 @Module({
 	imports: [
@@ -20,8 +20,8 @@ import { PropertyModule } from '../property/property.module';
 				schema: CommentSchema,
 			},
 			{
-				name: 'Property',
-				schema: PropertySchema,
+				name: 'Product',
+				schema: ProductSchema,
 			},
 			{
 				name: 'BoardArticle',
@@ -36,7 +36,7 @@ import { PropertyModule } from '../property/property.module';
 		MemberModule,
 		ViewModule,
 		BoardArticleModule,
-		PropertyModule,
+		ProductModule,
 	],
 	providers: [CommentResolver, CommentService],
 	exports: [CommentService],

@@ -79,7 +79,7 @@ apps/
                           static /uploads, WsAdapter
     app.module.ts         GraphQLModule (custom formatError), ComponentsModule, DatabaseModule, SocketModule
     components/<name>/    <name>.module.ts, <name>.resolver.ts, <name>.service.ts
-                          auth, member, property, board-article, comment, like, view, follow
+                          auth, member, product, board-article, comment, like, view, follow
                           (all registered in components.module.ts)
     schemas/<Name>.model.ts   plain mongoose Schema, default export, { timestamps: true, collection }
                               Notice and Notification schemas exist but have no module yet
@@ -94,7 +94,7 @@ apps/
     libs/types/common.ts  T, ObjectId, StatisticModifier
     socket/               raw `ws` gateway: public broadcast chat, last 5 messages kept in memory
                           (note: D-08 says no in-platform chat in the MVP)
-  agentshub-batch/src/    @nestjs/schedule cron ranking: rollback 01:00:00, properties 01:00:20, agents 01:00:40
+  agentshub-batch/src/    @nestjs/schedule cron ranking: rollback 01:00:00, products 01:00:20, agents 01:00:40
                           AgentsHubBatchModule; imports schemas, DTOs and enums directly from ../../agentshub-api/src/...
 uploads/{member,property,article}/   local image storage (gitignored)
 docs/                     agentshub-er.md (schema source of truth), decisions.md

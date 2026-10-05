@@ -1,24 +1,24 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Property } from '../../agentshub-api/src/libs/dto/property/property';
+import { Product } from '../../agentshub-api/src/libs/dto/product/product';
 import { Model } from 'mongoose';
 import { Member } from '../../agentshub-api/src/libs/dto/member/member';
-import { PropertyStatus } from '../../agentshub-api/src/libs/enums/property.enum';
+import { ProductStatus } from '../../agentshub-api/src/libs/enums/product.enum';
 import { MemberStatus, MemberType } from '../../agentshub-api/src/libs/enums/member.enum';
 
 @Injectable()
 export class BatchService {
 	constructor(
-		@InjectModel('Property') private readonly propertyModel: Model<Property>,
+		@InjectModel('Product') private readonly productModel: Model<Product>,
 		@InjectModel('Member') private readonly memberModel: Model<Member>,
 	) {}
 	public async batchRollback(): Promise<void> {
-		await this.propertyModel
+		await this.productModel
 			.updateMany(
 				{
-					propertyStatus: PropertyStatus.ACTIVE,
+					productStatus: ProductStatus.ACTIVE,
 				},
-				{ propertyRank: 0 },
+				{ productRank: 0 },
 			)
 			.exec();
 
@@ -35,18 +35,18 @@ export class BatchService {
 			.exec();
 	}
 
-	public async batchProperties(): Promise<void> {
-		const properties: Property[] = await this.propertyModel
+	public async batchProducts(): Promise<void> {
+		const products: Product[] = await this.productModel
 			.find({
-				propertyStatus: PropertyStatus.ACTIVE,
-				propertyRank: 0,
+				productStatus: ProductStatus.ACTIVE,
+				productRank: 0,
 			})
 			.exec();
 
-		const promisedList = properties.map(async (ele: Property) => {
-			const { _id, propertyLikes, propertyViews } = ele;
-			const rank = propertyLikes * 2 + propertyViews * 1;
-			return await this.propertyModel.findByIdAndUpdate(_id, { propertyRank: rank }).exec();
+		const promisedList = products.map(async (ele: Product) => {
+			const { _id, productLikes, productViews } = ele;
+			const rank = productLikes * 2 + productViews * 1;
+			return await this.productModel.findByIdAndUpdate(_id, { productRank: rank }).exec();
 		});
 
 		await Promise.all(promisedList);

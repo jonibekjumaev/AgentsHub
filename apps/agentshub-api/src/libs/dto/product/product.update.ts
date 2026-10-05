@@ -1,35 +1,36 @@
 import { Field, Float, InputType } from '@nestjs/graphql';
-import { IsNotEmpty, IsOptional, Length } from 'class-validator';
-import { PropertyStatus } from '../../enums/property.enum';
+import { IsIn, IsNotEmpty, IsOptional, Length } from 'class-validator';
+import { ProductStatus } from '../../enums/product.enum';
 import type { ObjectId } from '../../types/common';
 
 @InputType()
-export class PropertyUpdate {
+export class ProductUpdate {
 	@IsNotEmpty()
 	@Field(() => String)
 	_id!: ObjectId;
 
 	@IsOptional()
-	@Field(() => PropertyStatus, { nullable: true })
-	propertyStatus?: PropertyStatus;
+	@IsIn([ProductStatus.ACTIVE, ProductStatus.DELETE]) // temporary until the D-16 part: PAUSED is not supported yet
+	@Field(() => ProductStatus, { nullable: true })
+	productStatus?: ProductStatus;
 
 	@IsOptional()
 	@Field(() => String, { nullable: true })
 	@Length(3, 100)
-	propertyTitle?: string;
+	productTitle?: string;
 
 	@IsOptional()
 	@Field(() => Float, { nullable: true })
-	propertyPrice?: number;
+	productPrice?: number;
 
 	@IsOptional()
 	@Field(() => [String], { nullable: true })
-	propertyImages?: string[];
+	productImages?: string[];
 
 	@IsOptional()
 	@Length(5, 500)
 	@Field(() => String, { nullable: true })
-	propertyDesc?: string;
+	productDesc?: string;
 
 	deletedAt?: Date;
 }

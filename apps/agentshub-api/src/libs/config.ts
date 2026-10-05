@@ -6,13 +6,13 @@ import { ObjectId } from './types/common';
 export const aviableCreatorSorts = ['createdAt', 'updatedAt', 'memberLikes', 'memberViews', 'memberRank'];
 export const aviableMemberSorts = ['createdAt', 'updatedAt', 'memberLikes', 'memberViews'];
 
-export const aviablePropertySorts = [
+export const aviableProductSorts = [
 	'createdAt',
 	'updatedAt',
-	'propertyLikes',
-	'propertyViews',
-	'propertyRank',
-	'propertyPrice',
+	'productLikes',
+	'productViews',
+	'productRank',
+	'productPrice',
 ];
 
 export const aviableBoardArticleSorts = ['createdAt', 'updatedAt', 'articleLikes', 'articleViews'];
@@ -157,17 +157,17 @@ export const lookupFollowerData = {
 export const lookupFavorite = {
 	$lookup: {
 		from: 'members',
-		localField: 'favoriteProperty.memberId',
+		localField: 'favoriteProduct.memberId',
 		foreignField: '_id',
-		as: 'favoriteProperty.memberData',
+		as: 'favoriteProduct.memberData',
 	},
 };
 
 export const lookupVisit = {
 	$lookup: {
 		from: 'members',
-		localField: 'visitedProperty.memberId',
+		localField: 'visitedProduct.memberId',
 		foreignField: '_id',
-		as: 'visitedProperty.memberData',
+		as: 'visitedProduct.memberData',
 	},
 };

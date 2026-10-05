@@ -201,10 +201,11 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 ## Step 4 — Enums (`api/libs/enums/`)
 
 - [x] `member.enum.ts:5`: `MemberType.AGENT = 'AGENT'` → `CREATOR = 'CREATOR'`. All users changed in the same step: signup `@IsIn` (S1), `@Roles` in `checkAuthRoles` and `property.resolver.ts`, the `getAgents` match, and the batch ranking (`batch.service.ts`). Existing dev members with `memberType: 'AGENT'` must be migrated with `updateMany` and log in again.
-- [ ] `property.enum.ts` → rename to `product.enum.ts`. **Deferred to Step 6:** the Property schema, DTOs, services and the batch still use this file, so the rename and the deletes below happen when their users go (the build must stay green).
+- [x] `property.enum.ts` → rename to `product.enum.ts`. **Deferred to Step 6:** the Property schema, DTOs, services and the batch still use this file, so the rename and the deletes below happen when their users go (the build must stay green).
   - [x] Delete `PropertyType` (APARTMENT/VILLA/HOUSE, lines 3–10). Step 6.
   - [x] Delete `PropertyLocation` (Korean cities, lines 21–34) (D-10). Step 6.
-    - Both deleted in Step 6 part 5, together with the fields that used them. `SOLD` was removed from `PropertyStatus` in the same part, so `property.enum.ts` now holds only `PropertyStatus { ACTIVE, DELETE }`. **Still open** for the parent item: deleting `property.enum.ts` (Step 6 part 9).
+    - Both deleted in Step 6 part 5, together with the fields that used them. `SOLD` was removed from `PropertyStatus` in the same part, so `property.enum.ts` now holds only `PropertyStatus { ACTIVE, DELETE }`.
+    - `property.enum.ts` was deleted in Step 6 part 7, not part 9. `ProductStatus` already existed in `product.enum.ts`, so the rename switched every user to it.
   - [x] `PropertyStatus { ACTIVE, SOLD, DELETE }` → `ProductStatus { ACTIVE, PAUSED, DELETE }`. `SOLD` goes away together with `soldAt` (D-10). `ProductStatus` is added in a new `product.enum.ts`; deleting `PropertyStatus` is Step 6.
   - [x] Add `ProductPricing { FREE, ONE_TIME, SUBSCRIPTION, CUSTOM }` (D-03). In `product.enum.ts`.
 - [x] New `AgentCategory { CUSTOMER_SUPPORT, SALES, MARKETING, CONTENT, DATA_ANALYSIS, AUTOMATION, EDUCATION, OTHER }`. Put it in its own file (e.g. `agent-category.enum.ts`), because products and briefs share it (D-09).
@@ -220,6 +221,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - brief already closed
 - [x] Each rename changes the GraphQL enum value. Changing them together with Steps 5–8 keeps the API compiling. Every usage is listed below.
 - [ ] **Step 6 cleanup:** remove `PROPERTY` from `LikeGroup`, `ViewGroup`, `CommentGroup` and `NotificationGroup`, and delete `property.enum.ts`.
+  - **Done in Step 6 part 7:** `property.enum.ts` deleted. No code uses the `PROPERTY` values any more, and the migration converted the stored rows. **Still open:** removing the 4 `PROPERTY` values (part 9).
 
 ---
 
@@ -278,11 +280,18 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 
 ## Step 6 — Product (replaces Property)
 
+> **Part 7 (pure Property → Product rename) verified on 2026-10-05.**
+> - Both apps build with 0 errors, and the API starts with the new GraphQL schema (`Product`, `ProductStatus`, `CreatorProductsInquiry`, `CPISearch`; no `Property` types).
+> - The dev DB migration `scripts/migrations/step6-part7-property-to-product.mongosh.js` ran on the dev DB. Every check was 0: no `properties` collection, no `property*` keys in `products`, and no `PROPERTY` likes, views, comments or notifications.
+> - Postman smoke tests passed for all 9 renamed operations, plus `getFavorities`, `getVisited` and `createComment(PRODUCT)`, including the temporary `PAUSED` rejection on `updateProduct` / `updateProductByAdmin`.
+> - Deliberately left for later parts: `memberProperties` (part 8), the `PROPERTY` enum values (part 9), and the `property` upload target (part 10).
+
 ### Files to rename
-- [ ] `api/schemas/Property.model.ts` → `Product.model.ts`
-- [ ] `api/libs/dto/property/{property,property.input,property.update}.ts` → `libs/dto/product/product*.ts`
-- [ ] `api/components/property/{property.module,property.resolver,property.service}.ts` → `components/product/product*.ts`
-- [ ] `api/components/components.module.ts:3,15`: `PropertyModule` → `ProductModule`
+- [x] `api/schemas/Property.model.ts` → `Product.model.ts`
+- [x] `api/libs/dto/property/{property,property.input,property.update}.ts` → `libs/dto/product/product*.ts`
+- [x] `api/components/property/{property.module,property.resolver,property.service}.ts` → `components/product/product*.ts`
+- [x] `api/components/components.module.ts:3,15`: `PropertyModule` → `ProductModule`
+  - Done in Step 6 part 7 (`git mv`). `libs/enums/property.enum.ts` was deleted; the code uses the existing `ProductStatus` from `product.enum.ts`.
 
 ### Schema — `Property.model.ts` → `Product.model.ts`
 - [x] Remove these fields (D-10):
@@ -298,7 +307,8 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - `constructedAt` (107–109)
 
   Done in Step 6 part 5, together with the output DTO, the inputs and the service.
-- [ ] Rename `property*` → `product*`: Status, Title, Price, Views, Likes, Comments, Rank, Images and Desc.
+- [x] Rename `property*` → `product*`: Status, Title, Price, Views, Likes, Comments, Rank, Images and Desc.
+  - Done in Step 6 part 7. Existing documents were renamed by the migration script.
 - [ ] `productPrice`: `required: true` (36) → optional (D-03).
 - [ ] Make productDesc required (schema + input validation) (D-18):
   - schema: `propertyDesc` (79–81) → `productDesc: { type: String, required: true }`
@@ -310,18 +320,21 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - `productPricing` (ProductPricing, required)
   - `productDemoUrl` (String)
   - `productTags` ([String])
-- [ ] `collection: 'properties'` (111) → `'products'`.
+- [x] `collection: 'properties'` (111) → `'products'`.
+  - Done in Step 6 part 7. The migration script renamed the collection.
 - [ ] Replace the unique index `{ propertyType, propertyLocation, propertyTitle, propertyPrice }` (114) with the indexes from the ER doc:
   - unique `{ memberId: 1, productTitle: 1 }`
   - `{ memberId: 1, productStatus: 1 }`
   - `{ productCategory: 1, productStatus: 1 }`
   - `{ productStatus: 1, productRank: -1 }`
 
-  **Done in Step 6 part 5:** the old unique index is replaced with unique `{ memberId, propertyTitle }`, `{ memberId, propertyStatus }` and `{ propertyStatus, propertyRank: -1 }`. Mongoose doesn't drop old indexes, so `propertyType_1_propertyLocation_1_propertyTitle_1_propertyPrice_1` must be dropped by hand in any existing `properties` collection. **Still open:** the `{ productCategory, productStatus }` index (when `productCategory` is added, part 11), and the `product*` names (rename, part 7).
-- [ ] Mongoose model name `'Property'` → `'Product'`. It is used in `property.module.ts:15`, `property.service.ts:29`, `batch/batch.module.ts:16`, `batch/batch.service.ts:12` and the `ref: 'Property'` in `Notification.model.ts:47`.
+  **Done in Step 6 part 5:** the old unique index is replaced with unique `{ memberId, propertyTitle }`, `{ memberId, propertyStatus }` and `{ propertyStatus, propertyRank: -1 }`. Mongoose doesn't drop old indexes, so `propertyType_1_propertyLocation_1_propertyTitle_1_propertyPrice_1` must be dropped by hand in any existing `properties` collection. **Done in Step 6 part 7:** the `product*` index names. The migration script dropped the old indexes and created the new ones. **Still open:** the `{ productCategory, productStatus }` index (when `productCategory` is added, part 11).
+- [x] Mongoose model name `'Property'` → `'Product'`. It is used in `property.module.ts:15`, `property.service.ts:29`, `batch/batch.module.ts:16`, `batch/batch.service.ts:12` and the `ref: 'Property'` in `Notification.model.ts:47`.
+  - Done in Step 6 part 7 (also `comment.module.ts` and `comment.service.ts`).
 
 ### DTO — `property.ts` → `product.ts`
-- [ ] `Property` / `Properties` → `Product` / `Products`.
+- [x] `Property` / `Properties` → `Product` / `Products`.
+  - Done in Step 6 part 7.
 - [x] Remove `propertyType`, `propertyLocation`, `propertyAddress`, `propertySquare`, `propertyBeds`, `propertyRooms`, `propertyBarter`, `propertyRent`, `soldAt` and `constructedAt` (12–37, 57–61, 66–73).
   - Done in Step 6 part 5.
 - [x] `propertyType`, `propertyStatus` and `propertyLocation` are exposed as `@Field(() => String)`, not as their enums (12–19). Use `@Field(() => ProductStatus)` and so on for the new enum fields. (bug, fix in its own commit)
@@ -338,7 +351,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - `productDemoUrl`: `@IsUrl({ protocols: ['http','https'], require_protocol: true })`
   - `productTags`: optional `[String]`
 
-  **Done in Step 6 part 5:** the dropped fields (first sub-point). **Still open:** the rename, optional price, image minimum, required desc, demo URL and tags (parts 7, 11 and 12).
+  **Done in Step 6 part 5:** the dropped fields (first sub-point). **Done in Step 6 part 7:** the rename. **Still open:** optional price, image minimum, required desc, demo URL and tags (parts 11 and 12).
 - [x] Remove `SquaresRange` (81–88). Decide whether `PeriodsRange` (90–97) is still needed.
   - Done in Step 6 part 5. `SquaresRange` is deleted. `PeriodsRange` is kept, because filtering listings by `createdAt` is still useful.
 - [ ] `PricesRange` (73–79) uses `Int`. Prices are Float in USD (D-06), so use `Float`. Per D-03, price filters must only match `ONE_TIME` / `SUBSCRIPTION`.
@@ -347,10 +360,12 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - add `categoryList: AgentCategory[]`, `pricingList: ProductPricing[]` and `tagList?`
 
   **Done in Step 6 part 5:** the removals (first sub-point). **Still open:** the new category, pricing and tag lists (part 13).
-- [ ] `PropertiesInquiry` (144) → `ProductsInquiry`.
-- [ ] `AgentPropertiesInquiry` (177) → `CreatorProductsInquiry`. `APISearch.propertyStatus` → `productStatus`.
+- [x] `PropertiesInquiry` (144) → `ProductsInquiry`.
+  - Done in Step 6 part 7. `PIsearch` keeps its name (the letters still fit "Product").
+- [x] `AgentPropertiesInquiry` (177) → `CreatorProductsInquiry`. `APISearch.propertyStatus` → `productStatus`.
+  - Done in Step 6 part 7. `APISearch` became `CPISearch` (the "A" was the agent role, like `AISearch` → `CRISearch` in Step 5).
 - [ ] `AllPropertiesInquiry` (214) → `AllProductsInquiry`. In `ALPISearch`, `propertyLocationList` (209) → `productCategoryList`.
-  - **Done in Step 6 part 5:** `propertyLocationList` was removed. **Still open:** the `AllProductsInquiry` rename (part 7) and `productCategoryList` (part 13).
+  - **Done in Step 6 part 5:** `propertyLocationList` was removed. **Done in Step 6 part 7:** the `AllProductsInquiry` rename (`ALPISearch` keeps its name; `propertyStatus` → `productStatus`). **Still open:** `productCategoryList` (part 13).
 - [x] `OrdinaryInquiry` (240–250) is generic, but it lives in the property DTO and is imported by `like.service.ts:8` and `view.service.ts:6`. Move it to a shared place, e.g. `libs/dto/common.input.ts`.
   - Moved to `libs/dto/common.input.ts` in Step 6 part 4. Like, view and the property service/resolver import it from there. The GraphQL type name and fields are unchanged, so it is not an API change.
 
@@ -363,10 +378,12 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [ ] `createProperty` (35–50):
   - add the D-03 price/pricing check
   - the memberStatsEditor key `'memberProperties'` (41) → `'memberProducts'`
-- [ ] `getProperty` (52–76):
+- [x] `getProperty` (52–76):
   - `ViewGroup.PROPERTY` (62) → `PRODUCT`
   - `LikeGroup.PROPERTY` (70) → `PRODUCT`
   - `'propertyViews'` → `'productViews'`
+
+  Done in Step 6 part 7 (now `getProduct`). Existing rows are converted by `scripts/migrations/step6-part7-property-to-product.mongosh.js`.
 - [ ] `updateProperty` (78–101):
   - remove the `SOLD` → `soldAt` branch (87, 93)
   - run D-03 on the **merged** pricing/price, so the existing doc must be loaded first
@@ -382,6 +399,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [ ] `updateProduct` (D-16):
   - match `productStatus: { $ne: DELETE }` instead of `ACTIVE` (84), so a paused product can be resumed
   - allowed owner transitions: `ACTIVE ↔ PAUSED`, and `ACTIVE | PAUSED → DELETE`
+- [ ] `product.update.ts` (D-16): remove the temporary `@IsIn([ProductStatus.ACTIVE, ProductStatus.DELETE])` on `ProductUpdate.productStatus` (added in Step 6 part 7 so the rename to `ProductStatus` did not make `PAUSED` settable before this logic exists). It covers both `updateProduct` and `updateProductByAdmin`.
 - [ ] `updateProduct` / `updateProductByAdmin` (D-16):
   - `memberProducts` −1 only on a transition to `DELETE` (from `ACTIVE` or `PAUSED`)
   - **no** counter change on pause or unpause
@@ -395,12 +413,16 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - **Done in Step 6 part 2:** `escapeRegex(text)`, plus `@MaxLength(searchTextMaxLength)` on `PIsearch.text`, the same as the member and board-article searches. **Still open** in this item: the sub-points not marked done.
   - keep the `productStatus: ACTIVE` match (104) for every caller, including the `memberId` filter used on other members' profiles. Paused products never appear here, not even for the owner (D-16).
 - [ ] `getCreatorProducts` (D-16): the owner sees `ACTIVE` + `PAUSED` (the current `≠ DELETE` match, 180). Keep it.
-- [ ] `getFavorities` / `getVisited` (166–172) call `likeService.getFavoriteProperties` / `viewService.getVisitedProperties` (see Step 8). Keep the misspelled operation name `getFavorities` (convention).
-- [ ] `getAgentProperties` (174–204) → `getCreatorProducts`.
-- [ ] `likeTargetProperty` (206–222):
+- [x] `getFavorities` / `getVisited` (166–172) call `likeService.getFavoriteProperties` / `viewService.getVisitedProperties` (see Step 8). Keep the misspelled operation name `getFavorities` (convention).
+  - Done in Step 6 part 7: they call `getFavoriteProducts` / `getVisitedProducts` and return `Products`.
+- [x] `getAgentProperties` (174–204) → `getCreatorProducts`.
+  - Done in Step 6 part 7.
+- [x] `likeTargetProperty` (206–222):
   - `LikeGroup.PROPERTY` (213) → `PRODUCT`
   - `'propertyLikes'` → `'productLikes'`
   - keep the `ACTIVE`-only target check (207). It rejects likes **and** unlikes on `PAUSED` products (D-16).
+
+  Done in Step 6 part 7 (now `likeTargetProduct`); the `ACTIVE` check is unchanged.
 - [ ] `getAllPropertiesByAdmin` (224–251): `propertyLocationList` filter → category filter. Admins see every status, including `PAUSED` (D-16).
   - **Done in Step 6 part 5:** the location filter was removed. **Still open:** the category filter (part 13).
 - [ ] `updatePropertyByAdmin` (253–275): the same `SOLD`/`soldAt` removal, plus `'memberProperties'` (269).
@@ -413,11 +435,13 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 
   The profile half is fixed in Step 2.5 (B9).
   - Fixed in Step 6 part 3, on `getProperty` / `likeTargetProperty` before the rename, with the same pattern as B9. The owner's views are not recorded. The owner's like is rejected with `NOT_ALLOWED_REQUEST` after the target lookup, so a missing or non-`ACTIVE` property still returns `NO_DATA_FOUND`. Because likes toggle, the owner can't unlike either.
-- [ ] `propertyStatsEditor` (288) → `productStatsEditor`. Callers: `comment.service.ts:37`.
+- [x] `propertyStatsEditor` (288) → `productStatsEditor`. Callers: `comment.service.ts:37`.
+  - Done in Step 6 part 7.
 
 ### Resolver — `property.resolver.ts` → `product.resolver.ts`
-- [ ] `@Roles(MemberType.AGENT)` → `CREATOR` on create (26), update (49) and `getAgentProperties` (91).
-- [ ] Rename the operations:
+- [x] `@Roles(MemberType.AGENT)` → `CREATOR` on create (26), update (49) and `getAgentProperties` (91).
+  - Already `CREATOR` since Step 4.
+- [x] Rename the operations (done in Step 6 part 7):
   - `createProperty` → `createProduct`
   - `getProperty` → `getProduct`
   - `updateProperty` → `updateProduct`
@@ -427,13 +451,16 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - `getAllPropertiesByAdmin` → `getAllProductsByAdmin`
   - `updatePropertyByAdmin` → `updateProductByAdmin`
   - `removePropertyByAdmin` → `removeProductByAdmin`
-- [ ] Rename the `@Args('propertyId')` arguments (41, 105, 135) → `'productId'`.
-- [ ] The admin mutations log `'Query: …'` (127, 136). Fix them to `'Mutation: …'`.
+- [x] Rename the `@Args('propertyId')` arguments (41, 105, 135) → `'productId'`.
+  - Done in Step 6 part 7.
+- [x] The admin mutations log `'Query: …'` (127, 136). Fix them to `'Mutation: …'`.
+  - Done in Step 6 part 7, while renaming those log lines.
 
 ### Config — `api/libs/config.ts`
 - [x] `aviableOptions = ['propertyBarter','propertyRent']` (9): remove it (D-10).
   - Done in Step 6 part 5, together with the `options` search filter that used it.
-- [ ] `aviablePropertySorts` (10–17) → `aviableProductSorts`, with `product*` keys.
+- [x] `aviablePropertySorts` (10–17) → `aviableProductSorts`, with `product*` keys.
+  - Done in Step 6 part 7.
 
 ### Uploads (moved from Step 3)
 - [ ] Upload target whitelist `validUploadTargets` (added in Step 2.5, S2) in `api/libs/config.ts`: change `property` → `product`. This changes behaviour (uploads with `target: "property"` are rejected afterwards), so it belongs here and not in Step 3.
@@ -474,37 +501,42 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 ### Like
 - `Like.model.ts` uses the wrong enum (`ViewGroup`): fixed in Step 2.5 (B3).
 - [x] `api/schemas/Like.model.ts:26`: the unique index `{ memberId, likeRefId }` is kept; the ER doc now matches (D-18). No code change.
-- [ ] `api/components/like/like.service.ts`:
+- [x] `api/components/like/like.service.ts` (Done in Step 6 part 7):
   - `getFavoriteProperties` (46–83) → `getFavoriteProducts`
   - `LikeGroup.PROPERTY` (48)
   - `$lookup from: 'properties'` (56) → `'products'`
   - alias `favoriteProperty` (59, 62, 69, 80) → `favoriteProduct`
   - return type `Properties`
   - imports `OrdinaryInquiry` / `Properties` from the property DTO (8–9)
-- [ ] Favorites `ACTIVE` filter (added in Step 2.5, B4): rename it to `'favoriteProduct.productStatus': ProductStatus.ACTIVE`, keeping it before `$facet`. This also hides `PAUSED` products (D-16).
-- [ ] `api/libs/config.ts:132–139`: `lookupFavorite` uses `favoriteProperty.memberId` / `favoriteProperty.memberData` → `favoriteProduct.*`.
+- [x] Favorites `ACTIVE` filter (added in Step 2.5, B4): rename it to `'favoriteProduct.productStatus': ProductStatus.ACTIVE`, keeping it before `$facet`. This also hides `PAUSED` products (D-16).
+- [x] `api/libs/config.ts:132–139`: `lookupFavorite` uses `favoriteProperty.memberId` / `favoriteProperty.memberData` → `favoriteProduct.*`.
 
 ### View
 - [x] `api/schemas/View.model.ts:26`: the unique index `{ memberId, viewRefId }` is kept; the ER doc now matches (D-18). No code change.
-- [ ] `api/components/view/view.service.ts`:
+- [x] `api/components/view/view.service.ts` (Done in Step 6 part 7):
   - `getVisitedProperties` (30–65) → `getVisitedProducts`
   - `ViewGroup.PROPERTY` (32)
   - `from: 'properties'` (40)
   - alias `visitedProperty` (43, 46, 53, 62) → `visitedProduct`
   - imports (6, 8)
-- [ ] Visited `ACTIVE` filter (added in Step 2.5, B5): rename it to `'visitedProduct.productStatus': ProductStatus.ACTIVE`, keeping it before `$facet` (D-16).
-- [ ] `api/libs/config.ts:141–148`: `lookupVisit` uses `visitedProperty.*` → `visitedProduct.*`.
+- [x] Visited `ACTIVE` filter (added in Step 2.5, B5): rename it to `'visitedProduct.productStatus': ProductStatus.ACTIVE`, keeping it before `$facet` (D-16).
+- [x] `api/libs/config.ts:141–148`: `lookupVisit` uses `visitedProperty.*` → `visitedProduct.*`.
 
 ### Comment
 - [ ] `api/components/comment/comment.service.ts`:
   - `PropertyService` import and injection (10, 20)
   - `case CommentGroup.PROPERTY` → `propertyStatsEditor('propertyComments')` (36–42) becomes `PRODUCT` → `productStatsEditor('productComments')`
   - add `case CommentGroup.BRIEF` → `briefStatsEditor('briefComments')`
+
+  **Done in Step 6 part 7:** the `PropertyService` and `PRODUCT` / `productStatsEditor('productComments')` renames. **Still open:** the `BRIEF` case (Step 7).
 - [ ] `api/components/comment/comment.module.ts:10,24`: `PropertyModule` → `ProductModule`, and add `BriefModule`.
+  - **Done in Step 6 part 7:** `ProductModule` and the `'Product'` model. **Still open:** `BriefModule`.
 - `MEMBER` comment counter on the author: fixed in Step 2.5 (B6).
 - [ ] `createComment` target check (added in Step 2.5, B7 for `PROPERTY`/`ARTICLE`/`MEMBER`):
   - rename the `PROPERTY` case to `PRODUCT`; the target must be `ACTIVE`, so comments on `PAUSED` products are rejected (D-16)
   - add `BRIEF` (target must exist and not be `DELETE`)
+
+  **Done in Step 6 part 7:** the `PRODUCT` case (still `ACTIVE` only). **Still open:** `BRIEF`.
 - [ ] `getComments` (D-16, child records inherit the parent's visibility): for a `PRODUCT` target, load the product first.
   - `ACTIVE` → return comments to everyone
   - `PAUSED` → return comments only if the caller is the owner or an `ADMIN`
@@ -518,6 +550,8 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [ ] `api/schemas/Notification.model.ts`:
   - `propertyId` with `ref: 'Property'` (45–48) → `productId` with `ref: 'Product'`
   - add `briefId` with `ref: 'Brief'`
+
+  **Done in Step 6 part 7:** `productId` (existing documents are renamed by the migration script). **Still open:** `briefId`.
 - [x] `Notification.model.ts:29–31`: `notificationDesc` stays optional; the ER doc now matches (D-18). No code change.
 - [ ] `NotificationGroup` is covered in Step 4.
 
@@ -586,16 +620,22 @@ The field-level check covers all of them automatically. Keep the list as the ver
 
 ## Step 10 — Batch (`apps/nestar-batch/`)
 
-- [ ] `batch/batch.module.ts:9,16`: imports `PropertySchema` from `../../nestar-api/src/schemas/Property.model` and registers it as `'Property'` → `ProductSchema` / `'Product'`.
-- [ ] `batch/batch.service.ts`:
+- [x] `batch/batch.module.ts:9,16`: imports `PropertySchema` from `../../nestar-api/src/schemas/Property.model` and registers it as `'Property'` → `ProductSchema` / `'Product'`.
+- [x] `batch/batch.service.ts`:
   - imports `Property` / `PropertyStatus` (3, 6)
   - `@InjectModel('Property') propertyModel` (12) → `productModel`
+
+  Done in Step 6 part 7 (both items above).
 - [ ] `batchRollback` (15–36):
   - `propertyStatus: ACTIVE` / `propertyRank` (19, 21) → `product*`
   - reset `productRank` for all non-deleted products (`productStatus ≠ DELETE`), not only `ACTIVE`, so a product that is reactivated doesn't keep a stale rank (D-16)
   - `memberType: MemberType.AGENT` (29) → `CREATOR`
+
+  **Done in Step 6 part 7:** the `product*` field rename (still `ACTIVE` only). `CREATOR` has been in place since Step 4. **Still open:** the `≠ DELETE` reset (D-16).
 - [ ] `batchProperties` (38–53) → `batchProducts`. The rank becomes `productLikes*2 + productViews*1` (line 48: rename the fields only; weights unchanged). Comments are never used (D-17).
   - keep ranking only `ACTIVE` products (41). Paused products get no rank (D-16).
+
+  Done in Step 6 part 7 (rename only; formula and `ACTIVE` filter unchanged).
 - [ ] `batchAgents` (55–71) → `batchCreators`:
   - `memberType: AGENT` (58)
   - formula (65–66) `memberProperties*5 + memberArticles*3 + memberLikes*2 + memberViews*1` → **`memberLikes*2 + memberViews*1`** (D-22). Drop `memberProperties`/`memberProducts` and `memberArticles` from both the formula and the destructuring at line 65. The creator's own post counts are not a ranking signal.
@@ -605,8 +645,11 @@ The field-level check covers all of them automatically. Keep the list as the ver
   - `batchTopProperties` / `batchTopAgents` (36, 47)
   - logger contexts (38, 49)
   - the commented-out nightly job (62–73) calls `batchProperties` / `batchAgents`
+
+  **Done in Step 6 part 7:** `BATCH_TOP_PRODUCTS`, `batchTopProducts`, its logger context and `batchProducts` in the nightly job. **Still open:** the agents → creators names.
 - [ ] `batch/batch.controller.ts:8`: `new Logger('BatchController.name')` is a string literal, not `BatchController.name`. (cosmetic)
 - [ ] `batch/libs/config.ts:6–7`: `BATCH_TOP_PROPERTIES` → `BATCH_TOP_PRODUCTS` and `BATCH_TOP_AGENTS` → `BATCH_TOP_CREATORS`.
+  - **Done in Step 6 part 7:** `BATCH_TOP_PRODUCTS`. **Still open:** `BATCH_TOP_CREATORS`.
 - [ ] `batch/batch.service.ts:74`: hello string (see Step 3).
 - [ ] `apps/nestar-batch/test/app.e2e-spec.ts:4,11` (bug, fix in its own commit; it stays here because steps 3 and 10 change both the module class name and the hello string it asserts): imports `NestarBatchModule`, which doesn't exist (the class is `BatchModule`). Under D-21 the class may become `AgentsHubBatchModule`; either way, the spec must import the class's actual name. It also expects `'Hello World!'` (19). The spec can't compile.
 - [ ] Ranking rollback only resets members with `memberStatus: ACTIVE`. Blocked or deleted creators keep a stale `memberRank`. (minor)
@@ -624,12 +667,15 @@ The field-level check covers all of them automatically. Keep the list as the ver
   | `Member.memberProperties`, `memberAddress` | `memberProducts`, plus new `memberBriefs`, `memberEmail`, `memberWhatsapp` (`null` for guests) |
   | `getAgents(AgentsInquiry)`, search input type `AISearch` | `getCreators(CreatorsInquiry)`, search input type `CRISearch` (same fields: `memberStatus`, `memberType`, `text`) |
   | `Property`, `Properties` types | `Product`, `Products` |
+  | `Property.property*` fields (`propertyStatus`, `propertyTitle`, `propertyPrice`, `propertyViews`, `propertyLikes`, `propertyComments`, `propertyRank`, `propertyImages`, `propertyDesc`) | `product*` (same fields; also inside `getFavorities` / `getVisited`) |
   | `createProperty`, `getProperty(propertyId)`, `updateProperty`, `getProperties`, `getAgentProperties`, `likeTargetProperty(propertyId)` | `createProduct`, `getProduct(productId)`, `updateProduct`, `getProducts`, `getCreatorProducts`, `likeTargetProduct(productId)` |
+  | Input types `PropertyInput`, `PropertyUpdate`, `PropertiesInquiry`, `AgentPropertiesInquiry` (search `APISearch`), `AllPropertiesInquiry` | `ProductInput`, `ProductUpdate`, `ProductsInquiry`, `CreatorProductsInquiry` (search `CPISearch`), `AllProductsInquiry`. `PIsearch` / `ALPISearch` keep their names. Input fields `property*` → `product*`, including `search.propertyStatus` → `search.productStatus` |
+  | `sort` values `propertyLikes`, `propertyViews`, `propertyRank`, `propertyPrice` | `productLikes`, `productViews`, `productRank`, `productPrice` (old values are rejected) |
   | `getAllPropertiesByAdmin`, `updatePropertyByAdmin`, `removePropertyByAdmin(propertyId)` | `getAllProductsByAdmin`, `updateProductByAdmin`, `removeProductByAdmin(productId)` |
   | `getFavorities`, `getVisited` (return `Properties`) | same names, return `Products` |
   | Property search: `locationList`, `typeList`, `roomsList`, `bedsList`, `options`, `squaresRange` | removed; replaced by `categoryList`, `pricingList`, tags |
-  | `PropertyStatus.SOLD`, `soldAt`, `constructedAt`, barter/rent | removed; `ProductStatus.PAUSED` added |
-  | `LikeGroup` / `ViewGroup` / `CommentGroup` `PROPERTY` | `PRODUCT` (+ `BRIEF` for view/comment) |
+  | `PropertyStatus` enum; `PropertyStatus.SOLD`, `soldAt`, `constructedAt`, barter/rent | `ProductStatus`; SOLD and the dates removed; `PAUSED` is listed, but `updateProduct` / `updateProductByAdmin` reject it until the D-16 part |
+  | `LikeGroup` / `ViewGroup` / `CommentGroup` `PROPERTY` | `PRODUCT` (+ `BRIEF` for view/comment). Since Step 6 part 7, `createComment` on a product needs `commentGroup: PRODUCT`; `PROPERTY` returns `NO_DATA_FOUND` until the value is removed (part 9) |
   | `imagesUploader(target: "property")` | `target: "product"` |
   | — | new `Brief` queries and mutations (Step 7) |
   | `getComments(search: { commentRefId })` | `search: { commentRefId, commentGroup }`. `commentGroup` is required; a paused or missing product returns `NO_DATA_FOUND` (D-16) |

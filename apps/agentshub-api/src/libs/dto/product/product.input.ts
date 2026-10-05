@@ -1,29 +1,29 @@
 import { Field, Float, InputType, Int } from '@nestjs/graphql';
 import { IsIn, IsNotEmpty, IsOptional, Length, MaxLength, Min } from 'class-validator';
-import { PropertyStatus } from '../../enums/property.enum';
+import { ProductStatus } from '../../enums/product.enum';
 import type { ObjectId } from '../../types/common';
-import { aviablePropertySorts, searchTextMaxLength } from '../../config';
+import { aviableProductSorts, searchTextMaxLength } from '../../config';
 import { Direction } from '../../enums/common.enum';
 
 @InputType()
-export class PropertyInput {
+export class ProductInput {
 	@IsNotEmpty()
 	@Field(() => String)
 	@Length(3, 100)
-	propertyTitle!: string;
+	productTitle!: string;
 
 	@IsNotEmpty()
 	@Field(() => Float)
-	propertyPrice!: number;
+	productPrice!: number;
 
 	@IsNotEmpty()
 	@Field(() => [String])
-	propertyImages!: string[];
+	productImages!: string[];
 
 	@IsOptional()
 	@Length(5, 500)
 	@Field(() => String, { nullable: true })
-	propertyDesc?: string;
+	productDesc?: string;
 
 	memberId?: ObjectId;
 }
@@ -67,7 +67,7 @@ export class PIsearch {
 }
 
 @InputType()
-export class PropertiesInquiry {
+export class ProductsInquiry {
 	@IsNotEmpty()
 	@Min(1)
 	@Field(() => Int)
@@ -79,7 +79,7 @@ export class PropertiesInquiry {
 	limit!: number;
 
 	@IsOptional()
-	@IsIn(aviablePropertySorts)
+	@IsIn(aviableProductSorts)
 	@Field(() => String, { nullable: true })
 	sort?: string;
 
@@ -93,14 +93,14 @@ export class PropertiesInquiry {
 }
 
 @InputType()
-class APISearch {
+class CPISearch {
 	@IsOptional()
-	@Field(() => PropertyStatus, { nullable: true })
-	propertyStatus?: PropertyStatus;
+	@Field(() => ProductStatus, { nullable: true })
+	productStatus?: ProductStatus;
 }
 
 @InputType()
-export class AgentPropertiesInquiry {
+export class CreatorProductsInquiry {
 	@IsNotEmpty()
 	@Min(1)
 	@Field(() => Int)
@@ -112,7 +112,7 @@ export class AgentPropertiesInquiry {
 	limit!: number;
 
 	@IsOptional()
-	@IsIn(aviablePropertySorts)
+	@IsIn(aviableProductSorts)
 	@Field(() => String, { nullable: true })
 	sort?: string;
 
@@ -121,19 +121,19 @@ export class AgentPropertiesInquiry {
 	direction?: Direction;
 
 	@IsNotEmpty()
-	@Field(() => APISearch)
-	search!: APISearch;
+	@Field(() => CPISearch)
+	search!: CPISearch;
 }
 
 @InputType()
 class ALPISearch {
 	@IsOptional()
-	@Field(() => PropertyStatus, { nullable: true })
-	propertyStatus?: PropertyStatus;
+	@Field(() => ProductStatus, { nullable: true })
+	productStatus?: ProductStatus;
 }
 
 @InputType()
-export class AllPropertiesInquiry {
+export class AllProductsInquiry {
 	@IsNotEmpty()
 	@Min(1)
 	@Field(() => Int)
@@ -145,7 +145,7 @@ export class AllPropertiesInquiry {
 	limit!: number;
 
 	@IsOptional()
-	@IsIn(aviablePropertySorts)
+	@IsIn(aviableProductSorts)
 	@Field(() => String, { nullable: true })
 	sort?: string;
 
