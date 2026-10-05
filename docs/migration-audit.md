@@ -202,8 +202,9 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 
 - [x] `member.enum.ts:5`: `MemberType.AGENT = 'AGENT'` → `CREATOR = 'CREATOR'`. All users changed in the same step: signup `@IsIn` (S1), `@Roles` in `checkAuthRoles` and `property.resolver.ts`, the `getAgents` match, and the batch ranking (`batch.service.ts`). Existing dev members with `memberType: 'AGENT'` must be migrated with `updateMany` and log in again.
 - [ ] `property.enum.ts` → rename to `product.enum.ts`. **Deferred to Step 6:** the Property schema, DTOs, services and the batch still use this file, so the rename and the deletes below happen when their users go (the build must stay green).
-  - [ ] Delete `PropertyType` (APARTMENT/VILLA/HOUSE, lines 3–10). Step 6.
-  - [ ] Delete `PropertyLocation` (Korean cities, lines 21–34) (D-10). Step 6.
+  - [x] Delete `PropertyType` (APARTMENT/VILLA/HOUSE, lines 3–10). Step 6.
+  - [x] Delete `PropertyLocation` (Korean cities, lines 21–34) (D-10). Step 6.
+    - Both deleted in Step 6 part 5, together with the fields that used them. `SOLD` was removed from `PropertyStatus` in the same part, so `property.enum.ts` now holds only `PropertyStatus { ACTIVE, DELETE }`. **Still open** for the parent item: deleting `property.enum.ts` (Step 6 part 9).
   - [x] `PropertyStatus { ACTIVE, SOLD, DELETE }` → `ProductStatus { ACTIVE, PAUSED, DELETE }`. `SOLD` goes away together with `soldAt` (D-10). `ProductStatus` is added in a new `product.enum.ts`; deleting `PropertyStatus` is Step 6.
   - [x] Add `ProductPricing { FREE, ONE_TIME, SUBSCRIPTION, CUSTOM }` (D-03). In `product.enum.ts`.
 - [x] New `AgentCategory { CUSTOMER_SUPPORT, SALES, MARKETING, CONTENT, DATA_ANALYSIS, AUTOMATION, EDUCATION, OTHER }`. Put it in its own file (e.g. `agent-category.enum.ts`), because products and briefs share it (D-09).
@@ -284,7 +285,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [ ] `api/components/components.module.ts:3,15`: `PropertyModule` → `ProductModule`
 
 ### Schema — `Property.model.ts` → `Product.model.ts`
-- [ ] Remove these fields (D-10):
+- [x] Remove these fields (D-10):
   - `propertyType` (6–10)
   - `propertyLocation` (18–22)
   - `propertyAddress` (24–27)
@@ -295,6 +296,8 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - `propertyRent` (88–91)
   - `soldAt` (99–101)
   - `constructedAt` (107–109)
+
+  Done in Step 6 part 5, together with the output DTO, the inputs and the service.
 - [ ] Rename `property*` → `product*`: Status, Title, Price, Views, Likes, Comments, Rank, Images and Desc.
 - [ ] `productPrice`: `required: true` (36) → optional (D-03).
 - [ ] Make productDesc required (schema + input validation) (D-18):
@@ -313,12 +316,16 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - `{ memberId: 1, productStatus: 1 }`
   - `{ productCategory: 1, productStatus: 1 }`
   - `{ productStatus: 1, productRank: -1 }`
+
+  **Done in Step 6 part 5:** the old unique index is replaced with unique `{ memberId, propertyTitle }`, `{ memberId, propertyStatus }` and `{ propertyStatus, propertyRank: -1 }`. Mongoose doesn't drop old indexes, so `propertyType_1_propertyLocation_1_propertyTitle_1_propertyPrice_1` must be dropped by hand in any existing `properties` collection. **Still open:** the `{ productCategory, productStatus }` index (when `productCategory` is added, part 11), and the `product*` names (rename, part 7).
 - [ ] Mongoose model name `'Property'` → `'Product'`. It is used in `property.module.ts:15`, `property.service.ts:29`, `batch/batch.module.ts:16`, `batch/batch.service.ts:12` and the `ref: 'Property'` in `Notification.model.ts:47`.
 
 ### DTO — `property.ts` → `product.ts`
 - [ ] `Property` / `Properties` → `Product` / `Products`.
-- [ ] Remove `propertyType`, `propertyLocation`, `propertyAddress`, `propertySquare`, `propertyBeds`, `propertyRooms`, `propertyBarter`, `propertyRent`, `soldAt` and `constructedAt` (12–37, 57–61, 66–73).
+- [x] Remove `propertyType`, `propertyLocation`, `propertyAddress`, `propertySquare`, `propertyBeds`, `propertyRooms`, `propertyBarter`, `propertyRent`, `soldAt` and `constructedAt` (12–37, 57–61, 66–73).
+  - Done in Step 6 part 5.
 - [ ] `propertyType`, `propertyStatus` and `propertyLocation` are exposed as `@Field(() => String)`, not as their enums (12–19). Use `@Field(() => ProductStatus)` and so on for the new enum fields. (bug, fix in its own commit)
+  - **Done in Step 6 part 5:** `propertyType` and `propertyLocation` were removed (D-10), so they no longer apply. **Still open:** `propertyStatus` is still `String` (fix in part 6). The new `productCategory` / `productPricing` fields must use their enums when they are added (part 11).
 - [ ] Add `productCategory`, `productPricing`, `productPrice` (nullable Float), `productDemoUrl` (nullable) and `productTags` (nullable `[String]`).
 
 ### DTO — `property.input.ts` → `product.input.ts`
@@ -329,19 +336,26 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - `productDesc`: required (D-18; see the schema item above)
   - `productDemoUrl`: `@IsUrl({ protocols: ['http','https'], require_protocol: true })`
   - `productTags`: optional `[String]`
-- [ ] Remove `SquaresRange` (81–88). Decide whether `PeriodsRange` (90–97) is still needed.
+
+  **Done in Step 6 part 5:** the dropped fields (first sub-point). **Still open:** the rename, optional price, image minimum, required desc, demo URL and tags (parts 7, 11 and 12).
+- [x] Remove `SquaresRange` (81–88). Decide whether `PeriodsRange` (90–97) is still needed.
+  - Done in Step 6 part 5. `SquaresRange` is deleted. `PeriodsRange` is kept, because filtering listings by `createdAt` is still useful.
 - [ ] `PricesRange` (73–79) uses `Int`. Prices are Float in USD (D-06), so use `Float`. Per D-03, price filters must only match `ONE_TIME` / `SUBSCRIPTION`.
 - [ ] `PIsearch` (99–141):
   - remove `locationList`, `typeList`, `roomsList`, `bedsList`, `options` and `squaresRange`
   - add `categoryList: AgentCategory[]`, `pricingList: ProductPricing[]` and `tagList?`
+
+  **Done in Step 6 part 5:** the removals (first sub-point). **Still open:** the new category, pricing and tag lists (part 13).
 - [ ] `PropertiesInquiry` (144) → `ProductsInquiry`.
 - [ ] `AgentPropertiesInquiry` (177) → `CreatorProductsInquiry`. `APISearch.propertyStatus` → `productStatus`.
 - [ ] `AllPropertiesInquiry` (214) → `AllProductsInquiry`. In `ALPISearch`, `propertyLocationList` (209) → `productCategoryList`.
+  - **Done in Step 6 part 5:** `propertyLocationList` was removed. **Still open:** the `AllProductsInquiry` rename (part 7) and `productCategoryList` (part 13).
 - [x] `OrdinaryInquiry` (240–250) is generic, but it lives in the property DTO and is imported by `like.service.ts:8` and `view.service.ts:6`. Move it to a shared place, e.g. `libs/dto/common.input.ts`.
   - Moved to `libs/dto/common.input.ts` in Step 6 part 4. Like, view and the property service/resolver import it from there. The GraphQL type name and fields are unchanged, so it is not an API change.
 
 ### DTO — `property.update.ts` → `product.update.ts`
-- [ ] Remove Type, Location, Address, Square, Beds, Rooms, Barter, Rent, `soldAt` and `constructedAt`.
+- [x] Remove Type, Location, Address, Square, Beds, Rooms, Barter, Rent, `soldAt` and `constructedAt`.
+  - Done in Step 6 part 5.
 - [ ] Add `productCategory`, `productPricing`, `productPrice`, `productDemoUrl` and `productTags`.
 
 ### Service — `property.service.ts` → `product.service.ts`
@@ -356,6 +370,8 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - remove the `SOLD` → `soldAt` branch (87, 93)
   - run D-03 on the **merged** pricing/price, so the existing doc must be loaded first
   - `'memberProperties'` (96) → `'memberProducts'`
+
+  **Done in Step 6 part 5:** the `SOLD` → `soldAt` branch was removed; the counter now changes only on `DELETE`. **Still open:** D-03 on the merged values (part 12) and the counter key (part 8).
 - [ ] `getProduct` (D-16):
   - `ACTIVE` → everyone
   - `PAUSED` → only the owner (`memberId` matches the caller) or an `ADMIN` caller; everyone else gets `NO_DATA_FOUND`
@@ -371,10 +387,11 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [ ] `updateProductByAdmin` (D-16): match `productStatus ≠ DELETE`, the same as the owner update (257).
 - [ ] `getProperties` / `shapeMatchQuery` (103–164):
   - remove the location/rooms/beds/type/squares/options filters and the `$or` for options
+    - **Done in Step 6 part 5.**
   - add category/pricing/tag filters
   - text search on `productTitle` (and maybe `productTags`)
   - (bug, fix in its own commit) `text` goes into `new RegExp` unescaped (158). Use the `escapeRegex` helper added in Step 2.5 (S8); the member and board-article cases are already fixed there.
-    - **Done in Step 6 part 2:** `escapeRegex(text)`, plus `@MaxLength(searchTextMaxLength)` on `PIsearch.text`, the same as the member and board-article searches. **Still open** in this item: the other sub-points above and below.
+    - **Done in Step 6 part 2:** `escapeRegex(text)`, plus `@MaxLength(searchTextMaxLength)` on `PIsearch.text`, the same as the member and board-article searches. **Still open** in this item: the sub-points not marked done.
   - keep the `productStatus: ACTIVE` match (104) for every caller, including the `memberId` filter used on other members' profiles. Paused products never appear here, not even for the owner (D-16).
 - [ ] `getCreatorProducts` (D-16): the owner sees `ACTIVE` + `PAUSED` (the current `≠ DELETE` match, 180). Keep it.
 - [ ] `getFavorities` / `getVisited` (166–172) call `likeService.getFavoriteProperties` / `viewService.getVisitedProperties` (see Step 8). Keep the misspelled operation name `getFavorities` (convention).
@@ -384,7 +401,9 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - `'propertyLikes'` → `'productLikes'`
   - keep the `ACTIVE`-only target check (207). It rejects likes **and** unlikes on `PAUSED` products (D-16).
 - [ ] `getAllPropertiesByAdmin` (224–251): `propertyLocationList` filter → category filter. Admins see every status, including `PAUSED` (D-16).
+  - **Done in Step 6 part 5:** the location filter was removed. **Still open:** the category filter (part 13).
 - [ ] `updatePropertyByAdmin` (253–275): the same `SOLD`/`soldAt` removal, plus `'memberProperties'` (269).
+  - **Done in Step 6 part 5:** the `SOLD` / `soldAt` removal. **Still open:** the counter key (part 8).
 - [x] `removePropertyByAdmin` (277–286) (bug, fix in its own commit): `findByIdAndDelete(search)` passes an object as the id. Use `findOneAndDelete(search)`.
   - Fixed in Step 6 part 1. Mongoose cast the object to its `_id` and dropped the `propertyStatus: DELETE` condition, so `ACTIVE` properties were hard-deleted too. Now only a property that is already `DELETE` can be removed.
 - [x] (bug, D-22, fix in its own commit) Self-engagement on own products:
@@ -411,7 +430,8 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [ ] The admin mutations log `'Query: …'` (127, 136). Fix them to `'Mutation: …'`.
 
 ### Config — `api/libs/config.ts`
-- [ ] `aviableOptions = ['propertyBarter','propertyRent']` (9): remove it (D-10).
+- [x] `aviableOptions = ['propertyBarter','propertyRent']` (9): remove it (D-10).
+  - Done in Step 6 part 5, together with the `options` search filter that used it.
 - [ ] `aviablePropertySorts` (10–17) → `aviableProductSorts`, with `product*` keys.
 
 ### Uploads (moved from Step 3)

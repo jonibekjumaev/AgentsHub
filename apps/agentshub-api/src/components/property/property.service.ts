@@ -86,13 +86,12 @@ export class PropertyService {
 			propertyStatus: PropertyStatus.ACTIVE,
 		};
 
-		if (propertyStatus === PropertyStatus.SOLD) input.soldAt = moment().toDate();
-		else if (propertyStatus === PropertyStatus.DELETE) input.deletedAt = moment().toDate();
+		if (propertyStatus === PropertyStatus.DELETE) input.deletedAt = moment().toDate();
 
 		const result = await this.propertyModel.findOneAndUpdate(search, input, { new: true }).exec();
 		if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
 
-		if (input.soldAt || input.deletedAt) {
+		if (input.deletedAt) {
 			await this.memberService.memberStatsEditor({
 				_id: memberId,
 				targetKey: 'memberProperties',
@@ -134,35 +133,14 @@ export class PropertyService {
 	}
 
 	private shapeMatchQuery(match: T, input: PropertiesInquiry): void {
-		const {
-			memberId,
-			locationList,
-			roomsList,
-			bedsList,
-			typeList,
-			periodsRange,
-			pricesRange,
-			squaresRange,
-			options,
-			text,
-		} = input.search;
+		const { memberId, periodsRange, pricesRange, text } = input.search;
 
 		if (memberId) match.memberId = shapeInToMongoObjectId(memberId);
-		if (locationList && locationList.length) match.propertyLocation = { $in: locationList };
-		if (roomsList && roomsList.length) match.propertyRooms = { $in: roomsList };
-		if (bedsList && bedsList.length) match.propertyBeds = { $in: bedsList };
-		if (typeList && typeList.length) match.propertyType = { $in: typeList };
 
 		if (pricesRange) match.propertyPrice = { $gte: pricesRange.start, $lte: pricesRange.end };
 		if (periodsRange) match.createdAt = { $gte: periodsRange.start, $lte: periodsRange.end };
-		if (squaresRange) match.propertySquare = { $gte: squaresRange.start, $lte: squaresRange.end };
 
 		if (text) match.propertyTitle = { $regex: new RegExp(escapeRegex(text), 'i') };
-		if (options) {
-			match['$or'] = options.map((ele) => {
-				return { [ele]: true };
-			});
-		}
 	}
 
 	public async getFavorities(memberId: ObjectId, input: OrdinaryInquiry): Promise<Properties> {
@@ -225,12 +203,11 @@ export class PropertyService {
 	}
 
 	public async getAllPropertiesByAdmin(input: AllPropertiesInquiry): Promise<Properties> {
-		const { propertyStatus, propertyLocationList } = input.search;
+		const { propertyStatus } = input.search;
 		const match: T = {};
 		const sort = { [input?.sort ?? 'createdAt']: input?.direction ?? Direction.DESC };
 
 		if (propertyStatus) match.propertyStatus = propertyStatus;
-		if (propertyLocationList) match.propertyLocation = { $in: propertyLocationList };
 
 		const result = await this.propertyModel
 			.aggregate([
@@ -260,13 +237,12 @@ export class PropertyService {
 			propertyStatus: PropertyStatus.ACTIVE,
 		};
 
-		if (propertyStatus === PropertyStatus.SOLD) input.soldAt = moment().toDate();
-		else if (propertyStatus === PropertyStatus.DELETE) input.deletedAt = moment().toDate();
+		if (propertyStatus === PropertyStatus.DELETE) input.deletedAt = moment().toDate();
 
 		const result = await this.propertyModel.findOneAndUpdate(search, input, { new: true }).exec();
 		if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
 
-		if (input.soldAt || input.deletedAt) {
+		if (input.deletedAt) {
 			await this.memberService.memberStatsEditor({
 				_id: result?.memberId,
 				targetKey: 'memberProperties',

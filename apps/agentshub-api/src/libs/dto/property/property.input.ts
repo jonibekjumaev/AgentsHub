@@ -1,25 +1,12 @@
 import { Field, Float, InputType, Int } from '@nestjs/graphql';
-import { IsIn, IsInt, IsNotEmpty, IsOptional, Length, MaxLength, Min } from 'class-validator';
-import { PropertyLocation, PropertyStatus, PropertyType } from '../../enums/property.enum';
+import { IsIn, IsNotEmpty, IsOptional, Length, MaxLength, Min } from 'class-validator';
+import { PropertyStatus } from '../../enums/property.enum';
 import type { ObjectId } from '../../types/common';
-import { aviableOptions, aviablePropertySorts, searchTextMaxLength } from '../../config';
+import { aviablePropertySorts, searchTextMaxLength } from '../../config';
 import { Direction } from '../../enums/common.enum';
 
 @InputType()
 export class PropertyInput {
-	@IsNotEmpty()
-	@Field(() => PropertyType)
-	propertyType!: PropertyType;
-
-	@IsNotEmpty()
-	@Field(() => PropertyLocation)
-	propertyLocation!: PropertyLocation;
-
-	@IsNotEmpty()
-	@Field(() => String)
-	@Length(3, 100)
-	propertyAddress!: string;
-
 	@IsNotEmpty()
 	@Field(() => String)
 	@Length(3, 100)
@@ -30,22 +17,6 @@ export class PropertyInput {
 	propertyPrice!: number;
 
 	@IsNotEmpty()
-	@Field(() => Float)
-	propertySquare!: number;
-
-	@IsNotEmpty()
-	@IsInt()
-	@Min(1)
-	@Field(() => Int)
-	propertyBeds!: number;
-
-	@IsNotEmpty()
-	@IsInt()
-	@Min(1)
-	@Field(() => Int)
-	propertyRooms!: number;
-
-	@IsNotEmpty()
 	@Field(() => [String])
 	propertyImages!: string[];
 
@@ -54,32 +25,11 @@ export class PropertyInput {
 	@Field(() => String, { nullable: true })
 	propertyDesc?: string;
 
-	@IsOptional()
-	@Field(() => Boolean, { nullable: true })
-	propertyBarter?: boolean;
-
-	@IsOptional()
-	@Field(() => Boolean, { nullable: true })
-	propertyRent?: boolean;
-
 	memberId?: ObjectId;
-
-	@IsOptional()
-	@Field(() => Date, { nullable: true })
-	constructedAt?: Date;
 }
 
 @InputType()
 export class PricesRange {
-	@Field(() => Int)
-	start!: number;
-
-	@Field(() => Int)
-	end!: number;
-}
-
-@InputType()
-export class SquaresRange {
 	@Field(() => Int)
 	start!: number;
 
@@ -103,37 +53,12 @@ export class PIsearch {
 	memberId?: ObjectId;
 
 	@IsOptional()
-	@Field(() => [PropertyLocation], { nullable: true })
-	locationList?: PropertyLocation[];
-
-	@IsOptional()
-	@Field(() => [PropertyType], { nullable: true })
-	typeList?: PropertyType[];
-
-	@IsOptional()
-	@Field(() => [Int], { nullable: true })
-	roomsList?: number[];
-
-	@IsOptional()
-	@Field(() => [Int], { nullable: true })
-	bedsList?: number[];
-
-	@IsOptional()
-	@IsIn(aviableOptions, { each: true })
-	@Field(() => [Int], { nullable: true })
-	options?: number[];
-
-	@IsOptional()
 	@Field(() => PricesRange, { nullable: true })
 	pricesRange?: PricesRange;
 
 	@IsOptional()
 	@Field(() => PeriodsRange, { nullable: true })
 	periodsRange?: PeriodsRange;
-
-	@IsOptional()
-	@Field(() => SquaresRange, { nullable: true })
-	squaresRange?: SquaresRange;
 
 	@IsOptional()
 	@MaxLength(searchTextMaxLength)
@@ -205,10 +130,6 @@ class ALPISearch {
 	@IsOptional()
 	@Field(() => PropertyStatus, { nullable: true })
 	propertyStatus?: PropertyStatus;
-
-	@IsOptional()
-	@Field(() => [PropertyLocation], { nullable: true })
-	propertyLocationList?: PropertyLocation[];
 }
 
 @InputType()

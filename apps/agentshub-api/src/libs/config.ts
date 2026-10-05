@@ -6,7 +6,6 @@ import { ObjectId } from './types/common';
 export const aviableCreatorSorts = ['createdAt', 'updatedAt', 'memberLikes', 'memberViews', 'memberRank'];
 export const aviableMemberSorts = ['createdAt', 'updatedAt', 'memberLikes', 'memberViews'];
 
-export const aviableOptions = ['propertyBarter', 'propertyRent'];
 export const aviablePropertySorts = [
 	'createdAt',
 	'updatedAt',
