@@ -22,7 +22,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - Security holes come first.
 
 ### Security
-- [ ] **S1 — Admin signup and type changes (D-14)**
+- [x] **S1 — Admin signup and type changes (D-14)**
   - **Where:** `api/libs/dto/member/member.input.ts:23–25`; `api/libs/dto/member/member.update.ts:48–50`
   - **Fix:** make `MemberInput.memberType` required (`@IsNotEmpty()`, non-nullable `@Field`) and limit it with `@IsIn([MemberType.USER, MemberType.AGENT])`. Remove `memberType` from `MemberUpdateByAdmin`.
   - **Verify:**
