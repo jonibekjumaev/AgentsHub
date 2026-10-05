@@ -19,6 +19,7 @@ export enum Message {
 	NOT_ALLOWED_REQUEST = 'Not Allowed Request!',
 	PROVIDE_ALLOWED_FORMAT = 'Please provide jpg, jpeg or png images!',
 	SELF_SUBSCRIPTION_DENIED = 'Self subscription is denied!',
+	INVALID_CHAT_MESSAGE = 'Message must be text of 1 to 500 characters!',
 }
 
 export enum Direction {

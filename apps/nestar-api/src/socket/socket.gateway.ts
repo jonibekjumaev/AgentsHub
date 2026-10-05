@@ -43,6 +43,8 @@ interface ErrorPayload {
 	message: string;
 }
 
+const MESSAGE_MAX_LENGTH = 500;
+
 const toPublicMember = (member: PublicMember | null | undefined): PublicMember | null => {
 	if (!member) return null;
 	const { _id, memberNick, memberImage, memberType } = member;
@@ -128,7 +130,7 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 	}
 
 	@SubscribeMessage('message')
-	public handleMessage(client: WebSocket, payload: string): void {
+	public handleMessage(client: WebSocket, payload: unknown): void {
 		const authMember = this.clientsAuthMap.get(client);
 		// Guests can read but not send (D-19 condition 2)
 		if (!authMember) {
@@ -137,8 +139,16 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 			return;
 		}
 
-		const newMessage: MessagePayload = { event: 'message', text: payload, memberData: authMember };
-		this.logger.verbose(`NEW MESSAGE [${authMember.memberNick}] : [${payload}]`);
+		// Only strings of 1–500 characters after trim (D-19 condition 3)
+		const text = typeof payload === 'string' ? payload.trim() : '';
+		if (text.length < 1 || text.length > MESSAGE_MAX_LENGTH) {
+			this.logger.verbose(`REJECTED MESSAGE [${authMember.memberNick}] : invalid text`);
+			this.sendToClient(client, { event: 'error', message: Message.INVALID_CHAT_MESSAGE });
+			return;
+		}
+
+		const newMessage: MessagePayload = { event: 'message', text, memberData: authMember };
+		this.logger.verbose(`NEW MESSAGE [${authMember.memberNick}] : [${text}]`);
 
 		this.messagesList.push(newMessage);
 		if (this.messagesList.length > 5) this.messagesList.splice(0, this.messagesList.length - 5);
