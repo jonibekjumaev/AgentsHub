@@ -1,7 +1,7 @@
-# AgentHub — Migration Audit (Step 2)
+# AgentsHub — Migration Audit (Step 2)
 
-> Every place in the repo that depends on the Nestar Property domain, or on fields and enums that change according to `docs/agenthub-er.md`.
-> Items are grouped by the migration step that should fix them. Paths are relative to the repo root; `api/` = `apps/nestar-api/src/`, `batch/` = `apps/nestar-batch/src/`.
+> Every place in the repo that depends on the Nestar Property domain, or on fields and enums that change according to `docs/agentshub-er.md`.
+> Items are grouped by the migration step that should fix them. Paths are relative to the repo root; `api/` = `apps/nestar-api/src/`, `batch/` = `apps/nestar-batch/src/`. Step 3 renames these folders to `apps/agentshub-api/` and `apps/agentshub-batch/` (D-12); after that, read the old paths as the new names.
 > `(bug)` = an existing defect found during the audit. Fix it in the step where the file is touched anyway.
 > `(decision)` = needs an owner decision; record it in `docs/decisions.md` as **Proposed** first.
 
@@ -12,7 +12,7 @@ Audit baseline: branch `modification`, commit `e994860`.
 ## Step 3 — Config (package names, DB name, env, app names)
 
 ### Package and scripts — `package.json`
-- [ ] `"name": "nestar"` → `agenthub` (line 2). `package-lock.json` lines 2 and 8 regenerate with `npm install`.
+- [ ] `"name": "nestar"` → `agentshub` (line 2). `package-lock.json` lines 2 and 8 regenerate with `npm install`.
 - [ ] `start:prod` runs `dist/apps/nestar/main`, but the app is `nestar-api` (line 15). Fix the path, and rename it again if the app folder is renamed.
 - [ ] `start:dev:batch` / `start:prod:batch` refer to `nestar-batch` (lines 13 and 16).
 - [ ] `test:e2e` points to `./test/jest-e2e.json`, which does not exist (line 22). The configs are `apps/*/test/jest-e2e.json`.
@@ -20,7 +20,7 @@ Audit baseline: branch `modification`, commit `e994860`.
 - [ ] Empty `description` / `author` fields (lines 4–5).
 
 ### Monorepo app names — `nest-cli.json`
-- [ ] (decision) Rename the apps `nestar-api` / `nestar-batch` (for example to `agenthub-api` / `agenthub-batch`)? This affects:
+- [ ] Rename the apps `nestar-api` / `nestar-batch` → `agentshub-api` / `agentshub-batch`, before any domain change (D-12, Accepted). This affects:
   - `nest-cli.json` (`sourceRoot`, `root`, `projects.*`, `tsConfigPath`; lines 4, 8, 11, 13–29)
   - `apps/nestar-api/tsconfig.app.json` line 5 and `apps/nestar-batch/tsconfig.app.json` line 5 (`outDir`)
   - every `../../nestar-api/src/...` import in the batch app (see Step 10)
@@ -29,21 +29,17 @@ Audit baseline: branch `modification`, commit `e994860`.
   - the existing `dist/apps/nestar-*` build output (delete and rebuild)
 
 ### Database and environment — `.env` (gitignored)
-- [ ] `MONGODB_DEV` and `MONGODB_PROD` both point to the database **`Nestar`**. Point them to a new `AgentHub` database, so the original Nestar data stays untouched (D-01).
-- [ ] (decision) Decide whether to start with an empty DB, or migrate members from Nestar. If you migrate:
-  - `memberType: AGENT → CREATOR`
-  - `$rename memberProperties → memberProducts`
-  - `$unset memberAddress`
-  - set `memberBriefs: 0`
-  - drop `properties`, and drop `likes`/`views`/`comments`/`notifications` that have `*Group: PROPERTY`
+- [ ] `MONGODB_DEV` and `MONGODB_PROD` both point to the database **`Nestar`**. Point `MONGODB_DEV` to a new, empty database **`agentsHub`**, so the original Nestar data stays untouched (D-01, D-13).
+- [ ] `MONGODB_PROD`: the production database name is decided at deploy time (D-13). Until then, it must not point to `Nestar`.
+- [ ] No Nestar data is migrated (D-13, Accepted). Write a seed script (creators, users, products, briefs) for development.
 - [ ] No `.env.example` exists. Add one listing `PORT_API`, `PORT_BATCH`, `MONGODB_DEV`, `MONGODB_PROD` and `SECRET_TOKEN`.
 - [ ] Both `api/database/database.module.ts` and `batch/database/database.module.ts` (line 9) pick the URI by `NODE_ENV`. No change needed; keep them in sync.
 
 ### Branding strings
 - [ ] `api/app.service.ts:6`: `'Hello to Nestar API server!'`
 - [ ] `batch/batch.service.ts:74`: `'Hello to Nestar BATCH server!'`
-- [ ] `README.md`: stock NestJS README. Replace it with an AgentHub README.
-- [ ] `AGENTS.md` and `SKILLS.md` call the project **"Petoria"**. Correct them to AgentHub.
+- [x] `README.md`: stock NestJS README. Replace it with an AgentsHub README.
+- [x] `AGENTS.md` and `SKILLS.md` call the project **"Petoria"**. Correct them to AgentsHub.
 - [ ] `CLAUDE.md`: update the app names and paths after the rename. Also remove the "Known issues" entries once they are fixed.
 
 ### Uploads
@@ -82,7 +78,8 @@ Audit baseline: branch `modification`, commit `e994860`.
 - [ ] `memberProperties` → `memberProducts` (lines 59–62).
 - [ ] Add `memberBriefs: { type: Number, default: 0 }`.
 - [ ] Add `memberEmail` and `memberWhatsapp` (String, optional).
-- [ ] `memberImage` default is `''` (line 48), but the ER doc says "NN, default image path". (decision) Choose a default image path.
+- [x] `memberImage` default stays `''` (line 48); the ER doc now matches (D-15). No schema change. Do **not** add Mongoose `required: true`, because it rejects `''`.
+- [ ] `member.update.ts`: `memberImage: null` in `MemberUpdate` / `MemberUpdateByAdmin` must be rejected or converted to `''`, so the non-null GraphQL field never receives `null` (D-15).
 
 ### DTOs — `api/libs/dto/member/`
 - [ ] `member.ts`:
@@ -197,18 +194,33 @@ Audit baseline: branch `modification`, commit `e994860`.
   - remove the `SOLD` → `soldAt` branch (87, 93)
   - run D-03 on the **merged** pricing/price, so the existing doc must be loaded first
   - `'memberProperties'` (96) → `'memberProducts'`
-- [ ] (decision) Does `PAUSED` decrement `memberProducts`? Can the owner see their own `PAUSED` product via `getProduct`? Right now the search only allows `ACTIVE` (55, 84). `updateProperty` also only matches `ACTIVE` (84), so a `PAUSED` product could never be re-activated.
+- [ ] `getProduct` (D-16):
+  - `ACTIVE` → everyone
+  - `PAUSED` → only the owner (`memberId` matches the caller) or an `ADMIN` caller; everyone else gets `NO_DATA_FOUND`
+  - `DELETE` → nobody
+  - The current search allows only `ACTIVE` (55).
+- [ ] `getProduct` (D-16): record **no view** and don't increment `productViews` when the product is `PAUSED`, even for the owner.
+- [ ] `updateProduct` (D-16):
+  - match `productStatus: { $ne: DELETE }` instead of `ACTIVE` (84), so a paused product can be resumed
+  - allowed owner transitions: `ACTIVE ↔ PAUSED`, and `ACTIVE | PAUSED → DELETE`
+- [ ] `updateProduct` / `updateProductByAdmin` (D-16):
+  - `memberProducts` −1 only on a transition to `DELETE` (from `ACTIVE` or `PAUSED`)
+  - **no** counter change on pause or unpause
+- [ ] `updateProductByAdmin` (D-16): match `productStatus ≠ DELETE`, the same as the owner update (257).
 - [ ] `getProperties` / `shapeMatchQuery` (103–164):
   - remove the location/rooms/beds/type/squares/options filters and the `$or` for options
   - add category/pricing/tag filters
   - text search on `productTitle` (and maybe `productTags`)
   - (bug) `text` goes into `new RegExp` unescaped (158). The same applies in `member.service.ts:129,173` and `board-article.service.ts:103`.
+  - keep the `productStatus: ACTIVE` match (104) for every caller, including the `memberId` filter used on other members' profiles. Paused products never appear here, not even for the owner (D-16).
+- [ ] `getCreatorProducts` (D-16): the owner sees `ACTIVE` + `PAUSED` (the current `≠ DELETE` match, 180). Keep it.
 - [ ] `getFavorities` / `getVisited` (166–172) call `likeService.getFavoriteProperties` / `viewService.getVisitedProperties` (see Step 8). Keep the misspelled operation name `getFavorities` (convention).
 - [ ] `getAgentProperties` (174–204) → `getCreatorProducts`.
 - [ ] `likeTargetProperty` (206–222):
   - `LikeGroup.PROPERTY` (213) → `PRODUCT`
   - `'propertyLikes'` → `'productLikes'`
-- [ ] `getAllPropertiesByAdmin` (224–251): `propertyLocationList` filter → category filter.
+  - keep the `ACTIVE`-only target check (207). It rejects likes **and** unlikes on `PAUSED` products (D-16).
+- [ ] `getAllPropertiesByAdmin` (224–251): `propertyLocationList` filter → category filter. Admins see every status, including `PAUSED` (D-16).
 - [ ] `updatePropertyByAdmin` (253–275): the same `SOLD`/`soldAt` removal, plus `'memberProperties'` (269).
 - [ ] `removePropertyByAdmin` (277–286) (bug): `findByIdAndDelete(search)` passes an object as the id. Use `findOneAndDelete(search)`.
 - [ ] `propertyStatsEditor` (288) → `productStatsEditor`. Callers: `comment.service.ts:37`.
@@ -274,6 +286,7 @@ Audit baseline: branch `modification`, commit `e994860`.
   - alias `favoriteProperty` (59, 62, 69, 80) → `favoriteProduct`
   - return type `Properties`
   - imports `OrdinaryInquiry` / `Properties` from the property DTO (8–9)
+- [ ] `like.service.ts` (bug, D-16): `getFavoriteProducts` must return only `ACTIVE` products. Add `{ $match: { 'favoriteProduct.productStatus': ProductStatus.ACTIVE } }` after the `$unwind` (62) and **before** `$facet`, so `metaCounter` matches the list.
 - [ ] `api/libs/config.ts:132–139`: `lookupFavorite` uses `favoriteProperty.memberId` / `favoriteProperty.memberData` → `favoriteProduct.*`.
 
 ### View
@@ -284,6 +297,7 @@ Audit baseline: branch `modification`, commit `e994860`.
   - `from: 'properties'` (40)
   - alias `visitedProperty` (43, 46, 53, 62) → `visitedProduct`
   - imports (6, 8)
+- [ ] `view.service.ts` (bug, D-16): `getVisitedProducts` must return only `ACTIVE` products. Add a `'visitedProduct.productStatus': ACTIVE` match after the `$unwind` (46) and before `$facet`.
 - [ ] `api/libs/config.ts:141–148`: `lookupVisit` uses `visitedProperty.*` → `visitedProduct.*`.
 
 ### Comment
@@ -293,7 +307,15 @@ Audit baseline: branch `modification`, commit `e994860`.
   - add `case CommentGroup.BRIEF` → `briefStatsEditor('briefComments')`
 - [ ] `api/components/comment/comment.module.ts:10,24`: `PropertyModule` → `ProductModule`, and add `BriefModule`.
 - [ ] `comment.service.ts:50–55` (bug): the `MEMBER` case increments the **author's** `memberComments` (`_id: memberId`), not the target member's (`commentRefId`).
-- [ ] `comment.service.ts:24` (bug): `createComment` does not check that the target exists and is active. A comment on a missing or deleted product/brief still increments a counter.
+- [ ] `comment.service.ts:24` (bug): `createComment` does not check that the target exists and is active. A comment on a missing or deleted product/brief still increments a counter. For `CommentGroup.PRODUCT`, the target must be `ACTIVE`, so comments on `PAUSED` products are rejected (D-16).
+- [ ] `getComments` (D-16, child records inherit the parent's visibility): for a `PRODUCT` target, load the product first.
+  - `ACTIVE` → return comments to everyone
+  - `PAUSED` → return comments only if the caller is the owner or an `ADMIN`
+  - otherwise (paused for other callers, `DELETE`, or missing) → throw `NO_DATA_FOUND`
+
+  This requires:
+  - `comment.input.ts:27–31`: add a required `commentGroup` to `CISearch` (a GraphQL API change; add it to the Step 12 table)
+  - `comment.resolver.ts:41–50`: pass the caller's `memberType` (or the whole `authMember`) to the service, not only `_id`
 
 ### Notification (schema only; no module yet)
 - [ ] `api/schemas/Notification.model.ts`:
@@ -319,11 +341,13 @@ Audit baseline: branch `modification`, commit `e994860`.
   - `@InjectModel('Property') propertyModel` (12) → `productModel`
 - [ ] `batchRollback` (15–36):
   - `propertyStatus: ACTIVE` / `propertyRank` (19, 21) → `product*`
+  - reset `productRank` for all non-deleted products (`productStatus ≠ DELETE`), not only `ACTIVE`, so a product that is reactivated doesn't keep a stale rank (D-16)
   - `memberType: MemberType.AGENT` (29) → `CREATOR`
 - [ ] `batchProperties` (38–53) → `batchProducts`. The rank is `productLikes*2 + productViews*1`. (decision) Should `productComments` count too?
+  - keep ranking only `ACTIVE` products (41). Paused products get no rank (D-16).
 - [ ] `batchAgents` (55–71) → `batchCreators`:
   - `memberType: AGENT` (58)
-  - formula `memberProperties*5 + …` (65–66) → `memberProducts*5 + …`
+  - formula `memberProperties*5 + …` (65–66) → `memberProducts*5 + …`. `memberProducts` includes paused products; this is an accepted trade-off (D-16), so no extra filter is needed.
 - [ ] `batch/batch.controller.ts`:
   - `BATCH_TOP_PROPERTIES` / `BATCH_TOP_AGENTS` (4, 35, 46)
   - `batchTopProperties` / `batchTopAgents` (36, 47)
@@ -332,7 +356,7 @@ Audit baseline: branch `modification`, commit `e994860`.
 - [ ] `batch/batch.controller.ts:8`: `new Logger('BatchController.name')` is a string literal, not `BatchController.name`. (cosmetic)
 - [ ] `batch/libs/config.ts:6–7`: `BATCH_TOP_PROPERTIES` → `BATCH_TOP_PRODUCTS` and `BATCH_TOP_AGENTS` → `BATCH_TOP_CREATORS`.
 - [ ] `batch/batch.service.ts:74`: hello string (see Step 3).
-- [ ] `apps/nestar-batch/test/app.e2e-spec.ts:4,11` (bug): imports `NestarBatchModule`, which doesn't exist (the class is `BatchModule`). It also expects `'Hello World!'` (19). The spec can't compile.
+- [ ] `apps/nestar-batch/test/app.e2e-spec.ts:4,11` (bug): imports `NestarBatchModule`, which doesn't exist (the class is `BatchModule`). Under D-21 the class may become `AgentsHubBatchModule`; either way, the spec must import the class's actual name. It also expects `'Hello World!'` (19). The spec can't compile.
 - [ ] Ranking rollback only resets members with `memberStatus: ACTIVE`. Blocked or deleted creators keep a stale `memberRank`. (minor)
 
 ---
@@ -342,7 +366,7 @@ Audit baseline: branch `modification`, commit `e994860`.
 - [ ] **There is no frontend code in this repo.** No `apps/*` web app, no `pages/`, and no Next/React files were found. The frontend lives in a separate repo, so audit it separately.
 - [ ] Use this list of GraphQL contract changes from Steps 4–8 when converting the frontend:
 
-  | Nestar | AgentHub |
+  | Nestar | AgentsHub |
   |---|---|
   | `MemberType.AGENT` | `CREATOR` |
   | `Member.memberProperties`, `memberAddress` | `memberProducts`, plus new `memberBriefs`, `memberEmail`, `memberWhatsapp` (`null` for guests) |
@@ -356,19 +380,23 @@ Audit baseline: branch `modification`, commit `e994860`.
   | `LikeGroup` / `ViewGroup` / `CommentGroup` `PROPERTY` | `PRODUCT` (+ `BRIEF` for view/comment) |
   | `imagesUploader(target: "property")` | `target: "product"` |
   | — | new `Brief` queries and mutations (Step 7) |
+  | `getComments(search: { commentRefId })` | `search: { commentRefId, commentGroup }`. `commentGroup` is required; a paused or missing product returns `NO_DATA_FOUND` (D-16) |
 
 - [ ] In the frontend repo, remove the real-estate pages and filters (location, beds, rooms, square, barter/rent, sold state) in the same step (D-10).
 - [ ] Contact info must come from the API's null-for-guests behaviour, not only from hiding it in the UI (D-07).
+- [ ] Show placeholder when memberImage is '' (D-15).
+- [ ] Owner product management: pause/resume buttons (`ACTIVE ↔ PAUSED`), and a "paused" badge in the owner's own product list (D-16).
+- [ ] Handle `NO_DATA_FOUND` from `getProduct` for paused products (e.g. old links and shared URLs). Hide like/comment controls on the owner's own paused product (D-16).
 
 ---
 
-## Open decisions to record in `docs/decisions.md` (as Proposed)
+## Open decisions (recorded in `docs/decisions.md` as D-12 … D-19)
 
-1. Rename the apps `nestar-api` / `nestar-batch` (Step 3).
-2. Fresh DB vs. migrating Nestar members (Step 3).
-3. Restrict `memberType` at signup to `USER | CREATOR` (Step 5, D-02).
-4. Default `memberImage` path (Step 5).
-5. `PAUSED` semantics: counter effect, owner visibility, and re-activation (Step 6).
+1. Rename the apps `nestar-api` / `nestar-batch` (Step 3). **Accepted as D-12:** `agentshub-api` / `agentshub-batch`.
+2. Fresh DB vs. migrating Nestar members (Step 3). **Accepted as D-13:** new empty dev database `agentsHub` plus a seed script.
+3. Restrict `memberType` at signup to `USER | CREATOR` (Step 5, D-02). **Accepted as D-14:** required `@IsIn([USER, CREATOR])` at signup, no `memberType` in any update input, first admin created only by the seed script.
+4. Default `memberImage` path (Step 5). **Accepted as D-15:** default `''` means no image. The frontend shows a placeholder, and the DB never stores a placeholder path.
+5. `PAUSED` semantics: counter effect, owner visibility, and re-activation (Step 6). **Accepted as D-16:** option B. Visible only to the owner and admins. No likes, views or comments. Owner toggles `ACTIVE ↔ PAUSED`. `memberProducts` changes only on create and delete. Favorites/visited show `ACTIVE` only.
 6. Does `productComments` count in product ranking? (Step 10)
 7. Like/View index field order vs. the ER doc; `notificationDesc` NN vs. optional (Step 8).
 8. Keep or remove the WebSocket chat (Step 8, D-08).

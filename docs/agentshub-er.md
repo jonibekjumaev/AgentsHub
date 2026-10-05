@@ -1,11 +1,11 @@
-# AgentHub — ER Model (MongoDB)
+# AgentsHub — ER Model (MongoDB)
 
 > Source of truth for the database schema. Derived from the Nestar ER model.
 > Every schema, DTO and GraphQL type must match this file. If code and this file disagree, fix one of them on purpose and record why in `docs/decisions.md`.
 
 ## Domain summary
 
-AgentHub is a marketplace for AI agents.
+AgentsHub is a marketplace for AI agents.
 
 - **CREATOR** members publish **Products**, which are listings for AI agents they built: images, description, category, pricing, and an optional demo link.
 - **USER** members publish **Briefs**, which describe a business need for a custom AI agent.
@@ -37,7 +37,7 @@ AgentHub is a marketplace for AI agents.
 | memberNick | string | NN | | unique |
 | memberPassword | string | NN | | hashed, never returned (`select: false`) |
 | memberFullName | string | | | |
-| memberImage | string | NN | | default image path |
+| memberImage | string | NN | | default '' — empty means no image, frontend shows a placeholder |
 | memberEmail | string | | | **new**. Contact, visible to logged-in members only |
 | memberWhatsapp | string | | | **new**. Contact, visible to logged-in members only |
 | memberDesc | string | | | bio |

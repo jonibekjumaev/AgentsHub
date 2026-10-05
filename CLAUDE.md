@@ -4,13 +4,13 @@ This file guides Claude Code (claude.ai/code) when working in this repository.
 
 ## Project goal
 
-This repo is a **copy of Nestar** (a real estate platform), and it is being converted into **AgentHub**, a marketplace for AI agents (D-01). The original Nestar repo stays untouched.
+This repo is a **copy of Nestar** (a real estate platform), and it is being converted into **AgentsHub**, a marketplace for AI agents (D-01). The original Nestar repo stays untouched.
 
 - **CREATOR** members publish **Products**, which are listings for AI agents they built.
 - **USER** members publish **Briefs**, which describe a business need for a custom agent.
 - Contact happens off-platform: email/WhatsApp on the profile, shown to logged-in members only (D-07, D-08).
 
-**`docs/agenthub-er.md` is the source of truth** for every schema, DTO, enum and GraphQL type. `docs/decisions.md` records the reasons (D-01 … D-11). If code and the ER doc disagree, fix one of them on purpose and record why in `docs/decisions.md`. New decisions start as **Proposed**. Never delete a decision; mark it **Superseded by D-XX** instead.
+**`docs/agentshub-er.md` is the source of truth** for every schema, DTO, enum and GraphQL type. `docs/decisions.md` records the reasons (D-01 … D-21). If code and the ER doc disagree, fix one of them on purpose and record why in `docs/decisions.md`. New decisions start as **Proposed**. Never delete a decision; mark it **Superseded by D-XX** instead.
 
 The code is still almost entirely Nestar. Main conversions:
 
@@ -37,7 +37,11 @@ The code is still almost entirely Nestar. Main conversions:
   - multi-currency; all money is USD (D-06)
   - embeddings and Claude API features (D-11)
 
-**Naming trap:** In Nestar, "agent" means a *real-estate agent*, i.e. the member role. Examples: `MemberType.AGENT`, `getAgentProperties`, `aviableAgentSorts`, `batchAgents`, `BATCH_TOP_AGENTS`. In AgentHub, "agent" means an *AI agent*, i.e. the product. Old "agent" identifiers refer to the role and convert to `CREATOR`.
+**Naming trap:** In Nestar, "agent" means a *real-estate agent*, i.e. the member role. Examples: `MemberType.AGENT`, `getAgentProperties`, `aviableAgentSorts`, `batchAgents`, `BATCH_TOP_AGENTS`. In AgentsHub, "agent" means an *AI agent*, i.e. the product. Old "agent" identifiers refer to the role and convert to `CREATOR`.
+
+**Project name (D-21):** The name is **AgentsHub**. Use `AgentsHub` in prose, docs and UI; `agentshub` in kebab-case (`agentshub-api`, `agentshub-batch`); `AgentsHub…` in PascalCase class names (`AgentsHubBatchModule`); and `agentsHub` for the MongoDB dev database. Never use "AgentHub" or "Petoria". Use "Nestar" only for the original project.
+
+**Pending renames:** Step 3 renames the apps `nestar-api` / `nestar-batch` to `agentshub-api` / `agentshub-batch` (D-12) and points `MONGODB_DEV` to the new empty `agentsHub` database (D-13). Until then, the `nestar-*` paths below are the real ones.
 
 ## Commands
 
@@ -58,7 +62,7 @@ Known issues, so you don't trip over them:
 Environment variables in `.env`:
 
 - `PORT_API`, `PORT_BATCH`
-- `MONGODB_DEV` / `MONGODB_PROD`, chosen by `NODE_ENV === 'production'`
+- `MONGODB_DEV` / `MONGODB_PROD`, chosen by `NODE_ENV === 'production'`. Dev database: `agentsHub` (D-13). The prod database name is decided at deploy time.
 - `SECRET_TOKEN`: the JWT secret; tokens expire after 30 days
 
 ## Architecture
@@ -90,7 +94,7 @@ apps/
   nestar-batch/src/       @nestjs/schedule cron ranking: rollback 01:00:00, properties 01:00:20, agents 01:00:40
                           imports schemas, DTOs and enums directly from ../../nestar-api/src/...
 uploads/{member,property,article}/   local image storage (gitignored)
-docs/                     agenthub-er.md (schema source of truth), decisions.md
+docs/                     agentshub-er.md (schema source of truth), decisions.md
 ```
 
 Images are uploaded through `imageUploader` / `imagesUploader` in `member.resolver.ts`, which write to `uploads/<target>/<uuid>.<ext>`.
@@ -134,7 +138,7 @@ Images are uploaded through `imageUploader` / `imagesUploader` in `member.resolv
 
 ## Working rules for the conversion
 
-- Read the relevant section of `docs/agenthub-er.md`, and any linked decision, before you touch a schema, DTO or enum.
+- Read the relevant section of `docs/agentshub-er.md`, and any linked decision, before you touch a schema, DTO or enum.
 - Rename across all layers **in one step**, so both apps keep compiling and no Nestar leftovers remain (D-01, D-10). That means:
   - schema, DTOs and enums
   - service and resolver

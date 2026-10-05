@@ -1,3 +1,3 @@
-# Petoria Backend Skills
+# AgentsHub Backend Skills
 
-Use these codex skills for repetable Petoria backend workflows
+Use these Codex skills for repeatable AgentsHub backend workflows.
