@@ -28,6 +28,17 @@ export const getSerialForImage = (filename: string) => {
 	return uuidv4() + ext;
 };
 
+export const validUploadTargets = ['member', 'property', 'article'];
+export const getUploadPath = (target: string, imageName: string): string | null => {
+	if (!validUploadTargets.includes(target)) return null;
+
+	const uploadsRoot = path.resolve('uploads');
+	const resolved = path.resolve(uploadsRoot, target, imageName);
+	if (!resolved.startsWith(uploadsRoot + path.sep)) return null;
+
+	return `uploads/${target}/${imageName}`;
+};
+
 export const shapeInToMongoObjectId = (target: string | Types.ObjectId): Types.ObjectId => {
 	return typeof target === 'string' ? new Types.ObjectId(target) : target;
 };

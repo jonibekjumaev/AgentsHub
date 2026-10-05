@@ -9,7 +9,13 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { MemberType } from '../../libs/enums/member.enum';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { MemberUpdate, MemberUpdateByAdmin } from '../../libs/dto/member/member.update';
-import { getSerialForImage, validMimeTypes, shapeInToMongoObjectId } from '../../libs/config';
+import {
+	getSerialForImage,
+	getUploadPath,
+	validMimeTypes,
+	validUploadTargets,
+	shapeInToMongoObjectId,
+} from '../../libs/config';
 import { WithoutGuard } from '../auth/guards/without.guard';
 import type { ObjectId } from '../../libs/types/common';
 import { GraphQLUpload } from 'graphql-upload';
@@ -116,12 +122,14 @@ export class MemberResolver {
 	): Promise<string> {
 		console.log('Mutation: imageUploader');
 
+		if (!validUploadTargets.includes(target)) throw new BadRequestException(Message.BAD_REQUEST);
 		if (!filename) throw new BadRequestException(Message.UPLOAD_FAILED);
 		const validMime = validMimeTypes.includes(mimetype);
 		if (!validMime) throw new BadRequestException(Message.PROVIDE_ALLOWED_FORMAT);
 
 		const imageName = getSerialForImage(filename);
-		const url = `uploads/${target}/${imageName}`;
+		const url = getUploadPath(target, imageName);
+		if (!url) throw new BadRequestException(Message.BAD_REQUEST);
 		const stream = createReadStream();
 
 		const result = await new Promise((resolve, reject) => {
@@ -144,6 +152,8 @@ export class MemberResolver {
 	): Promise<string[]> {
 		console.log('Mutation: imagesUploader');
 
+		if (!validUploadTargets.includes(target)) throw new BadRequestException(Message.BAD_REQUEST);
+
 		const uploadedImages: string[] = [];
 		const promisedList = files.map(async (img: Promise<FileUpload>, index: number): Promise<Promise<void>> => {
 			try {
@@ -153,7 +163,8 @@ export class MemberResolver {
 				if (!validMime) throw new BadRequestException(Message.PROVIDE_ALLOWED_FORMAT);
 
 				const imageName = getSerialForImage(filename);
-				const url = `uploads/${target}/${imageName}`;
+				const url = getUploadPath(target, imageName);
+				if (!url) throw new BadRequestException(Message.BAD_REQUEST);
 				const stream = createReadStream();
 
 				const result = await new Promise((resolve, reject) => {
