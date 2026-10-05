@@ -20,9 +20,10 @@ export class MemberInput {
 	@Field(() => String)
 	memberPhone!: string;
 
-	@IsOptional()
-	@Field(() => MemberType, { nullable: true })
-	memberType?: MemberType;
+	@IsNotEmpty()
+	@IsIn([MemberType.USER, MemberType.AGENT])
+	@Field(() => MemberType)
+	memberType!: MemberType;
 
 	@IsOptional()
 	@Field(() => MemberAuthType, { nullable: true })

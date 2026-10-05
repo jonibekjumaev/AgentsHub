@@ -1,6 +1,6 @@
 import { Field, InputType } from '@nestjs/graphql';
 import { IsNotEmpty, IsOptional, Length } from 'class-validator';
-import { MemberStatus, MemberType } from '../../enums/member.enum';
+import { MemberStatus } from '../../enums/member.enum';
 import type { ObjectId } from '../../types/common';
 
 @InputType()
@@ -44,10 +44,6 @@ export class MemberUpdateByAdmin {
 	@IsNotEmpty()
 	@Field(() => String)
 	_id!: ObjectId;
-
-	@IsOptional()
-	@Field(() => MemberType, { nullable: true })
-	memberType?: MemberType;
 
 	@IsOptional()
 	@Field(() => MemberStatus, { nullable: true })
