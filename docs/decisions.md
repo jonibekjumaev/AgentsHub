@@ -519,3 +519,27 @@
     - The same applies to a creator's own products (`property.service.ts:61` view; `likeTargetProperty` at 206 has no owner check).
     - Excluding self-views and self-likes fully satisfies the principle. Track this as a bug under D-20.
   - **Creator rank no longer depends on product status,** so the D-16 trade-off that "creator ranking counts paused listings" no longer applies.
+
+## D-23 — How contact visibility (D-07) is enforced
+
+**Status:** Accepted
+
+- **Context:** D-07 says guests get `memberEmail` / `memberWhatsapp` as `null` and leaves the approach to Step 9. A `Member` reaches responses through many paths: `getMember`, `Members.list`, member-returning mutations, and every `$lookup` that embeds `memberData` / `followerData` / `followingData` (audit Step 9 lists them). The route guards don't help: they set `authMember` on `req.body` only for guarded operations, and `signup` / `login` have none.
+- **Options:**
+  - **A. One field resolver per contact field** on a `@Resolver(() => Member)` class.
+    - Pro: GraphQL runs it for every `Member` object however it was loaded, so existing and future queries are covered with no per-query code.
+    - Con: Runs once per `Member` per field, so the token check must be cached per request.
+  - **B. A response serializer / interceptor** that walks the result and nulls the fields for guests.
+    - Pro: Also one place.
+    - Con: Has to know every nesting shape; it walks the whole result instead of only the selected fields.
+  - **C. `$project` per query / lookup.**
+    - Con: Easy to miss a path. Rejected by the audit.
+- **Decision:** Option A. `MemberContactResolver` (`components/member/member-contact.resolver.ts`) resolves `memberEmail` and `memberWhatsapp`.
+  - It reads the `Authorization` header from the GraphQL context request and checks it with `AuthService.verifyToken`. It never trusts `req.body.authMember`, which a client can set on unguarded operations.
+  - A valid token is not enough: the caller's **current `memberStatus` in the database must be `ACTIVE`**. The resolver loads it with one `exists({ _id, memberStatus: ACTIVE })` query.
+  - The token check and the status lookup run **once per request**: the pending promise is cached in a `WeakMap` keyed by the request, so 50 members in a list share one verification and one DB read.
+  - A missing, invalid or expired token, or a member who is `BLOCK`, `DELETE` or no longer exists, means guest (`null`), never an error.
+- **Open questions, answered:**
+  - **Blocked / deleted members with a valid token** get `null`, the same as guests. After S9 the token has no `memberStatus`, so the status is read from the database (once per request, see above). This is the same rule as the chat connection check (S4: `findOne({ _id, memberStatus: ACTIVE })`). It is stricter than the route guards, which still accept any valid token; changing the guards is out of scope here.
+  - **Own data in `signup` / `login`:** the request has no token yet, so the contacts come back `null`. Accepted: one rule with no exceptions, and the client loads them with `getMember` and the new `accessToken` afterwards. `signup` can't set contacts anyway (`MemberInput` has no contact fields). `updateMember` is called with a token, so an `ACTIVE` caller gets their own contacts back.
+- **Consequence:** Every request that returns contact fields with a token costs one extra `members` read (by `_id`, so it uses the primary index). New queries that return a `Member` need nothing extra. Code outside GraphQL (JWT payload, socket `memberData`) must keep omitting the contacts (S9, S3).

@@ -528,7 +528,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - Read the `Authorization` header from the GraphQL context request and verify it with `AuthService.verifyToken`.
   - Verify **once per request** and cache the result on the request. Otherwise a list of 50 members verifies the token 100 times.
   - A missing, invalid or expired token means a guest (`null`), never an error.
-- **Open questions** (answer them in the same decision):
+- **Open questions** (answer them in the same decision; answered in **D-23**: only `ACTIVE` members see contacts, and `signup` / `login` return `null`):
   - **Blocked or deleted members:** is a valid token whose member is now `BLOCK` / `DELETE` "logged in"? After S9 the token has no `memberStatus`. Options: treat it as logged in (as the guards do today), or load the status once per request.
   - **Own data in `signup` / `login` responses:** the request has no token yet, so a token-based check returns `null` for the member's own contacts. Accept this (the client calls `getMember` afterwards), or treat the returned member as the caller.
 
@@ -552,6 +552,7 @@ The field-level check covers all of them automatically. Keep the list as the ver
   - a guest calls `getMember(A)` → both `null`
   - member B (logged in) calls `getMember(A)` → the stored values
   - an invalid or expired token → both `null` (guest), and no error
+  - block member B in Compass (`memberStatus: "BLOCK"`), then call `getMember(A)` with B's token → both `null`; set B back to `ACTIVE` → the stored values again (D-23)
 - As a guest, every path above that embeds A (`getCreators`, `getBoardArticles`, `getComments`, `getMemberFollowers` / `getMemberFollowings`, and later products, briefs, favorites and visited) → both `null`.
 - The schema shows both fields as nullable `String` on `Member`.
 - A list request verifies the token only once (check with a log line or a counter during the test).

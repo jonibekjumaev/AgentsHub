@@ -32,9 +32,11 @@ export class Member {
 	@Field(() => String)
 	memberImage!: string;
 
-	/** No @Field until guests get null for contact info (D-07) */
+	/** Guests get null; resolved only in MemberContactResolver (D-07) */
+	@Field(() => String, { nullable: true })
 	memberEmail?: string;
 
+	@Field(() => String, { nullable: true })
 	memberWhatsapp?: string;
 
 	@Field(() => String, { nullable: true })
