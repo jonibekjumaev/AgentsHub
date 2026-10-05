@@ -373,6 +373,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - add category/pricing/tag filters
   - text search on `productTitle` (and maybe `productTags`)
   - (bug, fix in its own commit) `text` goes into `new RegExp` unescaped (158). Use the `escapeRegex` helper added in Step 2.5 (S8); the member and board-article cases are already fixed there.
+    - **Done in Step 6 part 2:** `escapeRegex(text)`, plus `@MaxLength(searchTextMaxLength)` on `PIsearch.text`, the same as the member and board-article searches. **Still open** in this item: the other sub-points above and below.
   - keep the `productStatus: ACTIVE` match (104) for every caller, including the `memberId` filter used on other members' profiles. Paused products never appear here, not even for the owner (D-16).
 - [ ] `getCreatorProducts` (D-16): the owner sees `ACTIVE` + `PAUSED` (the current `≠ DELETE` match, 180). Keep it.
 - [ ] `getFavorities` / `getVisited` (166–172) call `likeService.getFavoriteProperties` / `viewService.getVisitedProperties` (see Step 8). Keep the misspelled operation name `getFavorities` (convention).

@@ -18,7 +18,7 @@ import { ViewService } from '../view/view.service';
 import { ViewInput } from '../../libs/dto/view/view.input';
 import { PropertyUpdate } from '../../libs/dto/property/property.update';
 import moment from 'moment';
-import { lookupAuthMemberLiked, lookupMember, shapeInToMongoObjectId } from '../../libs/config';
+import { escapeRegex, lookupAuthMemberLiked, lookupMember, shapeInToMongoObjectId } from '../../libs/config';
 import { LikeService } from '../like/like.service';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
@@ -155,7 +155,7 @@ export class PropertyService {
 		if (periodsRange) match.createdAt = { $gte: periodsRange.start, $lte: periodsRange.end };
 		if (squaresRange) match.propertySquare = { $gte: squaresRange.start, $lte: squaresRange.end };
 
-		if (text) match.propertyTitle = { $regex: new RegExp(text, 'i') };
+		if (text) match.propertyTitle = { $regex: new RegExp(escapeRegex(text), 'i') };
 		if (options) {
 			match['$or'] = options.map((ele) => {
 				return { [ele]: true };

@@ -1,8 +1,8 @@
 import { Field, Float, InputType, Int } from '@nestjs/graphql';
-import { IsIn, IsInt, IsNotEmpty, IsOptional, Length, Min } from 'class-validator';
+import { IsIn, IsInt, IsNotEmpty, IsOptional, Length, MaxLength, Min } from 'class-validator';
 import { PropertyLocation, PropertyStatus, PropertyType } from '../../enums/property.enum';
 import type { ObjectId } from '../../types/common';
-import { aviableOptions, aviablePropertySorts } from '../../config';
+import { aviableOptions, aviablePropertySorts, searchTextMaxLength } from '../../config';
 import { Direction } from '../../enums/common.enum';
 
 @InputType()
@@ -136,6 +136,7 @@ export class PIsearch {
 	squaresRange?: SquaresRange;
 
 	@IsOptional()
+	@MaxLength(searchTextMaxLength)
 	@Field(() => String, { nullable: true })
 	text?: string;
 }
