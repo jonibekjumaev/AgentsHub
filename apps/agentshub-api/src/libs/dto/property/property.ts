@@ -9,7 +9,7 @@ export class Property {
 	@Field(() => String)
 	_id!: ObjectId;
 
-	@Field(() => String)
+	@Field(() => PropertyStatus)
 	propertyStatus!: PropertyStatus;
 
 	@Field(() => String)

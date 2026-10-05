@@ -324,9 +324,10 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [ ] `Property` / `Properties` → `Product` / `Products`.
 - [x] Remove `propertyType`, `propertyLocation`, `propertyAddress`, `propertySquare`, `propertyBeds`, `propertyRooms`, `propertyBarter`, `propertyRent`, `soldAt` and `constructedAt` (12–37, 57–61, 66–73).
   - Done in Step 6 part 5.
-- [ ] `propertyType`, `propertyStatus` and `propertyLocation` are exposed as `@Field(() => String)`, not as their enums (12–19). Use `@Field(() => ProductStatus)` and so on for the new enum fields. (bug, fix in its own commit)
-  - **Done in Step 6 part 5:** `propertyType` and `propertyLocation` were removed (D-10), so they no longer apply. **Still open:** `propertyStatus` is still `String` (fix in part 6). The new `productCategory` / `productPricing` fields must use their enums when they are added (part 11).
+- [x] `propertyType`, `propertyStatus` and `propertyLocation` are exposed as `@Field(() => String)`, not as their enums (12–19). Use `@Field(() => ProductStatus)` and so on for the new enum fields. (bug, fix in its own commit)
+  - `propertyType` and `propertyLocation` were removed in Step 6 part 5 (D-10). `propertyStatus` was fixed in Step 6 part 6: it is now `@Field(() => PropertyStatus)`, and the part 7 rename carries it over as `ProductStatus`. The enum rule for the new fields is tracked in the next item.
 - [ ] Add `productCategory`, `productPricing`, `productPrice` (nullable Float), `productDemoUrl` (nullable) and `productTags` (nullable `[String]`).
+  - `productCategory` and `productPricing` must be `@Field(() => AgentCategory)` / `@Field(() => ProductPricing)`, not `String` (see the item above).
 
 ### DTO — `property.input.ts` → `product.input.ts`
 - [ ] `PropertyInput` (9–70) → `ProductInput`:
