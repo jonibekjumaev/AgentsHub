@@ -47,7 +47,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **Where:** `socket.gateway.ts:44–58`; `api/socket/socket.module.ts`
   - **Fix:** after `verifyToken`, load the member from the DB by `_id`. If they're missing or not `ACTIVE`, store `null` (a read-only guest). Build S3's public object from this DB record. Give `SocketModule` access to the `Member` model.
   - **Verify:** connect with a valid token of a member whose status is `BLOCK` → the join `info` shows `memberData: null`, and their messages are refused (S5).
-- [ ] **S5 — Chat: only authenticated members send (D-19 condition 2)**
+- [x] **S5 — Chat: only authenticated members send (D-19 condition 2)**
   - **Where:** `socket.gateway.ts:93–105`
   - **Fix:** if `clientsAuthMap.get(client)` is `null`, don't store or broadcast. Reply only to the sender with an `error` event.
   - **Verify:** a guest sends `{ "event": "message", "data": "hi" }` → the sender gets `error`, other clients receive nothing, and the history is unchanged.

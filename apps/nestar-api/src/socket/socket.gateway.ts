@@ -13,6 +13,7 @@ import { Server, WebSocket } from 'ws';
 import { AuthService } from '../components/auth/auth.service';
 import { Member } from '../libs/dto/member/member';
 import { MemberStatus, MemberType } from '../libs/enums/member.enum';
+import { Message } from '../libs/enums/common.enum';
 import type { ObjectId } from '../libs/types/common';
 import * as url from 'url';
 
@@ -35,6 +36,11 @@ interface InfoPayload {
 	totalClients: number;
 	memberData: PublicMember | null;
 	action: string;
+}
+
+interface ErrorPayload {
+	event: string;
+	message: string;
 }
 
 const toPublicMember = (member: PublicMember | null | undefined): PublicMember | null => {
@@ -124,15 +130,27 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 	@SubscribeMessage('message')
 	public handleMessage(client: WebSocket, payload: string): void {
 		const authMember = this.clientsAuthMap.get(client);
-		const newMessage: MessagePayload = { event: 'message', text: payload, memberData: authMember ?? null };
+		// Guests can read but not send (D-19 condition 2)
+		if (!authMember) {
+			this.logger.verbose(`REJECTED MESSAGE [Guest]`);
+			this.sendToClient(client, { event: 'error', message: Message.NOT_AUTHENTICATED });
+			return;
+		}
 
-		const clientNick: string = authMember?.memberNick ?? 'Guest';
-		this.logger.verbose(`NEW MESSAGE [${clientNick}] : [${payload}]`);
+		const newMessage: MessagePayload = { event: 'message', text: payload, memberData: authMember };
+		this.logger.verbose(`NEW MESSAGE [${authMember.memberNick}] : [${payload}]`);
 
 		this.messagesList.push(newMessage);
 		if (this.messagesList.length > 5) this.messagesList.splice(0, this.messagesList.length - 5);
 
 		this.emitMessage(newMessage);
+	}
+
+	private sendToClient(client: WebSocket, message: ErrorPayload) {
+		// only the sender
+		if (client.readyState === WebSocket.OPEN) {
+			client.send(JSON.stringify(message));
+		}
 	}
 
 	private broadcastMessage(sender: WebSocket, message: InfoPayload | MessagePayload) {
