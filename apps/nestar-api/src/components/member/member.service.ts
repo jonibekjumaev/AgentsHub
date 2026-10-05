@@ -97,9 +97,10 @@ export class MemberService {
 
 		// if (targetMember.memberStatus === MemberStatus.BLOCK) throw new InternalServerErrorException(Message.BLOCKED_USER);
 		if (memberId) {
-			// record view, increase View
+			// record view, increase View (own profile views don't count, D-22)
+			const isOwnProfile = memberId.equals(targetId);
 			const viewInput = { memberId: memberId, viewRefId: targetId, viewGroup: ViewGroup.MEMBER };
-			const newView = await this.viewService.recordView(viewInput);
+			const newView = isOwnProfile ? null : await this.viewService.recordView(viewInput);
 			if (newView) {
 				await this.memberModel.findOneAndUpdate(search, { $inc: { memberViews: 1 } }, { new: true }).exec();
 				targetMember.memberViews++;
@@ -146,6 +147,7 @@ export class MemberService {
 	}
 
 	public async likeTargetMember(memberId: ObjectId, likeRefId: ObjectId): Promise<Member> {
+		if (memberId.equals(likeRefId)) throw new BadRequestException(Message.NOT_ALLOWED_REQUEST); // D-22
 		const target = await this.memberModel.findOne({ _id: likeRefId, memberStatus: MemberStatus.ACTIVE }).exec();
 		if (!target) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
 

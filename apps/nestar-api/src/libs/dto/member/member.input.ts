@@ -123,6 +123,6 @@ export class MembersInquiry {
 	direction?: Direction;
 
 	@IsNotEmpty()
-	@Field(() => AISearch)
+	@Field(() => MISearch)
 	search!: MISearch;
 }

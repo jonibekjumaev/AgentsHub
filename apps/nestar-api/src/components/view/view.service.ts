@@ -5,6 +5,7 @@ import { ViewInput } from '../../libs/dto/view/view.input';
 import { ObjectId, T } from '../../libs/types/common';
 import { OrdinaryInquiry } from '../../libs/dto/property/property.input';
 import { ViewGroup } from '../../libs/enums/view.enum';
+import { PropertyStatus } from '../../libs/enums/property.enum';
 import { Properties } from '../../libs/dto/property/property';
 import { lookupVisit } from '../../libs/config';
 import { Model } from 'mongoose';
@@ -44,6 +45,7 @@ export class ViewService {
 					},
 				},
 				{ $unwind: '$visitedProperty' },
+				{ $match: { 'visitedProperty.propertyStatus': PropertyStatus.ACTIVE } }, // D-16
 				{
 					$facet: {
 						list: [

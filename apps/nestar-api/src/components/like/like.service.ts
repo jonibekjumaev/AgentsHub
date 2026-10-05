@@ -8,6 +8,7 @@ import { Message } from '../../libs/enums/common.enum';
 import { OrdinaryInquiry } from '../../libs/dto/property/property.input';
 import { Properties } from '../../libs/dto/property/property';
 import { LikeGroup } from '../../libs/enums/like.enum';
+import { PropertyStatus } from '../../libs/enums/property.enum';
 import { lookupFavorite } from '../../libs/config';
 
 @Injectable()
@@ -60,6 +61,7 @@ export class LikeService {
 					},
 				},
 				{ $unwind: '$favoriteProperty' },
+				{ $match: { 'favoriteProperty.propertyStatus': PropertyStatus.ACTIVE } }, // D-16
 				{
 					$facet: {
 						list: [

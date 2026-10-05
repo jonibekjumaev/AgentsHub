@@ -1,5 +1,5 @@
 import { Field, InputType } from '@nestjs/graphql';
-import { IsNotEmpty, IsOptional, Length } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, Length, ValidateIf } from 'class-validator';
 import { MemberStatus } from '../../enums/member.enum';
 import type { ObjectId } from '../../types/common';
 
@@ -24,7 +24,8 @@ export class MemberUpdate {
 	@Field(() => String, { nullable: true })
 	memberFullName?: string;
 
-	@IsOptional()
+	@ValidateIf((o) => o.memberImage !== undefined) // reject null; send '' to remove the image (D-15)
+	@IsString()
 	@Field(() => String, { nullable: true })
 	memberImage?: string;
 
@@ -68,7 +69,8 @@ export class MemberUpdateByAdmin {
 	@Field(() => String, { nullable: true })
 	memberFullName?: string;
 
-	@IsOptional()
+	@ValidateIf((o) => o.memberImage !== undefined) // reject null; send '' to remove the image (D-15)
+	@IsString()
 	@Field(() => String, { nullable: true })
 	memberImage?: string;
 

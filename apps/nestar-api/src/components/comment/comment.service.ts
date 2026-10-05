@@ -1,7 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { MemberService } from '../member/member.service';
-import { Model } from 'mongoose';
+import { isValidObjectId, Model } from 'mongoose';
 import { ObjectId, T } from '../../libs/types/common';
 import { CommentInput, CommentsInquiry } from '../../libs/dto/comment/comment.input';
 import { Comment, Comments } from '../../libs/dto/comment/comment';
@@ -11,11 +11,20 @@ import { PropertyService } from '../property/property.service';
 import { BoardArticleService } from '../board-article/board-article.service';
 import { CommentUpdate } from '../../libs/dto/comment/comment.update';
 import { lookupMember } from '../../libs/config';
+import { Property } from '../../libs/dto/property/property';
+import { BoardArticle } from '../../libs/dto/board-article/board-article';
+import { Member } from '../../libs/dto/member/member';
+import { PropertyStatus } from '../../libs/enums/property.enum';
+import { BoardArticleStatus } from '../../libs/enums/board-article.enum';
+import { MemberStatus } from '../../libs/enums/member.enum';
 
 @Injectable()
 export class CommentService {
 	constructor(
 		@InjectModel('Comment') private readonly commentModel: Model<Comment>,
+		@InjectModel('Property') private readonly propertyModel: Model<Property>,
+		@InjectModel('BoardArticle') private readonly boardArticleModel: Model<BoardArticle>,
+		@InjectModel('Member') private readonly memberModel: Model<Member>,
 		private readonly memberService: MemberService,
 		private readonly propertyService: PropertyService,
 		private readonly boardArticleService: BoardArticleService,
@@ -23,6 +32,7 @@ export class CommentService {
 
 	public async createComment(memberId: ObjectId, input: CommentInput): Promise<Comment> {
 		input.memberId = memberId;
+		await this.checkCommentTarget(input);
 		let result: Comment;
 		try {
 			result = await this.commentModel.create(input);
@@ -49,7 +59,7 @@ export class CommentService {
 				break;
 			case CommentGroup.MEMBER:
 				await this.memberService.memberStatsEditor({
-					_id: memberId,
+					_id: input.commentRefId,
 					targetKey: 'memberComments',
 					modifier: 1,
 				});
@@ -57,6 +67,27 @@ export class CommentService {
 		}
 
 		return result;
+	}
+
+	private async checkCommentTarget(input: CommentInput): Promise<void> {
+		const { commentGroup, commentRefId } = input;
+		if (!isValidObjectId(commentRefId)) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
+
+		let exist: T | null = null;
+		switch (commentGroup) {
+			case CommentGroup.PROPERTY:
+				exist = await this.propertyModel.exists({ _id: commentRefId, propertyStatus: PropertyStatus.ACTIVE }).exec();
+				break;
+			case CommentGroup.ARTICLE:
+				exist = await this.boardArticleModel
+					.exists({ _id: commentRefId, articleStatus: BoardArticleStatus.ACTIVE })
+					.exec();
+				break;
+			case CommentGroup.MEMBER:
+				exist = await this.memberModel.exists({ _id: commentRefId, memberStatus: MemberStatus.ACTIVE }).exec();
+				break;
+		}
+		if (!exist) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
 	}
 
 	public async updateComment(memberId: ObjectId, input: CommentUpdate): Promise<Comment> {

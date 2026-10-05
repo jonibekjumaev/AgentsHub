@@ -65,7 +65,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **Verify:**
     - two messages within 1 s from the same member, even from two different sockets → the second gets `error`, and only the first is broadcast
     - a message after 1 s → accepted
-- [ ] **S8 — Regex injection in text search**
+- [x] **S8 — Regex injection in text search**
   - **Where:** `api/components/member/member.service.ts:129,173`; `api/components/board-article/board-article.service.ts:103`
   - **Fix:** escape the user's `text` with a shared `escapeRegex` helper (in `libs/config.ts`) before `new RegExp`.
   - **Verify:**
@@ -74,20 +74,20 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - Step 6 uses the same helper in `property.service.ts:158`.
 
 ### Other bugs in surviving code
-- [ ] **B1 — `MembersInquiry.search` type**
+- [x] **B1 — `MembersInquiry.search` type**
   - **Where:** `api/libs/dto/member/member.input.ts:123–124`
   - **Fix:** `@Field(() => MISearch)` instead of `AISearch`.
   - **Verify:**
     - the generated GraphQL schema shows `MembersInquiry.search: MISearch!`
     - `getAllMembersByAdmin(input: { page: 1, limit: 10, search: { memberType: USER } })` still works
-- [ ] **B2 — `memberImage: null` breaks reads (D-15)**
+- [x] **B2 — `memberImage: null` breaks reads (D-15)**
   - **Where:** `api/libs/dto/member/member.update.ts:27–29` (`MemberUpdate`), `:75–77` (`MemberUpdateByAdmin`)
   - **Fix:** reject `null` for `memberImage`, e.g. `@ValidateIf((o) => o.memberImage !== undefined)` + `@IsString()`. Removing an image sends `''`.
   - **Verify:**
     - `updateMember(input: { memberImage: null })` → validation error
     - `{ memberImage: "" }` → OK
     - `getMember` afterwards returns a string, not a non-null GraphQL error
-- [ ] **B3 — Like schema uses the wrong enum**
+- [x] **B3 — Like schema uses the wrong enum**
   - **Where:** `api/schemas/Like.model.ts:2,8`
   - **Fix:** import and use `LikeGroup` instead of `ViewGroup`.
   - **Verify:**
@@ -95,21 +95,21 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - `likeTargetMember` and `likeTargetBoardArticle` still work
 
     The values are identical today; they diverge in step 4, when `ViewGroup` gains `BRIEF`.
-- [ ] **B4 — Favorites list includes deleted items (D-16)**
+- [x] **B4 — Favorites list includes deleted items (D-16)**
   - **Where:** `api/components/like/like.service.ts:62`
   - **Fix:** add `{ $match: { 'favoriteProperty.propertyStatus': PropertyStatus.ACTIVE } }` after the `$unwind` and **before** `$facet`.
   - **Verify:** like a property, then set it to `DELETE` with `updateProperty` → `getFavorities` no longer lists it, and `metaCounter[0].total` drops by 1.
   - Step 8 renames this to `favoriteProduct.productStatus`. With `PAUSED`, the same filter also hides paused products.
-- [ ] **B5 — Visited list includes deleted items (D-16)**
+- [x] **B5 — Visited list includes deleted items (D-16)**
   - **Where:** `api/components/view/view.service.ts:46`
   - **Fix:** add a `'visitedProperty.propertyStatus': ACTIVE` match after the `$unwind` and before `$facet`.
   - **Verify:** view a property, then delete it → `getVisited` no longer lists it, and the total drops by 1.
   - Step 8 renames it to `visitedProduct.productStatus`.
-- [ ] **B6 — Member comment counter goes to the author**
+- [x] **B6 — Member comment counter goes to the author**
   - **Where:** `api/components/comment/comment.service.ts:50–55`
   - **Fix:** increment `memberComments` on `input.commentRefId` (the member commented on), not on the author's `memberId`.
   - **Verify:** member A comments on member B's profile → B's `memberComments` +1, and A's is unchanged.
-- [ ] **B7 — `createComment` doesn't check the target**
+- [x] **B7 — `createComment` doesn't check the target**
   - **Where:** `api/components/comment/comment.service.ts:24–28`
   - **Fix:** before `create`, check that the target exists and is active for its group:
     - `PROPERTY` → `propertyStatus: ACTIVE`
@@ -122,11 +122,11 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - a comment on a deleted article → the same
     - a comment on an active article → success, `articleComments` +1
   - Step 8 adds `PRODUCT` (`ACTIVE` only, so `PAUSED` is rejected; D-16) and `BRIEF`.
-- [ ] **B8 — Board article `meLiked` is always empty**
+- [x] **B8 — Board article `meLiked` is always empty**
   - **Where:** `api/components/board-article/board-article.service.ts:119`
   - **Fix:** `lookupAuthMemberLiked(memberId)` (the default `'$_id'`), not `'$followingId'`.
   - **Verify:** like an article, then call `getBoardArticles` as the same member → that article has `meLiked[0].myFavorite: true`.
-- [ ] **B9 — Self-engagement on member profiles (D-22)**
+- [x] **B9 — Self-engagement on member profiles (D-22)**
   - **Where:** `api/components/member/member.service.ts:99–106` (`getMember`), `:148–160` (`likeTargetMember`)
   - **Fix:** don't record a view when `memberId` equals `targetId`. Reject a self-like with `Message.NOT_ALLOWED_REQUEST`.
   - **Verify:**
