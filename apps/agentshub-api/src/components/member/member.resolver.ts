@@ -17,7 +17,7 @@ import {
 	shapeInToMongoObjectId,
 } from '../../libs/config';
 import { WithoutGuard } from '../auth/guards/without.guard';
-import type { ObjectId } from '../../libs/types/common';
+import type { AuthPayload, ObjectId } from '../../libs/types/common';
 import { GraphQLUpload } from 'graphql-upload';
 import { createWriteStream } from 'fs';
 import { Message } from '../../libs/enums/common.enum';
@@ -50,7 +50,7 @@ export class MemberResolver {
 	@Roles(MemberType.USER, MemberType.CREATOR)
 	@UseGuards(RolesGuard)
 	@Query(() => String)
-	public async checkAuthRoles(@AuthMember() authMember: Member): Promise<string> {
+	public async checkAuthRoles(@AuthMember() authMember: AuthPayload): Promise<string> {
 		console.log('Query: checkAuthRole');
 		console.log('authMember:', authMember);
 		return `Hi ${authMember.memberNick},  you are ${authMember.memberType} (memberId: ${authMember._id.toString()})`;

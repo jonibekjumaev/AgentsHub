@@ -21,3 +21,10 @@ export interface StatisticModifier {
 	targetKey: string;
 	modifier: number;
 }
+
+/** The only claims in the JWT and on `authMember` (S9). Any other member field is loaded from the DB. */
+export interface AuthPayload {
+	_id: ObjectId;
+	memberType: import('../enums/member.enum').MemberType;
+	memberNick: string;
+}

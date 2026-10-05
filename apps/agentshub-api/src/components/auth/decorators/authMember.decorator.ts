@@ -1,9 +1,10 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
 import type { Request } from 'express';
-import { Member } from '../../../libs/dto/member/member';
+import { AuthPayload } from '../../../libs/types/common';
 
-export const AuthMember = createParamDecorator((data: string, context: ExecutionContext) => {
+/** Only the S9 token claims are available here. Load any other member field from the DB. */
+export const AuthMember = createParamDecorator((data: keyof AuthPayload | undefined, context: ExecutionContext) => {
 	let request: Request;
 
 	if (context.getType<GqlContextType>() === 'graphql') {
@@ -12,14 +13,14 @@ export const AuthMember = createParamDecorator((data: string, context: Execution
 
 		const body = request.body as Record<string, unknown>;
 		if (body.authMember) {
-			(body.authMember as Member & { authorization?: string }).authorization = request.headers?.authorization;
+			(body.authMember as AuthPayload & { authorization?: string }).authorization = request.headers?.authorization;
 		}
 	} else {
 		request = context.switchToHttp().getRequest<Request>();
 	}
 
-	const member = (request.body as Record<string, unknown>).authMember as Member | undefined;
+	const member = (request.body as Record<string, unknown>).authMember as AuthPayload | undefined;
 
-	if (member) return data ? member[data as keyof Member] : member;
+	if (member) return data ? member[data] : member;
 	else return null;
 });

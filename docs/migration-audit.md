@@ -72,7 +72,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - `getAgents` / `getAllMembersByAdmin` / `getBoardArticles` with `text: "("` → a normal (possibly empty) list. Today `new RegExp('(')` throws.
     - `text: "a.b"` matches only the literal `a.b`
   - Step 6 uses the same helper in `property.service.ts:158`.
-- [ ] **S9 — JWT payload carries the whole member (D-07)**
+- [x] **S9 — JWT payload carries the whole member (D-07)**
   - **When:** added during Step 5. It is **not** fixed in Step 2.5. It must be fixed **before D-07 exposes `memberEmail` / `memberWhatsapp`** in GraphQL, i.e. before [Step 9](#step-9--contact-visibility-d-07) starts.
   - **Where:**
     - `api/components/auth/auth.service.ts:21–31` (`createToken` copies every member key except `memberPassword`)
@@ -85,6 +85,16 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - decode the `accessToken` from `signup`, `login` and `updateMember` (locally, not on a third-party site) → the claims are exactly `_id`, `memberType`, `memberNick`, `iat` and `exp`
     - `checkAuth`, `checkAuthRoles`, the `@Roles` endpoints and the socket join still work
   - Tokens issued before the fix keep the old payload until they expire (30 days). Rotate `SECRET_TOKEN` when the fix is deployed.
+- [ ] **S10 — `checkAuthRoles` logs the bearer token**
+  - **When:** found while fixing S9.
+  - **Where:**
+    - `api/components/auth/decorators/authMember.decorator.ts:16` copies the raw `Authorization` header onto `authMember.authorization`
+    - `api/components/member/member.resolver.ts:55` (`checkAuthRoles`) prints the whole `authMember` with `console.log`
+  - **Problem:** checkAuthRoles logs the raw authorization header (bearer token) to stdout. Anyone who can read the logs can use the token until it expires (30 days).
+  - **Fix:** remove it. Delete the `console.log('authMember:', …)` in `checkAuthRoles`. Nothing reads `authMember.authorization`, so also stop the decorator from copying the header onto `authMember`.
+  - **Verify:**
+    - call `checkAuthRoles` with a valid token → the API's stdout contains no `Bearer` string and no token
+    - `checkAuth`, `checkAuthRoles` and the `@AuthMember('_id')` endpoints still work
 
 ### Other bugs in surviving code
 - [x] **B1 — `MembersInquiry.search` type**
@@ -600,6 +610,7 @@ The field-level check covers all of them automatically. Keep the list as the ver
 
 - [ ] In the frontend repo, remove the real-estate pages and filters (location, beds, rooms, square, barter/rent, sold state) in the same step (D-10).
 - [ ] Contact info must come from the API's null-for-guests behaviour, not only from hiding it in the UI (D-07).
+- [ ] After S9 the token holds only `_id`, `memberType`, `memberNick`. Load the member profile from the login response, and on page reload from the API, never from the token.
 - [ ] Show placeholder when memberImage is '' (D-15).
 - [ ] Community chat (D-19):
   - render message text as plain text only (text nodes, or the framework's default escaping), never as HTML (`innerHTML` / `dangerouslySetInnerHTML`)

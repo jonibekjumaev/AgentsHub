@@ -2,7 +2,7 @@ import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { AuthService } from '../auth.service';
 import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
 import type { Request } from 'express';
-import { Member } from '../../../libs/dto/member/member';
+import { AuthPayload } from '../../../libs/types/common';
 
 @Injectable()
 export class WithoutGuard implements CanActivate {
@@ -16,7 +16,7 @@ export class WithoutGuard implements CanActivate {
 			const request: Request = gqlContext.getContext<{ req: Request }>().req;
 			const bearerToken = request.headers.authorization;
 
-			let authMember: Member | null = null;
+			let authMember: AuthPayload | null = null;
 
 			if (bearerToken) {
 				try {
