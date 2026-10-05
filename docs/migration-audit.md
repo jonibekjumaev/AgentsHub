@@ -38,7 +38,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - `imageUploader(file, target: "../../tmp")` → `BadRequest`, and no file is written outside `uploads/`
     - the same for `imagesUploader`
     - `target: "member"` → returns `uploads/member/<uuid>.<ext>`
-  - Step 3 changes `property` → `product` in the whitelist.
+  - Step 6 changes `property` → `product` in the whitelist.
 - [ ] **S3 — Chat leaks member fields (D-19 condition 1, D-07)**
   - **Where:** `api/socket/socket.gateway.ts:15–26` (payload types), `66`, `86` (`info`), `96`, `101` (`message` and history), `72` (`getMessages`)
   - **Fix:** every `memberData` sent to clients is a public object `{ _id, memberNick, memberImage, memberType }`, or `null` for guests. Never send the token payload.
@@ -171,8 +171,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [ ] `CLAUDE.md`: update the app names and paths after the rename. Also remove the "Known issues" entries once they are fixed.
 
 ### Uploads
-- [ ] `uploads/property/` → `uploads/product/` (the folder is local and gitignored, so create it on each machine).
-- [ ] Upload target whitelist (added in Step 2.5, S2): change `property` → `product`, together with the folder rename above.
+- Moved to Step 6 (Uploads). Step 3 is naming and config only and must not change behaviour.
 
 ---
 
@@ -380,6 +379,10 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 ### Config — `api/libs/config.ts`
 - [ ] `aviableOptions = ['propertyBarter','propertyRent']` (9): remove it (D-10).
 - [ ] `aviablePropertySorts` (10–17) → `aviableProductSorts`, with `product*` keys.
+
+### Uploads (moved from Step 3)
+- [ ] Upload target whitelist `validUploadTargets` (added in Step 2.5, S2) in `api/libs/config.ts`: change `property` → `product`. This changes behaviour (uploads with `target: "property"` are rejected afterwards), so it belongs here and not in Step 3.
+- [ ] Create `uploads/product/` (the folder is local and gitignored, so create it on each machine). Old Nestar images in `uploads/property/` are not migrated (D-13).
 
 ---
 

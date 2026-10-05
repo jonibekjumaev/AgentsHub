@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Property } from '../../nestar-api/src/libs/dto/property/property';
+import { Property } from '../../agentshub-api/src/libs/dto/property/property';
 import { Model } from 'mongoose';
-import { Member } from '../../nestar-api/src/libs/dto/member/member';
-import { PropertyStatus } from '../../nestar-api/src/libs/enums/property.enum';
-import { MemberStatus, MemberType } from '../../nestar-api/src/libs/enums/member.enum';
+import { Member } from '../../agentshub-api/src/libs/dto/member/member';
+import { PropertyStatus } from '../../agentshub-api/src/libs/enums/property.enum';
+import { MemberStatus, MemberType } from '../../agentshub-api/src/libs/enums/member.enum';
 
 @Injectable()
 export class BatchService {
@@ -71,6 +71,6 @@ export class BatchService {
 	}
 
 	getHello(): string {
-		return 'Hello to Nestar BATCH server!';
+		return 'Hello to AgentsHub BATCH server!';
 	}
 }

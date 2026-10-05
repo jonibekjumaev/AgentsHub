@@ -5,8 +5,8 @@ import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from './database/database.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { MongooseModule } from '@nestjs/mongoose';
-import MemberSchema from '../../nestar-api/src/schemas/Member.model';
-import PropertySchema from '../../nestar-api/src/schemas/Property.model';
+import MemberSchema from '../../agentshub-api/src/schemas/Member.model';
+import PropertySchema from '../../agentshub-api/src/schemas/Property.model';
 
 @Module({
 	imports: [
@@ -19,4 +19,4 @@ import PropertySchema from '../../nestar-api/src/schemas/Property.model';
 	controllers: [BatchController],
 	providers: [BatchService],
 })
-export class BatchModule {}
+export class AgentsHubBatchModule {}

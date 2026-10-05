@@ -41,25 +41,28 @@ The code is still almost entirely Nestar. Main conversions:
 
 **Project name (D-21):** The name is **AgentsHub**. Use `AgentsHub` in prose, docs and UI; `agentshub` in kebab-case (`agentshub-api`, `agentshub-batch`); `AgentsHub…` in PascalCase class names (`AgentsHubBatchModule`); and `agentsHub` for the MongoDB dev database. Never use "AgentHub" or "Petoria". Use "Nestar" only for the original project.
 
-**Pending renames:** Step 3 renames the apps `nestar-api` / `nestar-batch` to `agentshub-api` / `agentshub-batch` (D-12) and points `MONGODB_DEV` to the new empty `agentsHub` database (D-13). Until then, the `nestar-*` paths below are the real ones.
+**App names (D-12):** the apps are `agentshub-api` and `agentshub-batch` (renamed from the Nestar app folders in Step 3). `docs/migration-audit.md` and `docs/decisions.md` still cite the old `apps/nestar-*` paths; read them as the new names.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `npm run start:dev` | API app `nestar-api` (default project), watch mode. Port `PORT_API` (fallback 3000). GraphQL at `/graphql` |
-| `npm run start:dev:batch` | Batch app `nestar-batch`, watch mode. Port `PORT_BATCH` (fallback 3008) |
-| `npm run build` | `nest build` (webpack) into `dist/` |
+| `npm run start:dev` | API app `agentshub-api` (default project), watch mode. Port `PORT_API` (fallback 3000). GraphQL at `/graphql` |
+| `npm run start:dev:batch` | Batch app `agentshub-batch`, watch mode. Port `PORT_BATCH` (fallback 3008) |
+| `npm run build` | `nest build` (webpack) into `dist/`. Builds the default project (`agentshub-api`); use `npx nest build agentshub-batch` for the batch app |
 | `npm run lint` | ESLint with `--fix` |
 | `npm run format` | Prettier on `apps/**/*.ts` |
 | `npm test` | Jest. There are no unit specs yet |
+| `npm run test:e2e` / `test:e2e:batch` | Jest with `apps/agentshub-*/test/jest-e2e.json` |
 
 Known issues, so you don't trip over them:
 
-- `start:prod` runs `dist/apps/nestar/main`, but the app is `nestar-api`.
-- `test:e2e` points to `./test/jest-e2e.json`, which does not exist at the root. The per-app configs are in `apps/*/test/`.
+- `start:prod` uses `NODE_ENV=production node ...`, which only works in a POSIX shell (not cmd/PowerShell).
+- `apps/agentshub-api/test/` has no e2e spec, so `test:e2e` finds no tests. The batch e2e spec still expects `'Hello World!'` (fixed in Step 10).
 
-Environment variables in `.env`:
+Environment variables (see `.env.example` for the key list):
+
+- **Never read or print `.env`; use `.env.example` to see which keys exist.**
 
 - `PORT_API`, `PORT_BATCH`
 - `MONGODB_DEV` / `MONGODB_PROD`, chosen by `NODE_ENV === 'production'`. Dev database: `agentsHub` (D-13). The prod database name is decided at deploy time.
@@ -71,7 +74,7 @@ This is a NestJS 10 monorepo (`nest-cli.json`, `monorepo: true`) with Apollo Gra
 
 ```
 apps/
-  nestar-api/src/
+  agentshub-api/src/
     main.ts               global ValidationPipe, LoggingInterceptor, graphql-upload (15MB, 10 files),
                           static /uploads, WsAdapter
     app.module.ts         GraphQLModule (custom formatError), ComponentsModule, DatabaseModule, SocketModule
@@ -91,8 +94,8 @@ apps/
     libs/types/common.ts  T, ObjectId, StatisticModifier
     socket/               raw `ws` gateway: public broadcast chat, last 5 messages kept in memory
                           (note: D-08 says no in-platform chat in the MVP)
-  nestar-batch/src/       @nestjs/schedule cron ranking: rollback 01:00:00, properties 01:00:20, agents 01:00:40
-                          imports schemas, DTOs and enums directly from ../../nestar-api/src/...
+  agentshub-batch/src/    @nestjs/schedule cron ranking: rollback 01:00:00, properties 01:00:20, agents 01:00:40
+                          AgentsHubBatchModule; imports schemas, DTOs and enums directly from ../../agentshub-api/src/...
 uploads/{member,property,article}/   local image storage (gitignored)
 docs/                     agentshub-er.md (schema source of truth), decisions.md
 ```
