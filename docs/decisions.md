@@ -75,7 +75,7 @@
 
 ## D-08 — Contact happens off-platform
 
-**Status:** Accepted
+**Status:** Accepted. **Partly superseded by D-19** (the existing community chat is kept; there are still no offers and no 1:1 chat).
 
 - **Decision:** No in-platform offers or chat in the MVP. Members contact each other through the email/WhatsApp shown on profiles.
 - **Reason:** Keeps the MVP at Nestar scale. Real-time chat is deferred.
@@ -288,7 +288,7 @@
     - If the product is `PAUSED`, comments are returned only to the owner and admins.
     - Everyone else gets the same result as for a missing product: `NO_DATA_FOUND`.
 - **Principle:** child records inherit the visibility of their parent. Whoever cannot see a product cannot see its comments, likes or views either. Apply the same rule to any future child record (e.g. notifications pointing to a product).
-- **Known trade-off:** a public profile count (`memberProducts`) can be higher than the number of products a guest sees. Creator ranking (`memberProducts*5`) also counts paused listings. Both are acceptable for the MVP.
+- **Known trade-off:** a public profile count (`memberProducts`) can be higher than the number of products a guest sees. Creator ranking (`memberProducts*5`) also counts paused listings. Both are acceptable for the MVP. *(The creator-ranking part no longer applies: D-22 removes `memberProducts` from the creator rank.)*
 - **Consequence / notes for implementation:**
   - **Filter position:** the favorites/visited status filter must run **before** `$facet`, so `metaCounter` counts only the `ACTIVE` products returned.
   - **Unlike is blocked too:** because likes are rejected on paused products, a member can't remove an existing like while the product is paused. The like is hidden anyway, since favorites only show `ACTIVE`.
@@ -298,7 +298,7 @@
 
 ## D-17 — Should `productComments` count in product ranking?
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** The batch ranks products as `likes*2 + views*1` (`batch.service.ts:48`). Products also have `productComments`. Likes and views are unique per member (unique index), but comments are not. The comment counter is also never decremented: `removeCommentByAdmin` and deleting via `updateComment` leave it as is. (Audit: Step 10.)
 - **Options:**
@@ -312,10 +312,22 @@
     - Pro: Rewards discussion and resists spam.
     - Con: The batch has to run an extra aggregation over `comments`, which is slower and more code.
 - **Recommendation:** **A** for the MVP. Adding a non-unique counter makes ranking easy to game. Revisit with C after the comment counter decrement is fixed.
+- **Decision:** Option A. Product ranking uses only likes and views, never comments.
+- **Principle:** a ranking signal must not be inflatable by a single member.
+  - Likes and views are unique per `{ refId, memberId }`. `Like.model.ts:26` and `View.model.ts:26` have unique indexes on `{ memberId, likeRefId }` / `{ memberId, viewRefId }`.
+  - Comments are not unique: `Comment.model.ts` has no index, so one member can comment any number of times.
+  - The comment counter never decreases on delete.
+- **Formula today** (checked in `apps/nestar-batch/src/batch.service.ts`):
+  - Product rank (line 48): `propertyLikes * 2 + propertyViews * 1`, computed only for `propertyStatus: ACTIVE` products with `propertyRank: 0` (lines 40–43). Fields used: `propertyLikes` and `propertyViews`. `propertyComments` is **not** used.
+  - The formula already matches this decision. Step 10 only renames the fields to `productLikes * 2 + productViews * 1`. No weights or fields change.
+- **Scope:** this decision covers product ranking only. Creator ranking is decided in D-22, which applies the same principle.
+- **Consequence:**
+  - Option C (counting unique commenters) can replace this later as a new decision that supersedes D-17.
+  - Product ranking never reads `productComments`, so the missing decrement on comment delete doesn't affect ranking.
 
 ## D-18 — Like/View index order and `notificationDesc` vs. the ER doc
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** The code differs from the ER doc in two places (audit: Step 8):
   1. The Like and View unique indexes are `{ memberId, likeRefId }` / `{ memberId, viewRefId }`, while the ER doc says `{ likeRefId, memberId }` / `{ viewRefId, memberId }`. Uniqueness is the same either way. What differs is which queries can use the index prefix:
@@ -334,10 +346,26 @@
     - Pro: Serves both kinds of query.
     - Con: Extra write cost and storage for an index that no current query uses.
 - **Recommendation:** **B.** Indexes should follow real query patterns. A required description adds nothing for short notifications like "X liked your product".
+- **Decision:** decided in two parts, field by field. It is not a blanket "the doc follows the code".
+  1. **Like/View unique index order: keep the code.** The indexes stay `{ memberId: 1, likeRefId: 1 }` (`Like.model.ts:26`) and `{ memberId: 1, viewRefId: 1 }` (`View.model.ts:26`). `docs/agentshub-er.md` is updated to match.
+     - **Reason:** MongoDB uses a compound index by prefix. With `memberId` first, the same index serves both:
+       - the favorites/visited queries, which match by `memberId` (`like.service.ts:48`, `view.service.ts:32`)
+       - the "already liked/viewed" checks, which match both fields (`like.service.ts:18,41`, `view.service.ts:26`)
+     - No current query filters by `likeRefId` / `viewRefId` alone, so a refId-first index would serve nothing extra.
+  2. **Required vs. optional, per field:**
+     - **`notificationDesc`: optional.** The title can be enough ("X liked your product"). The **ER doc** is fixed (NN removed), and `Notification.model.ts:29–31` stays as it is.
+     - **`productDesc`: required.** A listing without a description is useless to buyers, and semantic search (D-11) will rely on it later. The **code** is fixed in step 6 (schema `required: true`, plus `ProductInput` validation). The ER doc (NN) stays as it is.
+- **Principle:** when code and docs disagree, choose what is right for the product, not whichever was written first.
+- **Consequence:**
+  - **Future refId-only queries:** if a query that filters by `likeRefId` / `viewRefId` alone is added later (e.g. "who liked this product", or cleaning up likes when a product is removed), add a separate secondary index for it in that step.
+  - **Updates must not clear `productDesc`:** `ProductUpdate` keeps `productDesc` optional, but must not allow clearing it.
+    - `@IsOptional()` lets `null` through, and the service would `$set` it.
+    - Reject `null` and empty strings on update, the same pattern as `memberImage` in D-15.
+  - **GraphQL type:** the `Product` output type exposes `productDesc` as non-null `String`.
 
 ## D-19 — Keep or remove the WebSocket chat
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** `api/socket/` runs a public broadcast chat (registered in `app.module.ts`, with `WsAdapter` in `main.ts`). D-08 says there is no in-platform chat in the MVP. The gateway also broadcasts `memberData` (the full JWT payload) to every connected client, guests included. Once `memberEmail`/`memberWhatsapp` are added, that leaks contact details and breaks D-07. `@nestjs/platform-socket.io` is installed but not used. (Audit: Step 8.)
 - **Options:**
@@ -351,10 +379,47 @@
     - Pro: Real-time infrastructure is ready for future features.
     - Con: Contradicts D-08 unless D-08 is superseded. It must be fixed for D-07 now, and guests can still post.
 - **Recommendation:** **A.** D-08 already rules chat out, the gateway would break D-07, and git history keeps the code if a later decision brings real-time features back.
+- **Current chat** (checked in code; paths under `apps/nestar-api/src/`):
+  - **Wiring:** `SocketGateway` in `socket/socket.gateway.ts`, registered by `SocketModule` (`app.module.ts:12,41`). It runs on the API's own HTTP server through `WsAdapter` (`main.ts:7,20`), with `@WebSocketGateway({ transports: ['websocket'], secure: false })` (`socket.gateway.ts:28`). There is no separate port or path.
+  - **Who can connect:** anyone. `handleConnection` (55–73) accepts every connection. If there is no token, or it is invalid, `retrieveAuth` returns `null` (50–52) and the client joins as a guest.
+  - **How the member is identified:**
+    - The JWT comes from the `?token=` query string of the connection URL (46–47) and is checked with `AuthService.verifyToken` (49). That is a signature check only, with no database lookup.
+    - The decoded payload is kept per socket in `clientsAuthMap` (32, 58).
+    - The token payload is the **whole member document except `memberPassword`** (`auth.service.ts:24–28`).
+  - **What is broadcast:**
+    - On connect, an `info` event (`totalClients`, `action: 'joined'`, `memberData`) goes to **all** clients (63–70). The new client then gets `getMessages` with the stored history (72).
+    - On disconnect, an `info` event (`action: 'left'`) goes to everyone except the leaver (83–90).
+    - On `message`, `{ event: 'message', text, memberData }` goes to all clients (93–104).
+    - In every case `memberData` is the **full token payload** (18, 24, 66, 86, 96). Today that already exposes `memberPhone`, `memberStatus`, counters, etc. to guests. After Step 5 it would expose `memberEmail` / `memberWhatsapp` too.
+  - **Storage:** in memory only. `messagesList` keeps the last 5 messages (33, 101–102). They are lost on restart and not shared between server instances. No database collection exists.
+  - **Limits:** none.
+    - **Guests can send messages:** `handleMessage` doesn't check `authMember`, so guest messages get `memberData: null`.
+    - **No input checks:** the payload is not checked for type, emptiness or length (94–96).
+    - **No rate limit.**
+    - **Full text is logged:** every message is logged in full (99).
+- **Decision:** **Keep the WebSocket chat** as the community chat (closest to option C, without the "repurpose" part). This partly supersedes D-08. It is kept only under these conditions:
+  1. **Public fields only:** broadcast payloads contain only `_id`, `memberNick`, `memberImage` and `memberType`. They never contain `memberEmail`, `memberWhatsapp`, `memberPhone` or the full token payload (D-07). This applies to `message`, `info` (joined/left) and the `getMessages` history.
+  2. **Authenticated senders:** the token is verified on connection, and only authenticated members can send messages. Guests can only read.
+  3. **Message validation:** the text must be a string. It is trimmed, must not be empty, and is at most 500 characters.
+  4. **Rate limit:** at most 1 message per second per member. Count it per member `_id`, not per socket, so opening several connections doesn't bypass it.
+  5. **Plain text in the frontend:** messages are rendered as plain text, never as HTML.
+  6. **Scope:** this is the existing community chat only. A 1:1 creator–user chat is not part of the MVP and needs its own decision later.
+  7. **Member status checked on connection:** after verifying the token, load the member from the database by the token's `_id`.
+     - If the member is missing, or `memberStatus` is not `ACTIVE` (`BLOCK` or `DELETE`), treat the connection as a guest: read-only, with no sender identity stored.
+     - The public fields from condition 1 come from this database record, not from the token. That way a changed nick or image shows up without a new login.
+- **Reason:** owner decision: the community chat already works and adds value. The conditions remove its security problems: the D-07 leak, guest spam, unbounded input, XSS, and blocked members still posting.
+- **Accepted risks:**
+  - **The token is in the connection URL** (`?token=`, `socket.gateway.ts:46–47`). This is accepted for the MVP.
+    - **Reason:** the browser WebSocket API cannot send an `Authorization` header, so the URL is the practical way to pass the token at connection time.
+    - **Mitigation:** never log the socket connection URL, in application code or anywhere else the team controls. The current code doesn't log it: it only parses it at line 46, and the logs show just the nick. Keep it that way. When deploying behind a reverse proxy, make sure its access logs don't record the query string of the socket endpoint.
+  - **The status check runs only at connection time.** A member who is blocked while connected can keep sending until they disconnect. This is accepted for the MVP, because sessions are short-lived and reconnecting re-runs the check.
+- **Consequence:**
+  - **History stays in memory** (the last 5 messages), unchanged for the MVP. It is lost on restart and not shared between server instances. Persisting messages needs a separate decision, which would fully supersede D-08.
+  - **`SocketModule` needs member access** for condition 7. Today it imports only `AuthModule` (`socket.module.ts`), so it must also get the `Member` model or `MemberService`.
 
 ## D-20 — When to fix the existing bugs found in the audit
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** The audit marks about a dozen `(bug)` items. They fall into two groups:
   - **Bugs in code the migration rewrites anyway:**
@@ -385,6 +450,23 @@
     - Pro: Security fixes (admin signup, path traversal) land first. No effort is spent on code that is about to disappear.
     - Con: Two rules to follow, and each bug needs a quick check of which group it belongs to (the audit lists already make that clear).
 - **Recommendation:** **C.** The two security bugs shouldn't wait several steps, and fixing code that a later step replaces is wasted effort. Either way, use one commit per bug, so each fix can be reviewed and reverted on its own.
+- **Decision:** Option C (hybrid).
+  - **Step 2.5: pre-migration fixes**, a new step that runs before step 3. It fixes:
+    - bugs in code that survives the migration (code that later steps only rename, or don't touch)
+    - **all security holes**, wherever they are
+
+    Security holes go first, in this order:
+    1. admin signup (D-14)
+    2. upload path traversal
+    3. chat leaking member fields (D-19)
+  - **Bugs in code that a later step rewrites** are fixed inside that step.
+  - **One commit per fix:** every bug fix is its own commit, with the message format `fix: <what>`. A fix is never mixed with renames or migration changes.
+  - **Verification for every fix:** each fix states what to run or call and the expected result (e.g. "signup with `memberType: ADMIN` → validation error"). It is checked before the commit.
+- **Reason:** Security holes are closed before several migration steps go by, and no effort is spent fixing code that is about to be replaced. Separate `fix:` commits keep each fix reviewable and revertible, and they keep the migration diffs about the migration only.
+- **Consequence:**
+  - `docs/migration-audit.md` has a **Step 2.5** section listing each fix with its file:line, the fix and the verification. The remaining `(bug)` items stay in their steps, marked "fix in its own commit".
+  - **Code that is fixed now and renamed later:** Step 2.5 fixes use today's names (e.g. `MemberType.AGENT`, `PropertyStatus.ACTIVE`, the `property` upload target). The later rename steps carry them over, so those steps must keep the fix intact (each affected step has a note).
+  - This also sets when the code fixes for D-14, D-15 (`memberImage: null`), D-19 and D-22 (self-engagement on profiles) land: in Step 2.5.
 
 ## D-21 — Project name and naming rules
 
@@ -406,3 +488,34 @@
   - Code, config and `.env` still use the Nestar names until step 3 (D-12, D-13).
   - "Nestar" stays only where it refers to the original project, e.g. "copied from Nestar".
   - "AgentHub", "Petoria" and other variants should not be used anywhere.
+
+## D-22 — Creator ranking
+
+**Status:** Accepted
+
+- **Context:** The batch ranks creators (Nestar: agents) as `memberProperties * 5 + memberArticles * 3 + memberLikes * 2 + memberViews * 1` (`apps/nestar-batch/src/batch.service.ts:66`). `memberProperties` (→ `memberProducts`) and `memberArticles` count the creator's **own** posts, so a creator can raise their rank alone just by posting more. This breaks the principle from D-17.
+- **What `memberLikes` and `memberViews` count today** (checked in code): engagement the member **received**, but only on their **profile**.
+  - `memberViews`: `MemberService.getMember` (`apps/nestar-api/src/components/member/member.service.ts:87–116`) records a `ViewGroup.MEMBER` view and runs `$inc: { memberViews: 1 }` on the **viewed** member (`search._id = targetId`, lines 88–89 and 101–105). This happens only when the viewer is logged in (line 99).
+  - `memberLikes`: `MemberService.likeTargetMember` (`member.service.ts:148–164`) toggles a `LikeGroup.MEMBER` like and calls `memberStatsEditor({ _id: likeRefId, targetKey: 'memberLikes' })` (line 160). That is the **liked** member, not the liker.
+  - No other code writes these fields; the only references are the schema, DTO, sort lists and batch. Likes and views on a creator's products go only to `propertyLikes` / `propertyViews` (`apps/nestar-api/src/components/property/property.service.ts:65,218`) and never roll up to the owner's `memberLikes` / `memberViews`.
+  - Both are unique per `{ refId, memberId }` (D-17), so one other member adds at most +1 like and +1 view.
+- **Options:**
+  - **A. Keep the Nestar formula** (renamed to `memberProducts * 5 + memberArticles * 3 + memberLikes * 2 + memberViews * 1`).
+    - Pro: No change.
+    - Con: The two biggest weights are self-inflatable, which goes against D-17's principle.
+  - **B. Use only engagement received from other members:** `memberLikes * 2 + memberViews * 1`.
+    - Pro: Follows the principle. A one-line formula change, and the counters already exist.
+    - Con: Reflects profile engagement only (see the consequences below).
+  - **C. Like B, plus engagement received on the creator's products** (the sum of `productLikes` / `productViews` over their `ACTIVE` products).
+    - Pro: Rewards creators whose products are popular, not only their profile.
+    - Con: An extra aggregation over `products` per creator in the batch.
+- **Decision:** Option B. Creator rank uses only engagement received from other members, never the creator's own post counts (`memberProducts`, `memberArticles`). Same principle as D-17: a ranking signal must not be inflatable by a single member.
+  - Formula: **`memberLikes * 2 + memberViews * 1`**.
+- **Consequence:**
+  - **Step 10:** `batchCreators` drops `memberProducts` and `memberArticles` from the formula. `memberProducts` stays as a profile counter (D-16) but is not a ranking signal.
+  - **Profile-only signal:** the rank reflects engagement on the creator's *profile*, not on their products. A creator with popular products but few profile visits ranks low. Option C would close this gap; it can be adopted later as a new decision that supersedes D-22.
+  - **Self-engagement is counted** (existing bug):
+    - Neither `getMember` (line 99) nor `likeTargetMember` (line 148) checks that the caller is not the target, so a creator can add +1 view and +1 like to their own profile. The unique index caps it at +1 each.
+    - The same applies to a creator's own products (`property.service.ts:61` view; `likeTargetProperty` at 206 has no owner check).
+    - Excluding self-views and self-likes fully satisfies the principle. Track this as a bug under D-20.
+  - **Creator rank no longer depends on product status,** so the D-16 trade-off that "creator ranking counts paused listings" no longer applies.

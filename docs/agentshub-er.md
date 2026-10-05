@@ -76,7 +76,7 @@ Removed from Nestar: `memberAddress`, `memberProperties`.
 | productComments | int | NN | | default 0 |
 | productRank | int | NN | | default 0 |
 | productImages | string[] | NN | | at least 1 image |
-| productDesc | string | NN | | |
+| productDesc | string | NN | | required: a listing needs a description, and semantic search will rely on it (D-18) |
 | memberId | ObjectId | NN | FK → members | owner, must be a CREATOR |
 | deletedAt | date | | | |
 | createdAt | date | NN | | |
@@ -156,7 +156,7 @@ Suggested indexes:
 | createdAt | date | NN | | |
 | updatedAt | date | NN | | |
 
-Unique index: `{ likeRefId: 1, memberId: 1 }`.
+Unique index: `{ memberId: 1, likeRefId: 1 }`. `memberId` comes first so the same index serves the favorites query (by `memberId`) and the "already liked" check (both fields), see D-18.
 
 ### views
 
@@ -169,7 +169,7 @@ Unique index: `{ likeRefId: 1, memberId: 1 }`.
 | createdAt | date | NN | | |
 | updatedAt | date | NN | | |
 
-Unique index: `{ viewRefId: 1, memberId: 1 }`.
+Unique index: `{ memberId: 1, viewRefId: 1 }`. `memberId` comes first so the same index serves the visited query (by `memberId`) and the "already viewed" check (both fields), see D-18.
 
 ### follows (unchanged)
 
@@ -205,7 +205,7 @@ Unique index: `{ followingId: 1, followerId: 1 }`.
 | notificationGroup | enum | NN | | if it contains `PROPERTY`, replace it with `PRODUCT` and add `BRIEF` |
 | notificationStatus | enum | NN | | unchanged |
 | notificationTitle | string | NN | | |
-| notificationDesc | string | NN | | |
+| notificationDesc | string | | | optional, the title can be enough (D-18) |
 | authorId | ObjectId | NN | FK → members | who triggered it |
 | receiverId | ObjectId | NN | FK → members | who receives it |
 | productId | ObjectId | | FK → products | **replaces `propertyId`** |

@@ -2,10 +2,138 @@
 
 > Every place in the repo that depends on the Nestar Property domain, or on fields and enums that change according to `docs/agentshub-er.md`.
 > Items are grouped by the migration step that should fix them. Paths are relative to the repo root; `api/` = `apps/nestar-api/src/`, `batch/` = `apps/nestar-batch/src/`. Step 3 renames these folders to `apps/agentshub-api/` and `apps/agentshub-batch/` (D-12); after that, read the old paths as the new names.
-> `(bug)` = an existing defect found during the audit. Fix it in the step where the file is touched anyway.
+> `(bug)` = an existing defect found during the audit. Per D-20:
+> - Bugs in code that survives the migration, and all security holes, are fixed in **Step 2.5** before step 3.
+> - Bugs in code that a later step rewrites stay in that step, marked "fix in its own commit".
+> - Every fix is its own `fix: <what>` commit and is never mixed with renames.
 > `(decision)` = needs an owner decision; record it in `docs/decisions.md` as **Proposed** first.
 
 Audit baseline: branch `modification`, commit `e994860`.
+
+---
+
+## Step 2.5 — Pre-migration fixes (D-20)
+
+These fixes are made on today's Nestar code, before step 3, and they use today's names (`MemberType.AGENT`, `PropertyStatus`, the `property` upload target). The later rename steps carry them over.
+
+- Each item lists **where**, **fix** and **verify**.
+- One item = one commit, with message `fix: <what>`. Never mix in renames or migration changes.
+- Run the verification before committing.
+- Security holes come first.
+
+### Security
+- [ ] **S1 — Admin signup and type changes (D-14)**
+  - **Where:** `api/libs/dto/member/member.input.ts:23–25`; `api/libs/dto/member/member.update.ts:48–50`
+  - **Fix:** make `MemberInput.memberType` required (`@IsNotEmpty()`, non-nullable `@Field`) and limit it with `@IsIn([MemberType.USER, MemberType.AGENT])`. Remove `memberType` from `MemberUpdateByAdmin`.
+  - **Verify:**
+    - `signup` with `memberType: ADMIN` → validation error, and no member is created
+    - `signup` without `memberType` → error
+    - `signup` with `USER` or `AGENT` → success
+    - `updateMemberByAdmin(input: { _id, memberType: USER })` → GraphQL error "Field "memberType" is not defined", and the stored type is unchanged
+  - Step 4 renames `AGENT` → `CREATOR` inside this `@IsIn` list.
+- [ ] **S2 — Upload path traversal**
+  - **Where:** `api/components/member/member.resolver.ts:115,124` (`imageUploader`) and `:143,156` (`imagesUploader`)
+  - **Fix:** reject any `target` that isn't in a whitelist constant `['member', 'property', 'article']` (in `libs/config.ts`), using `BadRequestException`. Do this before building `uploads/${target}/...`.
+  - **Verify:**
+    - `imageUploader(file, target: "../../tmp")` → `BadRequest`, and no file is written outside `uploads/`
+    - the same for `imagesUploader`
+    - `target: "member"` → returns `uploads/member/<uuid>.<ext>`
+  - Step 3 changes `property` → `product` in the whitelist.
+- [ ] **S3 — Chat leaks member fields (D-19 condition 1, D-07)**
+  - **Where:** `api/socket/socket.gateway.ts:15–26` (payload types), `66`, `86` (`info`), `96`, `101` (`message` and history), `72` (`getMessages`)
+  - **Fix:** every `memberData` sent to clients is a public object `{ _id, memberNick, memberImage, memberType }`, or `null` for guests. Never send the token payload.
+  - **Verify:** connect a guest and a logged-in member. On join, message and leave, the guest receives `memberData` with exactly those four keys: no `memberPhone`, `memberStatus`, counters, `iat` or `exp`.
+- [ ] **S4 — Chat: member status on connection (D-19 condition 7)**
+  - **Where:** `socket.gateway.ts:44–58`; `api/socket/socket.module.ts`
+  - **Fix:** after `verifyToken`, load the member from the DB by `_id`. If they're missing or not `ACTIVE`, store `null` (a read-only guest). Build S3's public object from this DB record. Give `SocketModule` access to the `Member` model.
+  - **Verify:** connect with a valid token of a member whose status is `BLOCK` → the join `info` shows `memberData: null`, and their messages are refused (S5).
+- [ ] **S5 — Chat: only authenticated members send (D-19 condition 2)**
+  - **Where:** `socket.gateway.ts:93–105`
+  - **Fix:** if `clientsAuthMap.get(client)` is `null`, don't store or broadcast. Reply only to the sender with an `error` event.
+  - **Verify:** a guest sends `{ "event": "message", "data": "hi" }` → the sender gets `error`, other clients receive nothing, and the history is unchanged.
+- [ ] **S6 — Chat: message validation (D-19 condition 3)**
+  - **Where:** `socket.gateway.ts:94–96`
+  - **Fix:** reject payloads that aren't strings. `trim()` the text, and reject it if empty or longer than 500 characters. Store and broadcast the trimmed text.
+  - **Verify:**
+    - `"   "` → `error`
+    - 501 characters → `error`
+    - `123` (a number) → `error`
+    - `"  hi  "` → broadcast as `"hi"`
+- [ ] **S7 — Chat: rate limit (D-19 condition 4)**
+  - **Where:** `socket.gateway.ts:93–105`
+  - **Fix:** keep an in-memory `Map<memberId, lastSentAt>`. A message less than 1000 ms after the member's previous one is rejected with `error`.
+  - **Verify:**
+    - two messages within 1 s from the same member, even from two different sockets → the second gets `error`, and only the first is broadcast
+    - a message after 1 s → accepted
+- [ ] **S8 — Regex injection in text search**
+  - **Where:** `api/components/member/member.service.ts:129,173`; `api/components/board-article/board-article.service.ts:103`
+  - **Fix:** escape the user's `text` with a shared `escapeRegex` helper (in `libs/config.ts`) before `new RegExp`.
+  - **Verify:**
+    - `getAgents` / `getAllMembersByAdmin` / `getBoardArticles` with `text: "("` → a normal (possibly empty) list. Today `new RegExp('(')` throws.
+    - `text: "a.b"` matches only the literal `a.b`
+  - Step 6 uses the same helper in `property.service.ts:158`.
+
+### Other bugs in surviving code
+- [ ] **B1 — `MembersInquiry.search` type**
+  - **Where:** `api/libs/dto/member/member.input.ts:123–124`
+  - **Fix:** `@Field(() => MISearch)` instead of `AISearch`.
+  - **Verify:**
+    - the generated GraphQL schema shows `MembersInquiry.search: MISearch!`
+    - `getAllMembersByAdmin(input: { page: 1, limit: 10, search: { memberType: USER } })` still works
+- [ ] **B2 — `memberImage: null` breaks reads (D-15)**
+  - **Where:** `api/libs/dto/member/member.update.ts:27–29` (`MemberUpdate`), `:75–77` (`MemberUpdateByAdmin`)
+  - **Fix:** reject `null` for `memberImage`, e.g. `@ValidateIf((o) => o.memberImage !== undefined)` + `@IsString()`. Removing an image sends `''`.
+  - **Verify:**
+    - `updateMember(input: { memberImage: null })` → validation error
+    - `{ memberImage: "" }` → OK
+    - `getMember` afterwards returns a string, not a non-null GraphQL error
+- [ ] **B3 — Like schema uses the wrong enum**
+  - **Where:** `api/schemas/Like.model.ts:2,8`
+  - **Fix:** import and use `LikeGroup` instead of `ViewGroup`.
+  - **Verify:**
+    - `LikeSchema.path('likeGroup').enumValues` equals `Object.values(LikeGroup)`
+    - `likeTargetMember` and `likeTargetBoardArticle` still work
+
+    The values are identical today; they diverge in step 4, when `ViewGroup` gains `BRIEF`.
+- [ ] **B4 — Favorites list includes deleted items (D-16)**
+  - **Where:** `api/components/like/like.service.ts:62`
+  - **Fix:** add `{ $match: { 'favoriteProperty.propertyStatus': PropertyStatus.ACTIVE } }` after the `$unwind` and **before** `$facet`.
+  - **Verify:** like a property, then set it to `DELETE` with `updateProperty` → `getFavorities` no longer lists it, and `metaCounter[0].total` drops by 1.
+  - Step 8 renames this to `favoriteProduct.productStatus`. With `PAUSED`, the same filter also hides paused products.
+- [ ] **B5 — Visited list includes deleted items (D-16)**
+  - **Where:** `api/components/view/view.service.ts:46`
+  - **Fix:** add a `'visitedProperty.propertyStatus': ACTIVE` match after the `$unwind` and before `$facet`.
+  - **Verify:** view a property, then delete it → `getVisited` no longer lists it, and the total drops by 1.
+  - Step 8 renames it to `visitedProduct.productStatus`.
+- [ ] **B6 — Member comment counter goes to the author**
+  - **Where:** `api/components/comment/comment.service.ts:50–55`
+  - **Fix:** increment `memberComments` on `input.commentRefId` (the member commented on), not on the author's `memberId`.
+  - **Verify:** member A comments on member B's profile → B's `memberComments` +1, and A's is unchanged.
+- [ ] **B7 — `createComment` doesn't check the target**
+  - **Where:** `api/components/comment/comment.service.ts:24–28`
+  - **Fix:** before `create`, check that the target exists and is active for its group:
+    - `PROPERTY` → `propertyStatus: ACTIVE`
+    - `ARTICLE` → `articleStatus: ACTIVE`
+    - `MEMBER` → `memberStatus: ACTIVE`
+
+    Otherwise throw `NO_DATA_FOUND` and create nothing.
+  - **Verify:**
+    - a comment on a random ObjectId → `NO_DATA_FOUND`, no comment stored, no counter changed
+    - a comment on a deleted article → the same
+    - a comment on an active article → success, `articleComments` +1
+  - Step 8 adds `PRODUCT` (`ACTIVE` only, so `PAUSED` is rejected; D-16) and `BRIEF`.
+- [ ] **B8 — Board article `meLiked` is always empty**
+  - **Where:** `api/components/board-article/board-article.service.ts:119`
+  - **Fix:** `lookupAuthMemberLiked(memberId)` (the default `'$_id'`), not `'$followingId'`.
+  - **Verify:** like an article, then call `getBoardArticles` as the same member → that article has `meLiked[0].myFavorite: true`.
+- [ ] **B9 — Self-engagement on member profiles (D-22)**
+  - **Where:** `api/components/member/member.service.ts:99–106` (`getMember`), `:148–160` (`likeTargetMember`)
+  - **Fix:** don't record a view when `memberId` equals `targetId`. Reject a self-like with `Message.NOT_ALLOWED_REQUEST`.
+  - **Verify:**
+    - A calls `getMember(A)` → `memberViews` unchanged
+    - A calls `likeTargetMember(A)` → error, `memberLikes` unchanged
+    - B viewing or liking A still counts
+  - The product half (own product views and likes) is rewritten code, so it is fixed in Step 6.
 
 ---
 
@@ -44,7 +172,7 @@ Audit baseline: branch `modification`, commit `e994860`.
 
 ### Uploads
 - [ ] `uploads/property/` → `uploads/product/` (the folder is local and gitignored, so create it on each machine).
-- [ ] `api/components/member/member.resolver.ts:115,143`: `target` is a free string that goes straight into the file path `uploads/${target}/...`, which allows path traversal. Whitelist it to `member | product | article`. (bug)
+- [ ] Upload target whitelist (added in Step 2.5, S2): change `property` → `product`, together with the folder rename above.
 
 ---
 
@@ -79,7 +207,7 @@ Audit baseline: branch `modification`, commit `e994860`.
 - [ ] Add `memberBriefs: { type: Number, default: 0 }`.
 - [ ] Add `memberEmail` and `memberWhatsapp` (String, optional).
 - [x] `memberImage` default stays `''` (line 48); the ER doc now matches (D-15). No schema change. Do **not** add Mongoose `required: true`, because it rejects `''`.
-- [ ] `member.update.ts`: `memberImage: null` in `MemberUpdate` / `MemberUpdateByAdmin` must be rejected or converted to `''`, so the non-null GraphQL field never receives `null` (D-15).
+- `memberImage: null` on update (D-15): fixed in Step 2.5 (B2).
 
 ### DTOs — `api/libs/dto/member/`
 - [ ] `member.ts`:
@@ -90,8 +218,8 @@ Audit baseline: branch `modification`, commit `e994860`.
   - `AgentsInquiry` (61) → `CreatorsInquiry`
   - its `AISearch` class (46) → e.g. `CISearch`
   - the import of `aviableAgentSorts` (5, 73)
-- [ ] `member.input.ts:123–124` (bug): `MembersInquiry.search` is declared as `@Field(() => AISearch)` but typed as `MISearch`. Use `MISearch`.
-- [ ] `member.input.ts:23–25` (decision, D-02): `MemberInput.memberType` accepts **any** `MemberType`, including `ADMIN`, at signup. Restrict it to `USER | CREATOR`.
+- `MembersInquiry.search` type: fixed in Step 2.5 (B1).
+- Signup `memberType` restriction and removal from `MemberUpdateByAdmin` (D-14): fixed in Step 2.5 (S1). Keep the `@IsIn` list intact through step 4's `AGENT → CREATOR` rename.
 - [ ] `member.update.ts`:
   - `memberAdress` (typo; it never matched the schema) at lines 32–33 and 80–81: remove it
   - add `memberEmail` (`@IsEmail`) and `memberWhatsapp` to `MemberUpdate` and `MemberUpdateByAdmin`
@@ -140,7 +268,11 @@ Audit baseline: branch `modification`, commit `e994860`.
   - `constructedAt` (107–109)
 - [ ] Rename `property*` → `product*`: Status, Title, Price, Views, Likes, Comments, Rank, Images and Desc.
 - [ ] `productPrice`: `required: true` (36) → optional (D-03).
-- [ ] `productDesc` is optional now (79–81). The ER doc says **NN**, so make it required.
+- [ ] Make productDesc required (schema + input validation) (D-18):
+  - schema: `propertyDesc` (79–81) → `productDesc: { type: String, required: true }`
+  - `ProductInput`: `@IsNotEmpty()` instead of `@IsOptional()`; keep `@Length`
+  - `Product` output type: non-null `@Field(() => String)` instead of `nullable: true` (`property.ts:54–55`)
+  - `ProductUpdate`: stays optional, but must reject `null` and `''` so the description can't be cleared
 - [ ] Add these fields:
   - `productCategory` (AgentCategory, required)
   - `productPricing` (ProductPricing, required)
@@ -157,7 +289,7 @@ Audit baseline: branch `modification`, commit `e994860`.
 ### DTO — `property.ts` → `product.ts`
 - [ ] `Property` / `Properties` → `Product` / `Products`.
 - [ ] Remove `propertyType`, `propertyLocation`, `propertyAddress`, `propertySquare`, `propertyBeds`, `propertyRooms`, `propertyBarter`, `propertyRent`, `soldAt` and `constructedAt` (12–37, 57–61, 66–73).
-- [ ] `propertyType`, `propertyStatus` and `propertyLocation` are exposed as `@Field(() => String)`, not as their enums (12–19). Use `@Field(() => ProductStatus)` and so on for the new enum fields. (bug)
+- [ ] `propertyType`, `propertyStatus` and `propertyLocation` are exposed as `@Field(() => String)`, not as their enums (12–19). Use `@Field(() => ProductStatus)` and so on for the new enum fields. (bug, fix in its own commit)
 - [ ] Add `productCategory`, `productPricing`, `productPrice` (nullable Float), `productDemoUrl` (nullable) and `productTags` (nullable `[String]`).
 
 ### DTO — `property.input.ts` → `product.input.ts`
@@ -165,7 +297,7 @@ Audit baseline: branch `modification`, commit `e994860`.
   - drop Type, Location, Address, Square, Beds, Rooms, Barter, Rent and `constructedAt`
   - make `productPrice` optional (`@Min` > 0 is checked in the service, D-03)
   - `productImages`: `@ArrayMinSize(1)`
-  - `productDesc`: required
+  - `productDesc`: required (D-18; see the schema item above)
   - `productDemoUrl`: `@IsUrl({ protocols: ['http','https'], require_protocol: true })`
   - `productTags`: optional `[String]`
 - [ ] Remove `SquaresRange` (81–88). Decide whether `PeriodsRange` (90–97) is still needed.
@@ -211,7 +343,7 @@ Audit baseline: branch `modification`, commit `e994860`.
   - remove the location/rooms/beds/type/squares/options filters and the `$or` for options
   - add category/pricing/tag filters
   - text search on `productTitle` (and maybe `productTags`)
-  - (bug) `text` goes into `new RegExp` unescaped (158). The same applies in `member.service.ts:129,173` and `board-article.service.ts:103`.
+  - (bug, fix in its own commit) `text` goes into `new RegExp` unescaped (158). Use the `escapeRegex` helper added in Step 2.5 (S8); the member and board-article cases are already fixed there.
   - keep the `productStatus: ACTIVE` match (104) for every caller, including the `memberId` filter used on other members' profiles. Paused products never appear here, not even for the owner (D-16).
 - [ ] `getCreatorProducts` (D-16): the owner sees `ACTIVE` + `PAUSED` (the current `≠ DELETE` match, 180). Keep it.
 - [ ] `getFavorities` / `getVisited` (166–172) call `likeService.getFavoriteProperties` / `viewService.getVisitedProperties` (see Step 8). Keep the misspelled operation name `getFavorities` (convention).
@@ -222,7 +354,12 @@ Audit baseline: branch `modification`, commit `e994860`.
   - keep the `ACTIVE`-only target check (207). It rejects likes **and** unlikes on `PAUSED` products (D-16).
 - [ ] `getAllPropertiesByAdmin` (224–251): `propertyLocationList` filter → category filter. Admins see every status, including `PAUSED` (D-16).
 - [ ] `updatePropertyByAdmin` (253–275): the same `SOLD`/`soldAt` removal, plus `'memberProperties'` (269).
-- [ ] `removePropertyByAdmin` (277–286) (bug): `findByIdAndDelete(search)` passes an object as the id. Use `findOneAndDelete(search)`.
+- [ ] `removePropertyByAdmin` (277–286) (bug, fix in its own commit): `findByIdAndDelete(search)` passes an object as the id. Use `findOneAndDelete(search)`.
+- [ ] (bug, D-22, fix in its own commit) Self-engagement on own products:
+  - `getProduct` must not record a view when the caller owns the product (`property.service.ts:61`)
+  - `likeTargetProduct` must reject liking your own product (`:206`)
+
+  The profile half is fixed in Step 2.5 (B9).
 - [ ] `propertyStatsEditor` (288) → `productStatsEditor`. Callers: `comment.service.ts:37`.
 
 ### Resolver — `property.resolver.ts` → `product.resolver.ts`
@@ -277,8 +414,8 @@ Audit baseline: branch `modification`, commit `e994860`.
 ## Step 8 — Dependent modules (like, view, comment, notification, others)
 
 ### Like
-- [ ] `api/schemas/Like.model.ts:2,8` (bug): `likeGroup` is validated against **`ViewGroup`** instead of `LikeGroup`. After Step 4 this would allow `likeGroup: BRIEF`. Import `LikeGroup`.
-- [ ] `api/schemas/Like.model.ts:26`: the unique index is `{ memberId, likeRefId }`, but the ER doc says `{ likeRefId: 1, memberId: 1 }`. Align them, or record why they differ.
+- `Like.model.ts` uses the wrong enum (`ViewGroup`): fixed in Step 2.5 (B3).
+- [x] `api/schemas/Like.model.ts:26`: the unique index `{ memberId, likeRefId }` is kept; the ER doc now matches (D-18). No code change.
 - [ ] `api/components/like/like.service.ts`:
   - `getFavoriteProperties` (46–83) → `getFavoriteProducts`
   - `LikeGroup.PROPERTY` (48)
@@ -286,18 +423,18 @@ Audit baseline: branch `modification`, commit `e994860`.
   - alias `favoriteProperty` (59, 62, 69, 80) → `favoriteProduct`
   - return type `Properties`
   - imports `OrdinaryInquiry` / `Properties` from the property DTO (8–9)
-- [ ] `like.service.ts` (bug, D-16): `getFavoriteProducts` must return only `ACTIVE` products. Add `{ $match: { 'favoriteProduct.productStatus': ProductStatus.ACTIVE } }` after the `$unwind` (62) and **before** `$facet`, so `metaCounter` matches the list.
+- [ ] Favorites `ACTIVE` filter (added in Step 2.5, B4): rename it to `'favoriteProduct.productStatus': ProductStatus.ACTIVE`, keeping it before `$facet`. This also hides `PAUSED` products (D-16).
 - [ ] `api/libs/config.ts:132–139`: `lookupFavorite` uses `favoriteProperty.memberId` / `favoriteProperty.memberData` → `favoriteProduct.*`.
 
 ### View
-- [ ] `api/schemas/View.model.ts:26`: the index order is `{ memberId, viewRefId }`; the ER doc says `{ viewRefId: 1, memberId: 1 }`.
+- [x] `api/schemas/View.model.ts:26`: the unique index `{ memberId, viewRefId }` is kept; the ER doc now matches (D-18). No code change.
 - [ ] `api/components/view/view.service.ts`:
   - `getVisitedProperties` (30–65) → `getVisitedProducts`
   - `ViewGroup.PROPERTY` (32)
   - `from: 'properties'` (40)
   - alias `visitedProperty` (43, 46, 53, 62) → `visitedProduct`
   - imports (6, 8)
-- [ ] `view.service.ts` (bug, D-16): `getVisitedProducts` must return only `ACTIVE` products. Add a `'visitedProduct.productStatus': ACTIVE` match after the `$unwind` (46) and before `$facet`.
+- [ ] Visited `ACTIVE` filter (added in Step 2.5, B5): rename it to `'visitedProduct.productStatus': ProductStatus.ACTIVE`, keeping it before `$facet` (D-16).
 - [ ] `api/libs/config.ts:141–148`: `lookupVisit` uses `visitedProperty.*` → `visitedProduct.*`.
 
 ### Comment
@@ -306,8 +443,10 @@ Audit baseline: branch `modification`, commit `e994860`.
   - `case CommentGroup.PROPERTY` → `propertyStatsEditor('propertyComments')` (36–42) becomes `PRODUCT` → `productStatsEditor('productComments')`
   - add `case CommentGroup.BRIEF` → `briefStatsEditor('briefComments')`
 - [ ] `api/components/comment/comment.module.ts:10,24`: `PropertyModule` → `ProductModule`, and add `BriefModule`.
-- [ ] `comment.service.ts:50–55` (bug): the `MEMBER` case increments the **author's** `memberComments` (`_id: memberId`), not the target member's (`commentRefId`).
-- [ ] `comment.service.ts:24` (bug): `createComment` does not check that the target exists and is active. A comment on a missing or deleted product/brief still increments a counter. For `CommentGroup.PRODUCT`, the target must be `ACTIVE`, so comments on `PAUSED` products are rejected (D-16).
+- `MEMBER` comment counter on the author: fixed in Step 2.5 (B6).
+- [ ] `createComment` target check (added in Step 2.5, B7 for `PROPERTY`/`ARTICLE`/`MEMBER`):
+  - rename the `PROPERTY` case to `PRODUCT`; the target must be `ACTIVE`, so comments on `PAUSED` products are rejected (D-16)
+  - add `BRIEF` (target must exist and not be `DELETE`)
 - [ ] `getComments` (D-16, child records inherit the parent's visibility): for a `PRODUCT` target, load the product first.
   - `ACTIVE` → return comments to everyone
   - `PAUSED` → return comments only if the caller is the owner or an `ADMIN`
@@ -321,15 +460,18 @@ Audit baseline: branch `modification`, commit `e994860`.
 - [ ] `api/schemas/Notification.model.ts`:
   - `propertyId` with `ref: 'Property'` (45–48) → `productId` with `ref: 'Product'`
   - add `briefId` with `ref: 'Brief'`
-- [ ] `Notification.model.ts:29–31`: `notificationDesc` is optional, but the ER doc says **NN**. Align them, or record the reason.
+- [x] `Notification.model.ts:29–31`: `notificationDesc` stays optional; the ER doc now matches (D-18). No code change.
 - [ ] `NotificationGroup` is covered in Step 4.
 
 ### Board article, follow, notice
-- [ ] `api/components/board-article/board-article.service.ts:119` (bug): `lookupAuthMemberLiked(memberId, '$followingId')` matches likes against a field that doesn't exist, so `meLiked` is always empty. It should use the default `'$_id'`. This is not Property-related, but it's the same lookup family.
+- Board-article `meLiked` lookup: fixed in Step 2.5 (B8).
 - [ ] Board articles, follows and notices (`api/schemas/Notice.model.ts`) have no Property dependency and need no change. Some Uzbek comments in `follow.service.ts` (78, 86, 111) mention "agent" in the realtor sense. Leave them as they are (convention).
 
-### Socket (D-08)
-- [ ] `api/socket/socket.gateway.ts` and `api/socket/socket.module.ts` (registered in `api/app.module.ts:12,41`, with the WS adapter in `api/main.ts:7,20`) run a public in-memory chat. D-08 says there is no in-platform chat in the MVP. (decision) Remove it, or keep it and record why.
+### Socket (D-19: kept, partly superseding D-08)
+- [x] Keep `api/socket/socket.gateway.ts` / `socket.module.ts` (registered in `api/app.module.ts:12,41`, WS adapter in `api/main.ts:7,20`) as the community chat (D-19).
+- D-19 conditions 1, 2, 3, 4 and 7 (public fields only, authenticated senders, validation, rate limit, status on connection) are security fixes on surviving code, so they're fixed in Step 2.5 (S3–S7).
+- [ ] After Step 4/5, check that the public chat member still has exactly `{ _id, memberNick, memberImage, memberType }`, and that the new `memberEmail` / `memberWhatsapp` fields are not added to it.
+- [ ] Never log the socket connection URL (D-19, accepted risk: the token is in `?token=`). Keep `socket.gateway.ts:46` parse-only. Don't add the URL or the token to any log line. When deploying, check that the reverse proxy's access logs exclude the query string for the socket endpoint.
 
 ---
 
@@ -343,11 +485,12 @@ Audit baseline: branch `modification`, commit `e994860`.
   - `propertyStatus: ACTIVE` / `propertyRank` (19, 21) → `product*`
   - reset `productRank` for all non-deleted products (`productStatus ≠ DELETE`), not only `ACTIVE`, so a product that is reactivated doesn't keep a stale rank (D-16)
   - `memberType: MemberType.AGENT` (29) → `CREATOR`
-- [ ] `batchProperties` (38–53) → `batchProducts`. The rank is `productLikes*2 + productViews*1`. (decision) Should `productComments` count too?
+- [ ] `batchProperties` (38–53) → `batchProducts`. The rank becomes `productLikes*2 + productViews*1` (line 48: rename the fields only; weights unchanged). Comments are never used (D-17).
   - keep ranking only `ACTIVE` products (41). Paused products get no rank (D-16).
 - [ ] `batchAgents` (55–71) → `batchCreators`:
   - `memberType: AGENT` (58)
-  - formula `memberProperties*5 + …` (65–66) → `memberProducts*5 + …`. `memberProducts` includes paused products; this is an accepted trade-off (D-16), so no extra filter is needed.
+  - formula (65–66) `memberProperties*5 + memberArticles*3 + memberLikes*2 + memberViews*1` → **`memberLikes*2 + memberViews*1`** (D-22). Drop `memberProperties`/`memberProducts` and `memberArticles` from both the formula and the destructuring at line 65. The creator's own post counts are not a ranking signal.
+- Self-engagement in rankings (D-22): the profile half is fixed in Step 2.5 (B9), and the product half in Step 6 (its own commit).
 - [ ] `batch/batch.controller.ts`:
   - `BATCH_TOP_PROPERTIES` / `BATCH_TOP_AGENTS` (4, 35, 46)
   - `batchTopProperties` / `batchTopAgents` (36, 47)
@@ -356,7 +499,7 @@ Audit baseline: branch `modification`, commit `e994860`.
 - [ ] `batch/batch.controller.ts:8`: `new Logger('BatchController.name')` is a string literal, not `BatchController.name`. (cosmetic)
 - [ ] `batch/libs/config.ts:6–7`: `BATCH_TOP_PROPERTIES` → `BATCH_TOP_PRODUCTS` and `BATCH_TOP_AGENTS` → `BATCH_TOP_CREATORS`.
 - [ ] `batch/batch.service.ts:74`: hello string (see Step 3).
-- [ ] `apps/nestar-batch/test/app.e2e-spec.ts:4,11` (bug): imports `NestarBatchModule`, which doesn't exist (the class is `BatchModule`). Under D-21 the class may become `AgentsHubBatchModule`; either way, the spec must import the class's actual name. It also expects `'Hello World!'` (19). The spec can't compile.
+- [ ] `apps/nestar-batch/test/app.e2e-spec.ts:4,11` (bug, fix in its own commit; it stays here because steps 3 and 10 change both the module class name and the hello string it asserts): imports `NestarBatchModule`, which doesn't exist (the class is `BatchModule`). Under D-21 the class may become `AgentsHubBatchModule`; either way, the spec must import the class's actual name. It also expects `'Hello World!'` (19). The spec can't compile.
 - [ ] Ranking rollback only resets members with `memberStatus: ACTIVE`. Blocked or deleted creators keep a stale `memberRank`. (minor)
 
 ---
@@ -385,18 +528,27 @@ Audit baseline: branch `modification`, commit `e994860`.
 - [ ] In the frontend repo, remove the real-estate pages and filters (location, beds, rooms, square, barter/rent, sold state) in the same step (D-10).
 - [ ] Contact info must come from the API's null-for-guests behaviour, not only from hiding it in the UI (D-07).
 - [ ] Show placeholder when memberImage is '' (D-15).
+- [ ] Community chat (D-19):
+  - render message text as plain text only (text nodes, or the framework's default escaping), never as HTML (`innerHTML` / `dangerouslySetInnerHTML`)
+  - hide the send box for guests (they can only read)
+  - show the server's validation and rate-limit errors
+  - use only the public member fields (`_id`, `memberNick`, `memberImage`, `memberType`)
 - [ ] Owner product management: pause/resume buttons (`ACTIVE ↔ PAUSED`), and a "paused" badge in the owner's own product list (D-16).
 - [ ] Handle `NO_DATA_FOUND` from `getProduct` for paused products (e.g. old links and shared URLs). Hide like/comment controls on the owner's own paused product (D-16).
 
 ---
 
-## Open decisions (recorded in `docs/decisions.md` as D-12 … D-19)
+## Open decisions (recorded in `docs/decisions.md` as D-12 … D-20)
 
 1. Rename the apps `nestar-api` / `nestar-batch` (Step 3). **Accepted as D-12:** `agentshub-api` / `agentshub-batch`.
 2. Fresh DB vs. migrating Nestar members (Step 3). **Accepted as D-13:** new empty dev database `agentsHub` plus a seed script.
 3. Restrict `memberType` at signup to `USER | CREATOR` (Step 5, D-02). **Accepted as D-14:** required `@IsIn([USER, CREATOR])` at signup, no `memberType` in any update input, first admin created only by the seed script.
 4. Default `memberImage` path (Step 5). **Accepted as D-15:** default `''` means no image. The frontend shows a placeholder, and the DB never stores a placeholder path.
 5. `PAUSED` semantics: counter effect, owner visibility, and re-activation (Step 6). **Accepted as D-16:** option B. Visible only to the owner and admins. No likes, views or comments. Owner toggles `ACTIVE ↔ PAUSED`. `memberProducts` changes only on create and delete. Favorites/visited show `ACTIVE` only.
-6. Does `productComments` count in product ranking? (Step 10)
-7. Like/View index field order vs. the ER doc; `notificationDesc` NN vs. optional (Step 8).
-8. Keep or remove the WebSocket chat (Step 8, D-08).
+6. Does `productComments` count in product ranking? (Step 10) **Accepted as D-17:** no. Product ranking uses only likes and views; a ranking signal must not be inflatable by a single member. The current formula already complies, so Step 10 only renames the fields.
+7. Like/View index field order vs. the ER doc; `notificationDesc` NN vs. optional (Step 8). **Accepted as D-18:** keep the memberId-first indexes (ER doc updated). `notificationDesc` becomes optional (ER doc updated). `productDesc` becomes required (code fixed in Step 6). Rule: choose what is right for the product, not whichever was written first.
+8. Keep or remove the WebSocket chat (Step 8, D-08). **Accepted as D-19:** keep the community chat, which partly supersedes D-08. Conditions: public fields only, authenticated senders only, 1–500 trimmed characters, 1 message per second per member, plain-text rendering. A 1:1 chat needs its own decision.
+9. When to fix the existing bugs. **Accepted as D-20:** option C (hybrid).
+   - Bugs in surviving code, and all security holes, are fixed in Step 2.5 before step 3, security first (S1–S8, then B1–B9).
+   - Bugs in rewritten code are fixed inside their step.
+   - Each fix gets its own `fix: <what>` commit and a verification.
