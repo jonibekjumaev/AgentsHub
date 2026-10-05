@@ -229,10 +229,12 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - add `memberBriefs`, plus `memberEmail` and `memberWhatsapp` as nullable fields
 
   **Done in Step 5:** `memberAddress` removed; `memberProducts` and `memberBriefs` added. **Still open:** removing `memberProperties` (Step 6); `memberEmail`/`memberWhatsapp` are plain properties without `@Field` until D-07 is implemented.
-- [ ] `member.input.ts`:
+- [x] `member.input.ts`:
   - `AgentsInquiry` (61) → `CreatorsInquiry`
   - its `AISearch` class (46) → e.g. `CISearch`
   - the import of `aviableAgentSorts` (5, 73)
+
+  **Done in Step 5:** `AISearch` became **`CRISearch`**, not `CISearch`. `comment.input.ts:27` already defines a `CISearch` input, and GraphQL type names must be unique.
 - `MembersInquiry.search` type: fixed in Step 2.5 (B1).
 - Signup `memberType` restriction and removal from `MemberUpdateByAdmin` (D-14): fixed in Step 2.5 (S1). Keep the `@IsIn` list intact through step 4's `AGENT → CREATOR` rename.
 - [x] `member.update.ts`:
@@ -242,7 +244,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   **Done in Step 5:** `memberAdress` removed from both inputs. `memberEmail` (`@IsEmail`, max 254 characters) and `memberWhatsapp` (E.164, e.g. `+998901234567`) added to both, with the limits in `libs/config.ts`. `null` removes a contact; `''` is rejected. They are write-only until D-07 adds them to the `Member` output type.
 
 ### Service — `api/components/member/member.service.ts`
-- [ ] `getAgents` (123) → `getCreators`. It filters `memberType: MemberType.AGENT` (126).
+- [x] `getAgents` (123) → `getCreators`. It filters `memberType: MemberType.AGENT` (126).
 - [ ] `getAgents` checks `if (!result)` instead of `!result.length` (144). Make it consistent with the other list queries.
 - [ ] `getMember` (87) and the list queries return the whole document. The contact-visibility hook for `memberEmail`/`memberWhatsapp` goes here (D-07; the approach is chosen in **step 9**). Paths that must hide them from guests:
   - `getMember` (and `getMember(null, …)` when it is embedded as `memberData` in product, brief and article getters)
@@ -252,11 +254,12 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [ ] `memberStatsEditor` callers that pass `'memberProperties'` are listed in Step 6.
 
 ### Resolver — `api/components/member/member.resolver.ts`
-- [ ] `getAgents` query (72–77) → `getCreators`, using `CreatorsInquiry`.
+- [x] `getAgents` query (72–77) → `getCreators`, using `CreatorsInquiry`.
 - [ ] `checkAuthRoles` uses `@Roles(MemberType.USER, MemberType.AGENT)` (44).
 
 ### Config — `api/libs/config.ts`
-- [ ] `aviableAgentSorts` (6) → `aviableCreatorSorts`. Consider adding `memberProducts`.
+- [x] `aviableAgentSorts` (6) → `aviableCreatorSorts`. Consider adding `memberProducts`.
+  - Renamed with the same values. Adding `memberProducts` is deferred to Step 6, when the counter is actually maintained.
 
 ### Auth side effect
 - [ ] `api/components/auth/auth.service.ts:21–31` puts the **whole member** in the JWT, and `RolesGuard` (`guards/roles.guard.ts:30`) reads `memberType` from the token. Tokens issued before the rename still carry `AGENT` and `memberProperties` for up to 30 days. Rotate `SECRET_TOKEN` or force a re-login after the migration.
@@ -535,7 +538,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   |---|---|
   | `MemberType.AGENT` | `CREATOR` |
   | `Member.memberProperties`, `memberAddress` | `memberProducts`, plus new `memberBriefs`, `memberEmail`, `memberWhatsapp` (`null` for guests) |
-  | `getAgents(AgentsInquiry)` | `getCreators(CreatorsInquiry)` |
+  | `getAgents(AgentsInquiry)`, search input type `AISearch` | `getCreators(CreatorsInquiry)`, search input type `CRISearch` (same fields: `memberStatus`, `memberType`, `text`) |
   | `Property`, `Properties` types | `Product`, `Products` |
   | `createProperty`, `getProperty(propertyId)`, `updateProperty`, `getProperties`, `getAgentProperties`, `likeTargetProperty(propertyId)` | `createProduct`, `getProduct(productId)`, `updateProduct`, `getProducts`, `getCreatorProducts`, `likeTargetProduct(productId)` |
   | `getAllPropertiesByAdmin`, `updatePropertyByAdmin`, `removePropertyByAdmin(propertyId)` | `getAllProductsByAdmin`, `updateProductByAdmin`, `removeProductByAdmin(productId)` |

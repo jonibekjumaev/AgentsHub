@@ -2,7 +2,7 @@ import { Field, InputType, Int } from '@nestjs/graphql';
 import { IsIn, IsNotEmpty, IsOptional, Length, MaxLength, Min } from 'class-validator';
 import { MemberAuthType, MemberStatus, MemberType } from '../../enums/member.enum';
 import { Direction } from '../../enums/common.enum';
-import { aviableAgentSorts, aviableMemberSorts, searchTextMaxLength } from '../../config';
+import { aviableCreatorSorts, aviableMemberSorts, searchTextMaxLength } from '../../config';
 
 @InputType()
 export class MemberInput {
@@ -44,7 +44,7 @@ export class LoginInput {
 }
 
 @InputType()
-class AISearch {
+class CRISearch {
 	@IsOptional()
 	@Field(() => MemberStatus, { nullable: true })
 	memberStatus?: MemberStatus;
@@ -60,7 +60,7 @@ class AISearch {
 }
 
 @InputType()
-export class AgentsInquiry {
+export class CreatorsInquiry {
 	@IsNotEmpty()
 	@Min(1)
 	@Field(() => Int)
@@ -72,7 +72,7 @@ export class AgentsInquiry {
 	limit!: number;
 
 	@IsOptional()
-	@IsIn(aviableAgentSorts) // faqat shu array ichidagilarni sort larni qabul qiladi
+	@IsIn(aviableCreatorSorts) // faqat shu array ichidagilarni sort larni qabul qiladi
 	@Field(() => String, { nullable: true })
 	sort?: string;
 
@@ -81,8 +81,8 @@ export class AgentsInquiry {
 	direction?: Direction;
 
 	@IsNotEmpty()
-	@Field(() => AISearch)
-	search!: AISearch;
+	@Field(() => CRISearch)
+	search!: CRISearch;
 }
 
 @InputType()
