@@ -140,15 +140,15 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 ## Step 3 — Config (package names, DB name, env, app names)
 
 ### Package and scripts — `package.json`
-- [ ] `"name": "nestar"` → `agentshub` (line 2). `package-lock.json` lines 2 and 8 regenerate with `npm install`.
-- [ ] `start:prod` runs `dist/apps/nestar/main`, but the app is `nestar-api` (line 15). Fix the path, and rename it again if the app folder is renamed.
-- [ ] `start:dev:batch` / `start:prod:batch` refer to `nestar-batch` (lines 13 and 16).
-- [ ] `test:e2e` points to `./test/jest-e2e.json`, which does not exist (line 22). The configs are `apps/*/test/jest-e2e.json`.
-- [ ] `format` / `lint` globs include `libs/**` and `test/**`, which don't exist at the root (lines 10 and 17). Harmless; clean up optionally.
+- [x] `"name": "nestar"` → `agentshub` (line 2). `package-lock.json` lines 2 and 8 regenerate with `npm install`.
+- [x] `start:prod` runs `dist/apps/nestar/main`, but the app is `nestar-api` (line 15). Fix the path, and rename it again if the app folder is renamed.
+- [x] `start:dev:batch` / `start:prod:batch` refer to `nestar-batch` (lines 13 and 16).
+- [x] `test:e2e` points to `./test/jest-e2e.json`, which does not exist (line 22). The configs are `apps/*/test/jest-e2e.json`.
+- [x] `format` / `lint` globs include `libs/**` and `test/**`, which don't exist at the root (lines 10 and 17). Harmless; clean up optionally.
 - [ ] Empty `description` / `author` fields (lines 4–5).
 
 ### Monorepo app names — `nest-cli.json`
-- [ ] Rename the apps `nestar-api` / `nestar-batch` → `agentshub-api` / `agentshub-batch`, before any domain change (D-12, Accepted). This affects:
+- [x] Rename the apps `nestar-api` / `nestar-batch` → `agentshub-api` / `agentshub-batch`, before any domain change (D-12, Accepted). This affects:
   - `nest-cli.json` (`sourceRoot`, `root`, `projects.*`, `tsConfigPath`; lines 4, 8, 11, 13–29)
   - `apps/nestar-api/tsconfig.app.json` line 5 and `apps/nestar-batch/tsconfig.app.json` line 5 (`outDir`)
   - every `../../nestar-api/src/...` import in the batch app (see Step 10)
@@ -157,18 +157,18 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - the existing `dist/apps/nestar-*` build output (delete and rebuild)
 
 ### Database and environment — `.env` (gitignored)
-- [ ] `MONGODB_DEV` and `MONGODB_PROD` both point to the database **`Nestar`**. Point `MONGODB_DEV` to a new, empty database **`agentsHub`**, so the original Nestar data stays untouched (D-01, D-13).
-- [ ] `MONGODB_PROD`: the production database name is decided at deploy time (D-13). Until then, it must not point to `Nestar`.
+- [x] `MONGODB_DEV` and `MONGODB_PROD` both point to the database **`Nestar`**. Point `MONGODB_DEV` to a new, empty database **`agentsHub`**, so the original Nestar data stays untouched (D-01, D-13).
+- [x] `MONGODB_PROD`: the production database name is decided at deploy time (D-13). Until then, it must not point to `Nestar`.
 - [ ] No Nestar data is migrated (D-13, Accepted). Write a seed script (creators, users, products, briefs) for development.
-- [ ] No `.env.example` exists. Add one listing `PORT_API`, `PORT_BATCH`, `MONGODB_DEV`, `MONGODB_PROD` and `SECRET_TOKEN`.
-- [ ] Both `api/database/database.module.ts` and `batch/database/database.module.ts` (line 9) pick the URI by `NODE_ENV`. No change needed; keep them in sync.
+- [x] No `.env.example` exists. Add one listing `PORT_API`, `PORT_BATCH`, `MONGODB_DEV`, `MONGODB_PROD` and `SECRET_TOKEN`.
+- [x] Both `api/database/database.module.ts` and `batch/database/database.module.ts` (line 9) pick the URI by `NODE_ENV`. No change needed; keep them in sync.
 
 ### Branding strings
-- [ ] `api/app.service.ts:6`: `'Hello to Nestar API server!'`
-- [ ] `batch/batch.service.ts:74`: `'Hello to Nestar BATCH server!'`
+- [x] `api/app.service.ts:6`: `'Hello to Nestar API server!'`
+- [x] `batch/batch.service.ts:74`: `'Hello to Nestar BATCH server!'`
 - [x] `README.md`: stock NestJS README. Replace it with an AgentsHub README.
 - [x] `AGENTS.md` and `SKILLS.md` call the project **"Petoria"**. Correct them to AgentsHub.
-- [ ] `CLAUDE.md`: update the app names and paths after the rename. Also remove the "Known issues" entries once they are fixed.
+- [x] `CLAUDE.md`: update the app names and paths after the rename. Also remove the "Known issues" entries once they are fixed.
 
 ### Uploads
 - Moved to Step 6 (Uploads). Step 3 is naming and config only and must not change behaviour.
