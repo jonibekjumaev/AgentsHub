@@ -386,11 +386,12 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [ ] `updatePropertyByAdmin` (253–275): the same `SOLD`/`soldAt` removal, plus `'memberProperties'` (269).
 - [x] `removePropertyByAdmin` (277–286) (bug, fix in its own commit): `findByIdAndDelete(search)` passes an object as the id. Use `findOneAndDelete(search)`.
   - Fixed in Step 6 part 1. Mongoose cast the object to its `_id` and dropped the `propertyStatus: DELETE` condition, so `ACTIVE` properties were hard-deleted too. Now only a property that is already `DELETE` can be removed.
-- [ ] (bug, D-22, fix in its own commit) Self-engagement on own products:
+- [x] (bug, D-22, fix in its own commit) Self-engagement on own products:
   - `getProduct` must not record a view when the caller owns the product (`property.service.ts:61`)
   - `likeTargetProduct` must reject liking your own product (`:206`)
 
   The profile half is fixed in Step 2.5 (B9).
+  - Fixed in Step 6 part 3, on `getProperty` / `likeTargetProperty` before the rename, with the same pattern as B9. The owner's views are not recorded. The owner's like is rejected with `NOT_ALLOWED_REQUEST` after the target lookup, so a missing or non-`ACTIVE` property still returns `NO_DATA_FOUND`. Because likes toggle, the owner can't unlike either.
 - [ ] `propertyStatsEditor` (288) → `productStatsEditor`. Callers: `comment.service.ts:37`.
 
 ### Resolver — `property.resolver.ts` → `product.resolver.ts`

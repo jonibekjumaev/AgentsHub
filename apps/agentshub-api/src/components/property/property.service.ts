@@ -59,8 +59,10 @@ export class PropertyService {
 		if (!targetProperty) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
 
 		if (memberId) {
+			// own property views don't count (D-22)
+			const isOwnProperty = memberId.equals(targetProperty.memberId);
 			const viewInput: ViewInput = { memberId: memberId, viewRefId: propertyId, viewGroup: ViewGroup.PROPERTY };
-			const newView = await this.viewService.recordView(viewInput);
+			const newView = isOwnProperty ? null : await this.viewService.recordView(viewInput);
 			if (newView) {
 				await this.propertyStatsEditor({ _id: propertyId, targetKey: 'propertyViews', modifier: 1 });
 				targetProperty.propertyViews++;
@@ -206,6 +208,7 @@ export class PropertyService {
 	public async likeTargetProperty(memberId: ObjectId, likeRefId: ObjectId): Promise<Property> {
 		const target = await this.propertyModel.findOne({ _id: likeRefId, propertyStatus: PropertyStatus.ACTIVE }).exec();
 		if (!target) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
+		if (memberId.equals(target.memberId)) throw new BadRequestException(Message.NOT_ALLOWED_REQUEST); // D-22
 
 		const input: LikeInput = {
 			memberId: memberId,
