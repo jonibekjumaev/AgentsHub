@@ -1,12 +1,42 @@
 import { Field, Float, InputType, Int } from '@nestjs/graphql';
-import { IsIn, IsNotEmpty, IsOptional, Length, MaxLength, Min } from 'class-validator';
-import { ProductStatus } from '../../enums/product.enum';
+import {
+	ArrayMaxSize,
+	ArrayMinSize,
+	IsArray,
+	IsIn,
+	IsNotEmpty,
+	IsOptional,
+	IsString,
+	IsUrl,
+	Length,
+	Matches,
+	MaxLength,
+	Min,
+} from 'class-validator';
+import { ProductPricing, ProductStatus } from '../../enums/product.enum';
+import { AgentCategory } from '../../enums/agent-category.enum';
 import type { ObjectId } from '../../types/common';
-import { aviableProductSorts, searchTextMaxLength } from '../../config';
+import {
+	aviableProductSorts,
+	productDemoUrlMaxLength,
+	productDescMaxLength,
+	productDescMinLength,
+	productTagMaxLength,
+	productTagsMaxCount,
+	searchTextMaxLength,
+} from '../../config';
 import { Direction } from '../../enums/common.enum';
 
 @InputType()
 export class ProductInput {
+	@IsNotEmpty()
+	@Field(() => AgentCategory)
+	productCategory!: AgentCategory;
+
+	@IsNotEmpty()
+	@Field(() => ProductPricing)
+	productPricing!: ProductPricing;
+
 	@IsNotEmpty()
 	@Field(() => String)
 	@Length(3, 100)
@@ -16,14 +46,31 @@ export class ProductInput {
 	@Field(() => Float)
 	productPrice!: number;
 
+	@IsOptional()
+	@IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+	@MaxLength(productDemoUrlMaxLength)
+	@Field(() => String, { nullable: true })
+	productDemoUrl?: string;
+
+	// saved normalized: trimmed, lowercased, without duplicates (normalizeTags)
+	@IsOptional()
+	@IsArray()
+	@ArrayMaxSize(productTagsMaxCount)
+	@IsString({ each: true })
+	@Length(1, productTagMaxLength, { each: true })
+	@Matches(/\S/, { each: true, message: 'each tag must contain a non-space character' })
+	@Field(() => [String], { nullable: true })
+	productTags?: string[];
+
 	@IsNotEmpty()
+	@ArrayMinSize(1)
 	@Field(() => [String])
 	productImages!: string[];
 
-	@IsOptional()
-	@Length(5, 500)
-	@Field(() => String, { nullable: true })
-	productDesc?: string;
+	@IsNotEmpty()
+	@Length(productDescMinLength, productDescMaxLength)
+	@Field(() => String)
+	productDesc!: string;
 
 	memberId?: ObjectId;
 }

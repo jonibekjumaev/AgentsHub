@@ -1,6 +1,7 @@
 import { Field, Float, Int, ObjectType } from '@nestjs/graphql';
 import type { ObjectId } from '../../types/common';
-import { ProductStatus } from '../../enums/product.enum';
+import { ProductPricing, ProductStatus } from '../../enums/product.enum';
+import { AgentCategory } from '../../enums/agent-category.enum';
 import { Member, TotalCounter } from '../member/member';
 import { MeLiked } from '../like/like';
 
@@ -9,14 +10,26 @@ export class Product {
 	@Field(() => String)
 	_id!: ObjectId;
 
+	@Field(() => AgentCategory)
+	productCategory!: AgentCategory;
+
 	@Field(() => ProductStatus)
 	productStatus!: ProductStatus;
+
+	@Field(() => ProductPricing)
+	productPricing!: ProductPricing;
 
 	@Field(() => String)
 	productTitle!: string;
 
 	@Field(() => Float)
 	productPrice!: number;
+
+	@Field(() => String, { nullable: true })
+	productDemoUrl?: string;
+
+	@Field(() => [String], { nullable: true })
+	productTags?: string[];
 
 	@Field(() => Int)
 	productViews!: number;
@@ -33,8 +46,8 @@ export class Product {
 	@Field(() => [String])
 	productImages!: string[];
 
-	@Field(() => String, { nullable: true })
-	productDesc?: string;
+	@Field(() => String)
+	productDesc!: string;
 
 	@Field(() => String)
 	memberId!: ObjectId;

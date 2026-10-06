@@ -69,14 +69,14 @@ Removed from Nestar: `memberAddress`, `memberProperties`.
 | productPricing | enum ProductPricing | NN | | |
 | productTitle | string | NN | | |
 | productPrice | double | | | conditional, see D-03 |
-| productDemoUrl | string | | | must be a valid http(s) URL |
-| productTags | string[] | | | free tags, e.g. "telegram", "crm" |
+| productDemoUrl | string | | | must be a valid http(s) URL, max 500 characters |
+| productTags | string[] | | | free tags, e.g. "telegram", "crm"; max 10, 1–30 characters each; saved trimmed, lowercased and without duplicates |
 | productViews | int | NN | | default 0 |
 | productLikes | int | NN | | default 0 |
 | productComments | int | NN | | default 0 |
 | productRank | int | NN | | default 0 |
 | productImages | string[] | NN | | at least 1 image |
-| productDesc | string | NN | | required: a listing needs a description, and semantic search will rely on it (D-18) |
+| productDesc | string | NN | | required, 20–3000 characters: a listing needs a description, and semantic search will rely on it (D-18). Can't be cleared on update |
 | memberId | ObjectId | NN | FK → members | owner, must be a CREATOR |
 | deletedAt | date | | | |
 | createdAt | date | NN | | |

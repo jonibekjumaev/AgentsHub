@@ -1,12 +1,25 @@
 import { Schema } from 'mongoose';
-import { ProductStatus } from '../libs/enums/product.enum';
+import { ProductPricing, ProductStatus } from '../libs/enums/product.enum';
+import { AgentCategory } from '../libs/enums/agent-category.enum';
 
 const ProductSchema = new Schema(
 	{
+		productCategory: {
+			type: String,
+			enum: AgentCategory,
+			required: true,
+		},
+
 		productStatus: {
 			type: String,
 			enum: ProductStatus,
 			default: ProductStatus.ACTIVE,
+		},
+
+		productPricing: {
+			type: String,
+			enum: ProductPricing,
+			required: true,
 		},
 
 		productTitle: {
@@ -17,6 +30,14 @@ const ProductSchema = new Schema(
 		productPrice: {
 			type: Number,
 			required: true,
+		},
+
+		productDemoUrl: {
+			type: String,
+		},
+
+		productTags: {
+			type: [String],
 		},
 
 		productViews: {
@@ -46,6 +67,7 @@ const ProductSchema = new Schema(
 
 		productDesc: {
 			type: String,
+			required: true,
 		},
 
 		memberId: {
@@ -63,6 +85,7 @@ const ProductSchema = new Schema(
 
 ProductSchema.index({ memberId: 1, productTitle: 1 }, { unique: true });
 ProductSchema.index({ memberId: 1, productStatus: 1 });
+ProductSchema.index({ productCategory: 1, productStatus: 1 });
 ProductSchema.index({ productStatus: 1, productRank: -1 });
 
 export default ProductSchema;

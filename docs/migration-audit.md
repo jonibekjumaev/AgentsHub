@@ -330,25 +330,31 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [x] Rename `property*` → `product*`: Status, Title, Price, Views, Likes, Comments, Rank, Images and Desc.
   - Done in Step 6 part 7. Existing documents were renamed by the migration script.
 - [ ] `productPrice`: `required: true` (36) → optional (D-03).
-- [ ] Make productDesc required (schema + input validation) (D-18):
+- [x] Make productDesc required (schema + input validation) (D-18):
   - schema: `propertyDesc` (79–81) → `productDesc: { type: String, required: true }`
   - `ProductInput`: `@IsNotEmpty()` instead of `@IsOptional()`; keep `@Length`
   - `Product` output type: non-null `@Field(() => String)` instead of `nullable: true` (`property.ts:54–55`)
   - `ProductUpdate`: stays optional, but must reject `null` and `''` so the description can't be cleared
-- [ ] Add these fields:
+  - Done in Step 6 part 11. The length is **20–3000** characters (not the old 5–500) on create and update, because it is the main text for semantic search later (D-18). The limits are `productDescMinLength` / `productDescMaxLength` in `libs/config.ts`. The update uses `@ValidateIf(… !== undefined)`, so `null` and `''` are rejected (D-15 pattern).
+- [x] Add these fields:
   - `productCategory` (AgentCategory, required)
   - `productPricing` (ProductPricing, required)
   - `productDemoUrl` (String)
   - `productTags` ([String])
+  - Done in Step 6 part 11 (schema, output, create and update inputs). Rules:
+    - `productDemoUrl`: http(s) with protocol, max 500 characters; `null` on update removes it.
+    - `productTags`: max 10, 1–30 characters each, not blank. Saved trimmed, lowercased and without duplicates by `normalizeTags()` (`libs/utils.ts`) in `createProduct`, `updateProduct` and `updateProductByAdmin`. On update, `null` is rejected and `[]` removes all tags.
+    - `productCategory` / `productPricing` on update: `null` is rejected.
+  - Dev data: the old test products lacked the new required fields, and one such product breaks every product read and list (non-null GraphQL fields). `scripts/migrations/step6-part11-delete-test-products.mongosh.js` deletes them together with their likes, views, comments and notifications, and resets `memberProducts` (option B; D-13, the seed script replaces them). Run it before starting the part 11 API.
 - [x] `collection: 'properties'` (111) → `'products'`.
   - Done in Step 6 part 7. The migration script renamed the collection.
-- [ ] Replace the unique index `{ propertyType, propertyLocation, propertyTitle, propertyPrice }` (114) with the indexes from the ER doc:
+- [x] Replace the unique index `{ propertyType, propertyLocation, propertyTitle, propertyPrice }` (114) with the indexes from the ER doc:
   - unique `{ memberId: 1, productTitle: 1 }`
   - `{ memberId: 1, productStatus: 1 }`
   - `{ productCategory: 1, productStatus: 1 }`
   - `{ productStatus: 1, productRank: -1 }`
 
-  **Done in Step 6 part 5:** the old unique index is replaced with unique `{ memberId, propertyTitle }`, `{ memberId, propertyStatus }` and `{ propertyStatus, propertyRank: -1 }`. Mongoose doesn't drop old indexes, so `propertyType_1_propertyLocation_1_propertyTitle_1_propertyPrice_1` must be dropped by hand in any existing `properties` collection. **Done in Step 6 part 7:** the `product*` index names. The migration script dropped the old indexes and created the new ones. **Still open:** the `{ productCategory, productStatus }` index (when `productCategory` is added, part 11).
+  **Done in Step 6 part 5:** the old unique index is replaced with unique `{ memberId, propertyTitle }`, `{ memberId, propertyStatus }` and `{ propertyStatus, propertyRank: -1 }`. Mongoose doesn't drop old indexes, so `propertyType_1_propertyLocation_1_propertyTitle_1_propertyPrice_1` must be dropped by hand in any existing `properties` collection. **Done in Step 6 part 7:** the `product*` index names. The migration script dropped the old indexes and created the new ones. **Done in Step 6 part 11:** the `{ productCategory, productStatus }` index.
 - [x] Mongoose model name `'Property'` → `'Product'`. It is used in `property.module.ts:15`, `property.service.ts:29`, `batch/batch.module.ts:16`, `batch/batch.service.ts:12` and the `ref: 'Property'` in `Notification.model.ts:47`.
   - Done in Step 6 part 7 (also `comment.module.ts` and `comment.service.ts`).
 
@@ -360,6 +366,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [x] `propertyType`, `propertyStatus` and `propertyLocation` are exposed as `@Field(() => String)`, not as their enums (12–19). Use `@Field(() => ProductStatus)` and so on for the new enum fields. (bug, fix in its own commit)
   - `propertyType` and `propertyLocation` were removed in Step 6 part 5 (D-10). `propertyStatus` was fixed in Step 6 part 6: it is now `@Field(() => PropertyStatus)`, and the part 7 rename carries it over as `ProductStatus`. The enum rule for the new fields is tracked in the next item.
 - [ ] Add `productCategory`, `productPricing`, `productPrice` (nullable Float), `productDemoUrl` (nullable) and `productTags` (nullable `[String]`).
+  - **Done in Step 6 part 11:** `productCategory: AgentCategory!`, `productPricing: ProductPricing!`, `productDemoUrl: String`, `productTags: [String!]`, and `productDesc: String!`. **Still open:** `productPrice` nullable (D-03, part 12).
   - `productCategory` and `productPricing` must be `@Field(() => AgentCategory)` / `@Field(() => ProductPricing)`, not `String` (see the item above).
 
 ### DTO — `property.input.ts` → `product.input.ts`
@@ -371,7 +378,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - `productDemoUrl`: `@IsUrl({ protocols: ['http','https'], require_protocol: true })`
   - `productTags`: optional `[String]`
 
-  **Done in Step 6 part 5:** the dropped fields (first sub-point). **Done in Step 6 part 7:** the rename. **Still open:** optional price, image minimum, required desc, demo URL and tags (parts 11 and 12).
+  **Done in Step 6 part 5:** the dropped fields (first sub-point). **Done in Step 6 part 7:** the rename. **Done in Step 6 part 11:** `productCategory` / `productPricing` required, image minimum (`@ArrayMinSize(1)`), required desc (20–3000), demo URL and tags. **Still open:** optional price (D-03, part 12).
 - [x] Remove `SquaresRange` (81–88). Decide whether `PeriodsRange` (90–97) is still needed.
   - Done in Step 6 part 5. `SquaresRange` is deleted. `PeriodsRange` is kept, because filtering listings by `createdAt` is still useful.
 - [ ] `PricesRange` (73–79) uses `Int`. Prices are Float in USD (D-06), so use `Float`. Per D-03, price filters must only match `ONE_TIME` / `SUBSCRIPTION`.
@@ -393,6 +400,8 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [x] Remove Type, Location, Address, Square, Beds, Rooms, Barter, Rent, `soldAt` and `constructedAt`.
   - Done in Step 6 part 5.
 - [ ] Add `productCategory`, `productPricing`, `productPrice`, `productDemoUrl` and `productTags`.
+  - **Done in Step 6 part 11:** category, pricing, demo URL and tags. `productImages` now rejects `null` and `[]`. **Still open:** `productPrice` with the D-03 check on the merged values (part 12).
+- [ ] (bug, fix in its own commit) `ProductUpdate.productTitle` uses `@IsOptional()`, which lets `null` through. The service then `$set`s `null` on a required field (`findOneAndUpdate` doesn't run schema validators). Reject `null` with the same `@ValidateIf(… !== undefined)` pattern. Found during Step 6 part 11.
 
 ### Service — `property.service.ts` → `product.service.ts`
 - [ ] `createProperty` (35–50):
@@ -718,6 +727,7 @@ The field-level check covers all of them automatically. Keep the list as the ver
   | `getAllPropertiesByAdmin`, `updatePropertyByAdmin`, `removePropertyByAdmin(propertyId)` | `getAllProductsByAdmin`, `updateProductByAdmin`, `removeProductByAdmin(productId)` |
   | `getFavorities`, `getVisited` (return `Properties`) | same names, return `Products` |
   | Property search: `locationList`, `typeList`, `roomsList`, `bedsList`, `options`, `squaresRange` | removed; replaced by `categoryList`, `pricingList`, tags |
+  | `createProduct(input)` with title, price, images and an optional desc | Since Step 6 part 11: `productCategory: AgentCategory!` and `productPricing: ProductPricing!` are required; `productDesc` is required (20–3000 characters); `productImages` needs at least 1 image; optional `productDemoUrl` (http(s), max 500) and `productTags` (max 10, 1–30 characters, returned normalized: trimmed, lowercased, no duplicates). `updateProduct` / `updateProductByAdmin` reject `null` for category, pricing, tags, images and desc, and `''` for desc |
   | `PropertyStatus` enum; `PropertyStatus.SOLD`, `soldAt`, `constructedAt`, barter/rent | `ProductStatus`; SOLD and the dates removed; `PAUSED` is listed, but `updateProduct` / `updateProductByAdmin` reject it until the D-16 part |
   | `LikeGroup` / `ViewGroup` / `CommentGroup` `PROPERTY` | `PRODUCT` (+ `BRIEF` for view/comment). Since Step 6 part 9, `CommentGroup.PROPERTY` no longer exists: `createComment` with `commentGroup: PROPERTY` fails GraphQL validation (`GRAPHQL_VALIDATION_FAILED`). The other group enums are not in the GraphQL schema |
   | `imagesUploader(target: "property")` | `target: "product"` |
@@ -735,6 +745,25 @@ The field-level check covers all of them automatically. Keep the list as the ver
   - use only the public member fields (`_id`, `memberNick`, `memberImage`, `memberType`)
 - [ ] Owner product management: pause/resume buttons (`ACTIVE ↔ PAUSED`), and a "paused" badge in the owner's own product list (D-16).
 - [ ] Handle `NO_DATA_FOUND` from `getProduct` for paused products (e.g. old links and shared URLs). Hide like/comment controls on the owner's own paused product (D-16).
+
+---
+
+## Step 13 — Refactors and cleanup
+
+- [ ] Extract the shared single-file save logic (format check, mkdir, pipeline, partial-file cleanup) used by `imageUploader` and `imagesUploader` into one helper.
+  - Both uploaders in `api/components/member/member.resolver.ts` currently repeat the same steps:
+    - MIME check against `validMimeTypes`
+    - `getSerialForImage` + `getUploadPath`
+    - `mkdir(dirname(url), { recursive: true })`
+    - `pipeline(createReadStream(), createWriteStream(url))`
+    - `unlink` of the partly written file on failure
+
+    This logic came from the fixes after Step 6 part 10.
+  - Keep each uploader's own behaviour: `imageUploader` throws plain messages. `imagesUploader` adds the `(file N: name)` label and stays all-or-nothing, so it also removes the other files of the request.
+- [ ] Move the helper functions from `api/libs/config.ts` to `api/libs/utils.ts`: `libs/config.ts` holds settings, and `libs/utils.ts` holds helpers.
+  - `libs/utils.ts` was created in Step 6 part 11 with `normalizeTags()`.
+  - Candidates to move: `escapeRegex`, `getSerialForImage`, `getUploadPath`, `shapeInToMongoObjectId`, and the `$lookup` builders (`lookupMember`, `lookupAuthMemberLiked`, …).
+  - Update every import in the same commit. This is a pure move with no behaviour change.
 
 ---
 

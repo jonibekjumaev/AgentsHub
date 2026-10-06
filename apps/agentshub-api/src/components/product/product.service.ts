@@ -22,6 +22,7 @@ import { escapeRegex, lookupAuthMemberLiked, lookupMember, shapeInToMongoObjectI
 import { LikeService } from '../like/like.service';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
+import { normalizeTags } from '../../libs/utils';
 
 @Injectable()
 export class ProductService {
@@ -33,6 +34,7 @@ export class ProductService {
 	) {}
 
 	public async createProduct(input: ProductInput): Promise<Product> {
+		if (input.productTags) input.productTags = normalizeTags(input.productTags);
 		try {
 			const result = await this.productModel.create(input);
 			//Increase memberProducts+
@@ -79,6 +81,7 @@ export class ProductService {
 
 	public async updateProduct(memberId: ObjectId, input: ProductUpdate): Promise<Product> {
 		const { productStatus } = input;
+		if (input.productTags) input.productTags = normalizeTags(input.productTags);
 
 		const search = {
 			_id: input._id,
@@ -232,6 +235,7 @@ export class ProductService {
 
 	public async updateProductByAdmin(input: ProductUpdate): Promise<Product> {
 		const { productStatus } = input;
+		if (input.productTags) input.productTags = normalizeTags(input.productTags);
 		const search = {
 			_id: input._id,
 			productStatus: ProductStatus.ACTIVE,

@@ -23,6 +23,15 @@ export const availableCommentSorts = ['createdAt', 'updatedAt'];
 
 export const searchTextMaxLength = 100;
 
+/**  PRODUCT CONFIGURATION  **/
+
+// productDesc is the main text for semantic search later (D-18)
+export const productDescMinLength = 20;
+export const productDescMaxLength = 3000;
+export const productDemoUrlMaxLength = 500;
+export const productTagsMaxCount = 10;
+export const productTagMaxLength = 30;
+
 /**  CONTACT CONFIGURATION (D-07)  **/
 
 export const memberEmailMaxLength = 254;
