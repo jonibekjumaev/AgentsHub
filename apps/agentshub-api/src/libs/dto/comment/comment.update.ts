@@ -1,5 +1,5 @@
 import { Field, InputType } from '@nestjs/graphql';
-import { IsNotEmpty, IsOptional, Length } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsString, Length, ValidateIf } from 'class-validator';
 import { CommentStatus } from '../../enums/comment.enum';
 import type { ObjectId } from '../../types/common';
 
@@ -9,11 +9,13 @@ export class CommentUpdate {
 	@Field(() => String)
 	_id!: ObjectId;
 
-	@IsOptional()
+	@ValidateIf((o) => o.commentStatus !== undefined) // reject null: a comment always has a status
+	@IsEnum(CommentStatus)
 	@Field(() => CommentStatus, { nullable: true })
 	commentStatus?: CommentStatus;
 
-	@IsOptional()
+	@ValidateIf((o) => o.commentContent !== undefined) // reject null: the field is required
+	@IsString()
 	@Length(1, 100)
 	@Field(() => String, { nullable: true })
 	commentContent?: string;

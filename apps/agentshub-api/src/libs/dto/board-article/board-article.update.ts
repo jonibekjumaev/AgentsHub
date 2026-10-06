@@ -1,5 +1,5 @@
 import { Field, InputType } from '@nestjs/graphql';
-import { IsNotEmpty, IsOptional, Length } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsString, Length, ValidateIf } from 'class-validator';
 import { BoardArticleStatus } from '../../enums/board-article.enum';
 import type { ObjectId } from '../../types/common';
 
@@ -9,20 +9,24 @@ export class BoardArticleUpdate {
 	@Field(() => String)
 	_id!: ObjectId;
 
-	@IsOptional()
+	@ValidateIf((o) => o.articleStatus !== undefined) // reject null: an article always has a status
+	@IsEnum(BoardArticleStatus)
 	@Field(() => BoardArticleStatus, { nullable: true })
 	articleStatus?: BoardArticleStatus;
 
-	@IsOptional()
+	@ValidateIf((o) => o.articleTitle !== undefined) // reject null: the field is required
+	@IsString()
 	@Length(3, 50)
 	@Field(() => String, { nullable: true })
 	articleTitle?: string;
 
-	@IsOptional()
+	@ValidateIf((o) => o.articleContent !== undefined) // reject null: the field is required
+	@IsString()
 	@Length(3, 250)
 	@Field(() => String, { nullable: true })
 	articleContent?: string;
 
+	// null removes the image
 	@IsOptional()
 	@Field(() => String, { nullable: true })
 	articleImage?: string;

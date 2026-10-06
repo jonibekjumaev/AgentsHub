@@ -96,7 +96,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - call `checkAuthRoles` with a valid token → the API's stdout contains no `Bearer` string and no token
     - `checkAuth`, `checkAuthRoles` and the `@AuthMember('_id')` endpoints still work
 
-- [ ] **S11 — Password changes through member updates are stored unhashed (D-24)**
+- [x] **S11 — Password changes through member updates are stored unhashed (D-24)**
   - **When:** found after Step 6 part 11, while checking the update DTOs for `null` (B11).
   - **Where:**
     - `api/libs/dto/member/member.update.ts`: `MemberUpdate.memberPassword` and `MemberUpdateByAdmin.memberPassword`
@@ -115,6 +115,18 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - `updateMember` / `updateMemberByAdmin` with `memberPassword` → GraphQL validation error (unknown field)
     - `changePassword` with a wrong current password → error, and the old password still works
     - `changePassword` with the right one → the new password logs in, the old one doesn't, and the DB holds a bcrypt hash
+  - **Fixed** (commit `551583b`, together with S14):
+    - `memberPassword` removed from `MemberUpdate` and `MemberUpdateByAdmin`.
+    - New `changePassword(input: ChangePasswordInput): Boolean!` (`AuthGuard`) → `MemberService.changePassword`. It:
+      1. rejects the same password (`SAME_PASSWORD`);
+      2. treats a member who isn't `ACTIVE` as not logged in (`NOT_AUTHENTICATED`);
+      3. verifies the current password with bcrypt (`WRONG_PASSWORD`);
+      4. hashes the new one and saves it with the `ACTIVE` filter.
+    - The 5–12 length rule is kept until S13.
+  - **Checked:**
+    - 9 direct cases with real bcrypt;
+    - live introspection: `changePassword` exists, and the update inputs have no `memberPassword`;
+    - your Postman smoke tests (wrong, same and correct current password, `BLOCK` member, admin update with `memberPassword`).
 - [x] **S12 — Passwords can appear in the request log**
   - **When:** found while planning S11.
   - **Where:** `api/libs/interceptor/logging.interceptor.ts` logs the first 75 characters of every GraphQL request body (`this.stringify(requestContext.req?.body)`, label `REQUEST`).
@@ -249,7 +261,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **Checked:**
     - Mongoose's own query cast (8.24.3, no DB): the old call's filter becomes `{ _id }`, which confirms the dropped status; the new one keeps `{ _id, memberStatus: "ACTIVE" }`.
     - `updateMember` with the real model building the query: `ACTIVE` → updated with a new `accessToken`; `BLOCK` / `DELETE` → `UPDATE_FAILED`.
-- [ ] **B11 — `@IsOptional()` lets `null` through to `$set` on required fields**
+- [x] **B11 — `@IsOptional()` lets `null` through to `$set` on required fields**
   - **When:** found after Step 6 part 11; `ProductUpdate.productTitle` was fixed on its own first.
   - **Problem:**
     - `@IsOptional()` skips every validator when the value is `null`.
@@ -273,9 +285,19 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - `memberFullName` and `memberDesc`
     - `memberEmail` and `memberWhatsapp` (`null` removes the contact)
     - `articleImage` and `productDemoUrl`
-    - `productPrice`, which may be `null` for `FREE` / `CUSTOM` under D-03 (Step 6 part 12)
+    - ~~`productPrice`, which may be `null` for `FREE` / `CUSTOM` under D-03 (Step 6 part 12)~~ **Corrected:** until part 12, `productPrice` is still `required` in the schema and `Float!` in the output, so a stored `null` breaks every read of that product. It was added to the fix (see below).
   - **Fix:** the D-15 / B2 pattern for every field in the table: `@ValidateIf((o) => o.<field> !== undefined)` plus a type check (`@IsString()` or `@IsEnum(...)`), keeping the existing length and `@IsIn` rules.
   - **Verify:** for each field, `null` → validation error; leaving the field out → still works; a valid value → still works.
+  - **Fixed:** `@IsOptional()` → `@ValidateIf((o) => o.<field> !== undefined)` with `@IsString()` (keeping the existing `@Length`) or `@IsEnum(...)`, for every field in the table, plus:
+    - `ProductUpdate.productStatus`: `@ValidateIf` + the existing temporary `@IsIn([ACTIVE, DELETE])`. `@IsIn` itself rejects `null`, so no `@IsEnum` is needed while it exists (see the D-16 item in Step 6).
+    - `ProductUpdate.productPrice`: `@ValidateIf` + `@IsNumber()`, so `null` is rejected **until part 12**, where D-03 replaces the rule (`null` for `FREE` / `CUSTOM`).
+    - `BoardArticleUpdate` also covers `updateBoardArticleByAdmin`.
+    - The optional fields above keep `@IsOptional()`, so `null` still clears them.
+  - **Checked:** 29 direct validation cases.
+    - All 12 changed fields: `null` → error, left out → OK, valid value → OK.
+    - All 10 kept fields still accept `null`.
+    - The existing rules still hold: `PAUSED` is rejected by the temporary guard; `memberNick` too short; `articleTitle` too long; `''` comment; an unknown `memberStatus`; a string price; `memberImage: null` (B2).
+  - **API:** the GraphQL schema is unchanged. Clients that send `null` for fields they don't want to change must leave them out instead (Step 12 table).
 - [ ] **B12 — `memberPhone` has no format validation**
   - **When:** found after Step 6 part 11.
   - **Where:**
@@ -562,7 +584,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [ ] `updateProduct` (D-16):
   - match `productStatus: { $ne: DELETE }` instead of `ACTIVE` (84), so a paused product can be resumed
   - allowed owner transitions: `ACTIVE ↔ PAUSED`, and `ACTIVE | PAUSED → DELETE`
-- [ ] `product.update.ts` (D-16): remove the temporary `@IsIn([ProductStatus.ACTIVE, ProductStatus.DELETE])` on `ProductUpdate.productStatus` (added in Step 6 part 7 so the rename to `ProductStatus` did not make `PAUSED` settable before this logic exists). It covers both `updateProduct` and `updateProductByAdmin`.
+- [ ] `product.update.ts` (D-16): replace the temporary `@IsIn([ProductStatus.ACTIVE, ProductStatus.DELETE])` on `ProductUpdate.productStatus` with `@IsEnum(ProductStatus)`, and keep the `@ValidateIf((o) => o.productStatus !== undefined)` (B11). Don't just delete it: `@IsIn` is also what rejects `null` today, so without a replacement `null` passes again. The temporary guard was added in Step 6 part 7 (so the rename to `ProductStatus` did not make `PAUSED` settable before this logic exists). It covers both `updateProduct` and `updateProductByAdmin`.
 - [ ] `updateProduct` / `updateProductByAdmin` (D-16):
   - `memberProducts` −1 only on a transition to `DELETE` (from `ACTIVE` or `PAUSED`)
   - **no** counter change on pause or unpause
@@ -850,6 +872,7 @@ The field-level check covers all of them automatically. Keep the list as the ver
   |---|---|
   | `MemberType.AGENT` | `CREATOR` |
   | `Member.memberProperties`, `memberAddress` | `memberProducts`, plus new `memberBriefs`, `memberEmail`, `memberWhatsapp` (`null` for guests) |
+  | Update inputs accepted `null` for required fields and stored it | Since B11: `null` is a validation error (`BAD_REQUEST`) for `memberNick`, `memberPhone`, `memberStatus` (admin), `articleTitle`, `articleContent`, `articleStatus`, `commentContent`, `commentStatus`, `productStatus` and `productPrice` (until Step 6 part 12). **Leave a field out to keep it unchanged; don't send `null`.** `null` still clears the optional fields: `memberFullName`, `memberDesc`, `memberEmail`, `memberWhatsapp`, `articleImage`, `productDemoUrl` |
   | `updateMember` / `updateMemberByAdmin` with `memberPassword` | removed (S11, D-24): sending it fails GraphQL validation. New `changePassword(input: { currentPassword, newPassword }): Boolean!` for the logged-in member; errors `WRONG_PASSWORD`, `SAME_PASSWORD`, and `NOT_AUTHENTICATED` for a blocked or deleted member. Admins can't set passwords. Existing tokens stay valid after a change |
   | `getAgents(AgentsInquiry)`, search input type `AISearch` | `getCreators(CreatorsInquiry)`, search input type `CRISearch` (same fields: `memberStatus`, `memberType`, `text`) |
   | `Property`, `Properties` types | `Product`, `Products` |

@@ -1,5 +1,15 @@
 import { Field, InputType } from '@nestjs/graphql';
-import { IsEmail, IsNotEmpty, IsOptional, IsString, Length, Matches, MaxLength, ValidateIf } from 'class-validator';
+import {
+	IsEmail,
+	IsEnum,
+	IsNotEmpty,
+	IsOptional,
+	IsString,
+	Length,
+	Matches,
+	MaxLength,
+	ValidateIf,
+} from 'class-validator';
 import { MemberStatus } from '../../enums/member.enum';
 import { Message } from '../../enums/common.enum';
 import type { ObjectId } from '../../types/common';
@@ -7,11 +17,13 @@ import { memberEmailMaxLength, whatsappNumberRegex } from '../../config';
 
 @InputType()
 export class MemberUpdate {
-	@IsOptional()
+	@ValidateIf((o) => o.memberPhone !== undefined) // reject null: the field is required (format check: B12)
+	@IsString()
 	@Field(() => String, { nullable: true })
 	memberPhone?: string;
 
-	@IsOptional()
+	@ValidateIf((o) => o.memberNick !== undefined) // reject null: the field is required
+	@IsString()
 	@Length(3, 12)
 	@Field(() => String, { nullable: true })
 	memberNick?: string;
@@ -51,15 +63,18 @@ export class MemberUpdateByAdmin {
 	@Field(() => String)
 	_id!: ObjectId;
 
-	@IsOptional()
+	@ValidateIf((o) => o.memberStatus !== undefined) // reject null: a member always has a status
+	@IsEnum(MemberStatus)
 	@Field(() => MemberStatus, { nullable: true })
 	memberStatus?: MemberStatus;
 
-	@IsOptional()
+	@ValidateIf((o) => o.memberPhone !== undefined) // reject null: the field is required (format check: B12)
+	@IsString()
 	@Field(() => String, { nullable: true })
 	memberPhone?: string;
 
-	@IsOptional()
+	@ValidateIf((o) => o.memberNick !== undefined) // reject null: the field is required
+	@IsString()
 	@Length(3, 12)
 	@Field(() => String, { nullable: true })
 	memberNick?: string;

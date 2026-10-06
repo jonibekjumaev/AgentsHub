@@ -6,6 +6,7 @@ import {
 	IsEnum,
 	IsIn,
 	IsNotEmpty,
+	IsNumber,
 	IsOptional,
 	IsString,
 	IsUrl,
@@ -36,8 +37,10 @@ export class ProductUpdate {
 	@Field(() => AgentCategory, { nullable: true })
 	productCategory?: AgentCategory;
 
-	@IsOptional()
-	@IsIn([ProductStatus.ACTIVE, ProductStatus.DELETE]) // temporary until the D-16 part: PAUSED is not supported yet
+	// reject null (B11). @IsIn is temporary until the D-16 part (PAUSED is not supported yet). It also rejects null here;
+	// when it goes, replace it with @IsEnum(ProductStatus), or null passes again.
+	@ValidateIf((o) => o.productStatus !== undefined)
+	@IsIn([ProductStatus.ACTIVE, ProductStatus.DELETE])
 	@Field(() => ProductStatus, { nullable: true })
 	productStatus?: ProductStatus;
 
@@ -52,7 +55,9 @@ export class ProductUpdate {
 	@Field(() => String, { nullable: true })
 	productTitle?: string;
 
-	@IsOptional()
+	// reject null for now: productPrice is still required (B11). Part 12 (D-03) replaces this rule: null for FREE / CUSTOM
+	@ValidateIf((o) => o.productPrice !== undefined)
+	@IsNumber()
 	@Field(() => Float, { nullable: true })
 	productPrice?: number;
 
