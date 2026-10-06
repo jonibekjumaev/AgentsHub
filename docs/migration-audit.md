@@ -502,7 +502,12 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - Writing uses `stream/promises` `pipeline` instead of `pipe`. Before, a read-stream error (e.g. a file over the 15 MB limit) was not forwarded, so the request never finished.
     - The return type stays `[String!]!`; on success the URLs are in upload order.
     - Checked with a direct call of the resolver method in a scratch folder: all valid; a bad MIME type in file 2; a read error in file 3; target `property`. After each failure, no files were left.
-- [ ] (bug) `imageUploader` (single file) has the same stream handling: `pipe` doesn't forward read-stream errors (a file over the size limit makes the request hang), a write error rejects with `false` instead of an exception, and a partly written file is not removed. Fix it the same way (`pipeline`, remove the file on failure) in its own commit.
+- [x] (bug) `imageUploader` (single file) has the same stream handling: `pipe` doesn't forward read-stream errors (a file over the size limit makes the request hang), a write error rejects with `false` instead of an exception, and a partly written file is not removed. Fix it the same way (`pipeline`, remove the file on failure) in its own commit.
+  - Fixed in the same way as `imagesUploader`:
+    - writing uses `stream/promises` `pipeline`;
+    - any read or write error removes the partly written file and throws `InternalServerErrorException(UPLOAD_FAILED)`;
+    - the format and target checks are unchanged.
+  - Checked with a direct call of the resolver method in a scratch folder: a valid file with the folder missing; a read error (simulated size limit), which now fails at once with no file left; a bad MIME type; target `property`.
 
 ---
 

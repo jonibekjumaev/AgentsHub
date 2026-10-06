@@ -138,15 +138,16 @@ export class MemberResolver {
 		if (!url) throw new BadRequestException(Message.BAD_REQUEST);
 		// uploads/<target>/ is gitignored, so a fresh server may not have it
 		await mkdir(dirname(url), { recursive: true });
-		const stream = createReadStream();
 
-		const result = await new Promise((resolve, reject) => {
-			stream
-				.pipe(createWriteStream(url))
-				.on('finish', async () => resolve(true))
-				.on('error', () => reject(false));
-		});
-		if (!result) throw new InternalServerErrorException(Message.UPLOAD_FAILED);
+		try {
+			// pipeline (unlike pipe) also fails on read-stream errors, e.g. a file over the size limit
+			await pipeline(createReadStream(), createWriteStream(url));
+		} catch (err) {
+			console.log('Error: imageUploader', err);
+			// remove the partly written file
+			await unlink(url).catch(() => console.log('Error: could not remove', url));
+			throw new InternalServerErrorException(Message.UPLOAD_FAILED);
+		}
 
 		return url;
 	}
