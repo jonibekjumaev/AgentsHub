@@ -43,6 +43,20 @@ export class LoginInput {
 	memberPassword!: string;
 }
 
+/** The only way to change a password: the logged-in member re-enters the current one (D-24) */
+@InputType()
+export class ChangePasswordInput {
+	@IsNotEmpty()
+	@Length(5, 12)
+	@Field(() => String)
+	currentPassword!: string;
+
+	@IsNotEmpty()
+	@Length(5, 12)
+	@Field(() => String)
+	newPassword!: string;
+}
+
 @InputType()
 class CRISearch {
 	@IsOptional()

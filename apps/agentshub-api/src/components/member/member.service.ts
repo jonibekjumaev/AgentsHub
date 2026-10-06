@@ -1,8 +1,14 @@
-import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Member, Members } from '../../libs/dto/member/member';
-import { CreatorsInquiry, LoginInput, MemberInput, MembersInquiry } from '../../libs/dto/member/member.input';
+import {
+	ChangePasswordInput,
+	CreatorsInquiry,
+	LoginInput,
+	MemberInput,
+	MembersInquiry,
+} from '../../libs/dto/member/member.input';
 import { MemberStatus, MemberType } from '../../libs/enums/member.enum';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { AuthService } from '../auth/auth.service';
@@ -82,6 +88,27 @@ export class MemberService {
 		const updatedMember: Member = result.toObject();
 		updatedMember.accessToken = await this.authService.createToken(updatedMember);
 		return updatedMember;
+	}
+
+	/** D-24: the only way to change a password. Existing tokens stay valid (no revocation in the MVP). */
+	public async changePassword(memberId: ObjectId, input: ChangePasswordInput): Promise<boolean> {
+		const { currentPassword, newPassword } = input;
+		if (newPassword === currentPassword) throw new BadRequestException(Message.SAME_PASSWORD);
+
+		// the guards accept any valid token, so a blocked or deleted member is treated as not logged in (D-23)
+		const search = { _id: memberId, memberStatus: MemberStatus.ACTIVE };
+		const member = await this.memberModel.findOne(search).select('+memberPassword').exec();
+		if (!member) throw new UnauthorizedException(Message.NOT_AUTHENTICATED);
+
+		const isMatch =
+			!!member.memberPassword && (await this.authService.comparePassword(currentPassword, member.memberPassword));
+		if (!isMatch) throw new BadRequestException(Message.WRONG_PASSWORD);
+
+		const memberPassword = await this.authService.hashPassword(newPassword);
+		const result = await this.memberModel.updateOne(search, { $set: { memberPassword } }).exec();
+		if (!result.modifiedCount) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+
+		return true;
 	}
 
 	public async getMember(memberId: ObjectId | null, targetId: ObjectId): Promise<Member> {

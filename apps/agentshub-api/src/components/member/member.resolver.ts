@@ -1,6 +1,12 @@
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { MemberService } from './member.service';
-import { CreatorsInquiry, LoginInput, MemberInput, MembersInquiry } from '../../libs/dto/member/member.input';
+import {
+	ChangePasswordInput,
+	CreatorsInquiry,
+	LoginInput,
+	MemberInput,
+	MembersInquiry,
+} from '../../libs/dto/member/member.input';
 import { Member, Members } from '../../libs/dto/member/member';
 import { BadRequestException, HttpException, InternalServerErrorException, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/guards/auth.guard';
@@ -67,6 +73,16 @@ export class MemberResolver {
 	): Promise<Member> {
 		console.log('Mutation: updateMember');
 		return await this.memberService.updateMember(memberId, input);
+	}
+
+	@UseGuards(AuthGuard)
+	@Mutation(() => Boolean)
+	public async changePassword(
+		@Args('input') input: ChangePasswordInput,
+		@AuthMember('_id') memberId: ObjectId,
+	): Promise<boolean> {
+		console.log('Mutation: changePassword'); // never log the input: it holds passwords
+		return await this.memberService.changePassword(memberId, input);
 	}
 
 	@UseGuards(WithoutGuard)

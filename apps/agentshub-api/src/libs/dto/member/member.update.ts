@@ -17,11 +17,6 @@ export class MemberUpdate {
 	memberNick?: string;
 
 	@IsOptional()
-	@Length(5, 12)
-	@Field(() => String, { nullable: true })
-	memberPassword?: string;
-
-	@IsOptional()
 	@Length(3, 100)
 	@Field(() => String, { nullable: true })
 	memberFullName?: string;
@@ -68,11 +63,6 @@ export class MemberUpdateByAdmin {
 	@Length(3, 12)
 	@Field(() => String, { nullable: true })
 	memberNick?: string;
-
-	@IsOptional()
-	@Length(5, 12)
-	@Field(() => String, { nullable: true })
-	memberPassword?: string;
 
 	@IsOptional()
 	@Length(3, 100)
