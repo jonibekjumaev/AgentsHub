@@ -85,7 +85,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - decode the `accessToken` from `signup`, `login` and `updateMember` (locally, not on a third-party site) → the claims are exactly `_id`, `memberType`, `memberNick`, `iat` and `exp`
     - `checkAuth`, `checkAuthRoles`, the `@Roles` endpoints and the socket join still work
   - Tokens issued before the fix keep the old payload until they expire (30 days). Rotate `SECRET_TOKEN` when the fix is deployed.
-- [ ] **S10 — `checkAuthRoles` logs the bearer token**
+- [x] **S10 — `checkAuthRoles` logs the bearer token**
   - **When:** found while fixing S9.
   - **Where:**
     - `api/components/auth/decorators/authMember.decorator.ts:16` copies the raw `Authorization` header onto `authMember.authorization`
@@ -95,6 +95,14 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **Verify:**
     - call `checkAuthRoles` with a valid token → the API's stdout contains no `Bearer` string and no token
     - `checkAuth`, `checkAuthRoles` and the `@AuthMember('_id')` endpoints still work
+  - **Fixed:**
+    - `authMember.decorator.ts` no longer copies `request.headers.authorization` onto `authMember`. Nothing read it; the guards and `MemberContactResolver` read the header themselves to verify it.
+    - `checkAuthRoles` no longer prints `authMember` (only `'Query: checkAuthRole'`).
+  - **Checked:** called the `@AuthMember()` factory directly with a fake GraphQL request carrying a test bearer token:
+    - `@AuthMember()` and `@AuthMember('memberNick')` still return the member and the nick;
+    - the returned member and `req.body.authMember` have no `authorization` key;
+    - printing the member shows no token.
+  - **Log sweep:** every `console.*` and `Logger` call in `apps/` was checked for tokens, headers and whole member objects; nothing else prints a token or a header. Other findings are listed in the S10 hand-over (not fixed here).
 
 - [x] **S11 — Password changes through member updates are stored unhashed (D-24)**
   - **When:** found after Step 6 part 11, while checking the update DTOs for `null` (B11).

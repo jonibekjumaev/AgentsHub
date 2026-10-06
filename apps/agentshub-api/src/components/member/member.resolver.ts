@@ -61,7 +61,6 @@ export class MemberResolver {
 	@Query(() => String)
 	public async checkAuthRoles(@AuthMember() authMember: AuthPayload): Promise<string> {
 		console.log('Query: checkAuthRole');
-		console.log('authMember:', authMember);
 		return `Hi ${authMember.memberNick},  you are ${authMember.memberType} (memberId: ${authMember._id.toString()})`;
 	}
 

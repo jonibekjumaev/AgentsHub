@@ -10,11 +10,7 @@ export const AuthMember = createParamDecorator((data: keyof AuthPayload | undefi
 	if (context.getType<GqlContextType>() === 'graphql') {
 		const gqlContext = GqlExecutionContext.create(context);
 		request = gqlContext.getContext<{ req: Request }>().req;
-
-		const body = request.body as Record<string, unknown>;
-		if (body.authMember) {
-			(body.authMember as AuthPayload & { authorization?: string }).authorization = request.headers?.authorization;
-		}
+		// The raw Authorization header is never copied onto authMember, so it can't end up in a log (S10)
 	} else {
 		request = context.switchToHttp().getRequest<Request>();
 	}
