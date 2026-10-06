@@ -600,3 +600,29 @@
   - **Existing dev members with `010…` numbers keep working:** login uses the nick, not the phone, and reads don't validate the stored value. They must send an E.164 number the next time they update their phone.
   - **The seed script** creates E.164 numbers.
   - Clients must send the number already in E.164. The API checks the format but doesn't reformat (no stripping of spaces or dashes).
+
+## D-26 — Password policy
+
+**Status:** Accepted
+
+- **Context:** Passwords must be 5–12 characters at signup, at login and in `changePassword` (`@Length(5, 12)`). Five characters is too weak, and the 12-character maximum blocks passphrases and the long random passwords that password managers generate (audit S13). Passwords are hashed with bcrypt, which only uses the first **72 bytes** of the input and silently ignores the rest.
+- **Options:**
+  - **A. Keep 5–12 characters.**
+    - Con: Too weak, and it blocks passphrases and password managers. **Rejected.**
+  - **B. Min 8 characters, max 72 bytes, no composition rules.**
+    - Pro: Allows passphrases and generated passwords. The maximum matches what bcrypt actually uses.
+    - Con: Existing passwords of 5–7 characters no longer meet the rule. Handled below: login doesn't check length.
+  - **C. Composition rules** (an upper-case letter, a digit and a symbol are required).
+    - Con: Pushes people towards predictable patterns (`Password1!`) and against passphrases; current guidance (e.g. NIST SP 800-63B) advises against them. **Rejected.**
+- **Decision:** Option B.
+  - **New passwords** (`signup.memberPassword` and `changePassword.newPassword`): at least **8 characters** and at most **72 bytes** in UTF-8, with no composition rules.
+  - **Existing passwords** (`login.memberPassword` and `changePassword.currentPassword`): only a non-empty check. Login doesn't apply the length rule, so every existing password keeps working.
+- **Reason:**
+  - **Length matters more than composition:** a long passphrase is stronger and easier to remember than a short mixed one.
+  - **Max in bytes, not characters:** bcrypt's limit is 72 bytes. A longer password would be silently truncated, so two different passwords sharing the first 72 bytes would both log in. Rejecting it is clearer than truncating it.
+  - **Login stays permissive:** the rule applies only when a password is set, so no existing member is locked out.
+- **Consequence:**
+  - **Existing members with 5–7 character passwords** still log in. They must choose a password that meets the new rule the next time they change it.
+  - **Non-Latin passwords:** 72 bytes is fewer than 72 characters (e.g. 36 Cyrillic letters, 18 emoji). The error message says so.
+  - **Login has no upper length limit.** bcrypt's work doesn't grow with input length (it only uses the first 72 bytes), and the request body size limit still applies (NestJS / Express default: 100 kB for JSON).
+  - The limits are constants in `api/libs/config.ts`, with one message each for "too short" and "too long".

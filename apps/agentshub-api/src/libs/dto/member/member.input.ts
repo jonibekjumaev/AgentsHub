@@ -1,8 +1,26 @@
 import { Field, InputType, Int } from '@nestjs/graphql';
-import { IsIn, IsNotEmpty, IsOptional, Length, Matches, MaxLength, Min } from 'class-validator';
+import {
+	IsByteLength,
+	IsIn,
+	IsNotEmpty,
+	IsOptional,
+	IsString,
+	Length,
+	Matches,
+	MaxLength,
+	Min,
+	MinLength,
+} from 'class-validator';
 import { MemberAuthType, MemberStatus, MemberType } from '../../enums/member.enum';
 import { Direction, Message } from '../../enums/common.enum';
-import { aviableCreatorSorts, aviableMemberSorts, e164PhoneRegex, searchTextMaxLength } from '../../config';
+import {
+	aviableCreatorSorts,
+	aviableMemberSorts,
+	e164PhoneRegex,
+	passwordMaxBytes,
+	passwordMinLength,
+	searchTextMaxLength,
+} from '../../config';
 
 @InputType()
 export class MemberInput {
@@ -11,8 +29,10 @@ export class MemberInput {
 	@Field(() => String)
 	memberNick!: string;
 
-	@IsNotEmpty()
-	@Length(5, 12)
+	// new password (D-26): min 8 characters, max 72 bytes, no composition rules
+	@IsString()
+	@MinLength(passwordMinLength, { message: Message.PASSWORD_TOO_SHORT })
+	@IsByteLength(0, passwordMaxBytes, { message: Message.PASSWORD_TOO_LONG })
 	@Field(() => String)
 	memberPassword!: string;
 
@@ -38,8 +58,8 @@ export class LoginInput {
 	@Field(() => String)
 	memberNick!: string;
 
+	// only non-empty: existing passwords of any length keep working (D-26)
 	@IsNotEmpty()
-	@Length(5, 12)
 	@Field(() => String)
 	memberPassword!: string;
 }
@@ -47,13 +67,15 @@ export class LoginInput {
 /** The only way to change a password: the logged-in member re-enters the current one (D-24) */
 @InputType()
 export class ChangePasswordInput {
+	// only non-empty: the current password may predate D-26
 	@IsNotEmpty()
-	@Length(5, 12)
 	@Field(() => String)
 	currentPassword!: string;
 
-	@IsNotEmpty()
-	@Length(5, 12)
+	// new password (D-26): min 8 characters, max 72 bytes, no composition rules
+	@IsString()
+	@MinLength(passwordMinLength, { message: Message.PASSWORD_TOO_SHORT })
+	@IsByteLength(0, passwordMaxBytes, { message: Message.PASSWORD_TOO_LONG })
 	@Field(() => String)
 	newPassword!: string;
 }

@@ -149,7 +149,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **Checked:**
     - 11 direct cases, including escaped quotes, nested signup variables, unchanged bodies without passwords, and that the original is not mutated.
     - A live `login` with an inline password, an input variable and scalar variables: the `REQUEST` lines show `***` or are cut before the value, and none of the test passwords appear anywhere in the API log.
-- [ ] **S13 — Password policy is too weak (decision needed)**
+- [x] **S13 — Password policy is too weak (D-26)**
   - **When:** raised while planning S11.
   - **Where:** `@Length(5, 12)` on `MemberInput.memberPassword` (signup), `LoginInput.memberPassword`, and `ChangePasswordInput.currentPassword` / `newPassword` (S11).
   - **Problem:** 5–12 characters is too weak, and the 12-character maximum blocks passphrases and generated passwords from password managers.
@@ -162,6 +162,15 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - 8 and 72 characters → OK
     - 73 characters → validation error
     - an existing 5-character password still logs in
+  - **Decision:** D-26 (Accepted): min **8 characters**, max **72 bytes** (UTF-8, not 72 characters as proposed above: bcrypt's limit is in bytes), no composition rules.
+  - **Fixed:**
+    - `MemberInput.memberPassword` (signup) and `ChangePasswordInput.newPassword`: `@IsString()` + `@MinLength(passwordMinLength)` + `@IsByteLength(0, passwordMaxBytes)`, with the messages `PASSWORD_TOO_SHORT` / `PASSWORD_TOO_LONG`.
+    - `LoginInput.memberPassword` and `ChangePasswordInput.currentPassword`: only `@IsNotEmpty()`.
+    - The constants `passwordMinLength = 8` and `passwordMaxBytes = 72` are in `api/libs/config.ts`.
+    - No `@Length(5, 12)` is left.
+  - **Checked:** 32 direct cases.
+    - New passwords: 7 characters and `''` → too short; 8 characters, a passphrase with spaces, 72 ASCII bytes, 36 Cyrillic letters (72 bytes) and 18 emoji (72 bytes) → OK; 73 ASCII bytes, 37 Cyrillic letters and 19 emoji → too long.
+    - `login` and `currentPassword`: 1, 5, 13 and 200 characters → OK; `''` → rejected.
 - [x] **S14 — `login` and `signup` return the password hash**
   - **When:** found while fixing S12.
   - **Where:** `api/components/member/member.service.ts`
@@ -884,6 +893,7 @@ The field-level check covers all of them automatically. Keep the list as the ver
   | `MemberType.AGENT` | `CREATOR` |
   | `Member.memberProperties`, `memberAddress` | `memberProducts`, plus new `memberBriefs`, `memberEmail`, `memberWhatsapp` (`null` for guests) |
   | Update inputs accepted `null` for required fields and stored it | Since B11: `null` is a validation error (`BAD_REQUEST`) for `memberNick`, `memberPhone`, `memberStatus` (admin), `articleTitle`, `articleContent`, `articleStatus`, `commentContent`, `commentStatus`, `productStatus` and `productPrice` (until Step 6 part 12). **Leave a field out to keep it unchanged; don't send `null`.** `null` still clears the optional fields: `memberFullName`, `memberDesc`, `memberEmail`, `memberWhatsapp`, `articleImage`, `productDemoUrl` |
+  | Passwords 5–12 characters everywhere | Since S13 (D-26): `signup` and `changePassword.newPassword` need at least 8 characters and at most 72 bytes (UTF-8), with no composition rules; errors `PASSWORD_TOO_SHORT` / `PASSWORD_TOO_LONG`. `login` and `changePassword.currentPassword` only need a non-empty value, so existing passwords keep working |
   | `memberPhone`: any non-empty string | Since B12 (D-25): E.164 only (`+`, country code, digits, 8–15 digits, e.g. `+998901234567`) in `signup`, `updateMember` and `updateMemberByAdmin`; error `INVALID_PHONE`. No spaces or dashes; the API doesn't reformat. Same rule as `memberWhatsapp` |
   | `updateMember` / `updateMemberByAdmin` with `memberPassword` | removed (S11, D-24): sending it fails GraphQL validation. New `changePassword(input: { currentPassword, newPassword }): Boolean!` for the logged-in member; errors `WRONG_PASSWORD`, `SAME_PASSWORD`, and `NOT_AUTHENTICATED` for a blocked or deleted member. Admins can't set passwords. Existing tokens stay valid after a change |
   | `getAgents(AgentsInquiry)`, search input type `AISearch` | `getCreators(CreatorsInquiry)`, search input type `CRISearch` (same fields: `memberStatus`, `memberType`, `text`) |

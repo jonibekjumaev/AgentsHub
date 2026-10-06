@@ -14,6 +14,8 @@ export enum Message {
 	BLOCKED_USER = 'You have been blocked!',
 	WRONG_PASSWORD = 'Wrong password, try again!',
 	SAME_PASSWORD = 'New password must be different from the current password!',
+	PASSWORD_TOO_SHORT = 'Password must be at least 8 characters!',
+	PASSWORD_TOO_LONG = 'Password must be at most 72 bytes (72 Latin letters, fewer for other alphabets and emoji)!',
 	NOT_AUTHENTICATED = 'You are not authenticated, please login first!',
 	TOKEN_NOT_EXIST = 'Bearer Token is not provided!',
 	ONLY_SPECIFIC_ROLES_ALLOWED = 'Allowed only for members with specific roles!',

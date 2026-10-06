@@ -37,6 +37,12 @@ export const productDemoUrlMaxLength = 500;
 export const productTagsMaxCount = 10;
 export const productTagMaxLength = 30;
 
+/**  PASSWORD CONFIGURATION (D-26)  **/
+
+// new passwords only (signup, changePassword.newPassword); login checks only non-empty
+export const passwordMinLength = 8; // characters
+export const passwordMaxBytes = 72; // UTF-8 bytes: bcrypt ignores everything after the first 72 bytes
+
 /**  CONTACT CONFIGURATION (D-07)  **/
 
 export const memberEmailMaxLength = 254;
