@@ -39,6 +39,7 @@ export class MemberService {
 		try {
 			const newMember = await this.memberModel.create(input);
 			const result: Member = newMember.toObject();
+			delete result.memberPassword; // the hash never leaves the service (S14)
 			result.accessToken = await this.authService.createToken(result);
 
 			return result;
@@ -67,10 +68,11 @@ export class MemberService {
 		const isMatch = await this.authService.comparePassword(memberPassword, response.memberPassword);
 		if (!isMatch) throw new InternalServerErrorException(Message.WRONG_PASSWORD);
 
-		const responseObj: Member = response.toObject();
-		response.accessToken = await this.authService.createToken(responseObj);
+		const result: Member = response.toObject();
+		delete result.memberPassword; // loaded only for the check above; the hash never leaves the service (S14)
+		result.accessToken = await this.authService.createToken(result);
 
-		return response;
+		return result;
 	}
 
 	public async updateMember(memberId: ObjectId, input: MemberUpdate): Promise<Member> {

@@ -150,6 +150,29 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - 8 and 72 characters → OK
     - 73 characters → validation error
     - an existing 5-character password still logs in
+- [x] **S14 — `login` and `signup` return the password hash**
+  - **When:** found while fixing S12.
+  - **Where:** `api/components/member/member.service.ts`
+    - `signup`: returns `newMember.toObject()`, which still holds the bcrypt hash that was just saved
+    - `login`: loads the member with `.select('+memberPassword')` for the bcrypt check, then returns that same document
+  - **Problem:**
+    - The hash leaves the service. GraphQL doesn't send it to the client, because `Member` has no `memberPassword` field.
+    - But the `RESPONSE` log (`LoggingInterceptor`) stringifies the resolver result, and today only the 75-character cut keeps the hash out of the log.
+    - Any other code that receives the returned object would see the hash too.
+  - **Fix:** the hash must never leave the service; don't rely on log truncation.
+    - `login`: after the bcrypt check, return a plain object with `memberPassword` removed.
+    - `signup`: remove `memberPassword` from the object after `create`.
+    - Other member reads don't select the field (`select: false` in the schema). `changePassword` loads it but returns only `true`.
+  - **Verify:**
+    - the objects returned by `login` and `signup` have no `memberPassword` key, but still have `accessToken` and the other fields
+    - login with a wrong password is still rejected
+  - **Fixed:**
+    - Both methods return `toObject()` with `delete result.memberPassword` before the token is created.
+    - `login` used to return the Mongoose document itself (with the hash loaded); it now returns the plain object, like `signup`. The GraphQL output is unchanged.
+  - **Checked:** with real Mongoose documents built from `Member.model.ts` (no DB):
+    - the `signup` and `login` results have no `memberPassword` key and no `$2…` hash in their JSON, but still have `accessToken` and `memberNick`;
+    - the stored document keeps the hash, so login still works;
+    - a wrong password → `WRONG_PASSWORD`.
 
 ### Other bugs in surviving code
 - [x] **B1 — `MembersInquiry.search` type**
