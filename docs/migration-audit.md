@@ -203,6 +203,39 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - the stored document keeps the hash, so login still works;
     - a wrong password → `WRONG_PASSWORD`.
 
+- [ ] **S15 — GraphQL error logs echo input values, including passwords (fix first)**
+  - **When:** found in the S10 log sweep; **confirmed live**.
+  - **Where:** `api/app.module.ts`, `formatError`:
+    - `console.log('GRAPHQL GLOBAL ERR:', error)` (24) prints the raw error;
+    - `console.log('GRAPHQL GLOBAL ERR:', graphQLFormattedError)` (35) prints the formatted one.
+  - **Problem:**
+    - When a GraphQL variable has a missing or unknown field, graphql-js writes the **whole input object** into the error message (`BAD_USER_INPUT`), e.g. `Variable "$i" got invalid value { memberPassword: "…" }; Field "memberNick" … was not provided.`
+    - Both log lines print that message, so the plain-text password is logged twice.
+    - Live probes:
+      - `login` via variables without `memberNick`;
+      - `updateMember` with `memberPassword` in variables (what an old frontend sends after S11).
+
+      Both test passwords appeared twice in the API log. A wrong-typed field echoes only its own value.
+  - **Fix:** redact the `sensitiveLogFields` values in error messages before they are logged (reusing the S12 redaction), or log only the code and path for `BAD_USER_INPUT`.
+  - **Verify:** repeat the live probes → the test passwords appear nowhere in the API log; other errors are still logged usefully.
+- [ ] **S16 — The `RESPONSE` log prints response bodies; only truncation keeps secrets out**
+  - **When:** found in the S10 log sweep.
+  - **Where:** `api/libs/interceptor/logging.interceptor.ts`: `this.logger.log(`${this.stringify(data)} - …ms`, 'RESPONSE')` logs the first 75 characters of every resolver result.
+  - **Problem:**
+    - Secrets are in the response objects, and only the 75-character cut keeps them out of the log:
+      - the new `accessToken` (the last key) in `login`, `signup` and `updateMember`;
+      - the `memberPassword` hash in `memberData` (see the `$lookup` point below).
+    - Raising the limit, or a differently shaped result, would log them.
+    - S14 fixed this for `login` / `signup` only; the policy itself is the root cause.
+  - **Fix (policy change):** the `RESPONSE` log records only the **operation name, duration and success/error**, never the body.
+  - **Fix (separately, data minimisation):** add a `$project` that excludes `memberPassword` to the member `$lookup`s in `api/libs/config.ts`: `lookupMember`, `lookupFavorite`, `lookupVisit`, `lookupFollowingData` and `lookupFollowerData`.
+    - `select: false` in `Member.model.ts` only applies to `find`, not to `aggregate`, so these lookups return the hash today.
+    - GraphQL drops the field from responses, but the hash still travels through the resolvers and the interceptor.
+  - **Verify:**
+    - `login`, `signup`, `updateMember` and a product list → the `RESPONSE` lines show only the operation name, duration and status, with no token, hash or data;
+    - after the `$project`, the `memberData` objects from the lookups have no `memberPassword` key;
+    - the GraphQL responses are unchanged.
+
 ### Other bugs in surviving code
 - [x] **B1 — `MembersInquiry.search` type**
   - **Where:** `api/libs/dto/member/member.input.ts:123–124`
@@ -338,6 +371,17 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - Signup without a phone is still required; `null` on update is still rejected; leaving the phone out of an update is OK.
     - `memberWhatsapp` still validates with the same rule and its own message, and `null` still clears it.
   - **Data:** existing dev members with `010…` numbers keep working (login uses the nick). They must send E.164 the next time they update their phone (D-25).
+- [ ] **B13 — Debug and error logs print data they shouldn't**
+  - **When:** found in the S10 log sweep.
+  - **Where and problem:**
+    - `api/components/like/like.service.ts:79`: `console.log('data:', data)` is a leftover debug line that prints the favorites aggregation. Node's default print depth hides `memberData` as `[Object]` today, so it's fragile, not leaking.
+    - `api/components/member/member.service.ts:48` (`signup`), and the same `'Error: Service.model'` pattern in other services: they log the raw Mongo error message. A duplicate-key error (`E11000 … dup key: { memberPhone: "+998…" }`) includes the duplicated value (phone, nick) in the log.
+  - **Fix:**
+    - remove the debug `console.log` in `like.service.ts`;
+    - log duplicate-key errors without the key values (e.g. the error code and the index name only).
+  - **Verify:**
+    - `getFavorities` → no `data:` line;
+    - signup with an existing phone → the log line names the duplicate index, not the phone number; the client still gets `USED_MEMBER_NICK_OR_PHONE`.
 
 ---
 
