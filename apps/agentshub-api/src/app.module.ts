@@ -25,16 +25,19 @@ import { redactSensitiveText } from './libs/utils';
 			formatError: (formattedError: GraphQLFormattedError, error: unknown): GraphQLFormattedError => {
 				const extensions = formattedError.extensions as FormattedErrorExtensions | undefined;
 				const code = extensions?.code;
-				// ValidationPipe errors carry an array of messages
-				const rawMessage =
-					extensions?.exception?.response?.message || extensions?.response?.message || formattedError.message;
+				// a Nest exception's own message (an array for ValidationPipe errors) is in originalError (B14);
+				// formattedError.message is only "Bad Request Exception" then
+				const rawMessage = extensions?.originalError?.message || formattedError.message;
 
 				// graphql-js can echo input values (e.g. a password) in the message: redact for the log and the client (S15)
-				const message = Array.isArray(rawMessage)
-					? rawMessage.map((text) => redactSensitiveText(text))
-					: redactSensitiveText(rawMessage);
+				// The GraphQL spec requires `message` to be a string: validation messages are joined with "; ", and the
+				// array goes to extensions.validationErrors so the frontend can show them per field (B14)
+				const validationErrors = Array.isArray(rawMessage)
+					? rawMessage.map((text) => redactSensitiveText(String(text)))
+					: undefined;
+				const message = validationErrors ? validationErrors.join('; ') : redactSensitiveText(String(rawMessage));
 				const path = formattedError.path?.join('.') ?? '-';
-				console.log(`GRAPHQL ERROR [${code}] ${path}: ${Array.isArray(message) ? message.join(' | ') : message}`);
+				console.log(`GRAPHQL ERROR [${code}] ${path}: ${message}`);
 
 				// unexpected errors (bugs, database errors) also get their stack; Nest exceptions and GraphQL errors don't need it
 				const original = unwrapResolverError(error);
@@ -42,7 +45,7 @@ import { redactSensitiveText } from './libs/utils';
 					console.log('GRAPHQL ERROR stack:', redactSensitiveText(original.stack ?? original.message));
 				}
 
-				return { message, extensions: { code } } as GraphQLFormattedError;
+				return { message, extensions: validationErrors ? { code, validationErrors } : { code } };
 			},
 		}),
 		ComponentsModule,

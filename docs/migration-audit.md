@@ -391,6 +391,68 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **Verify:**
     - `getFavorities` → no `data:` line;
     - signup with an existing phone → the log line names the duplicate index, not the phone number; the client still gets `USED_MEMBER_NICK_OR_PHONE`.
+- [x] **B14 — `ValidationPipe` messages never reach the client**
+  - **When:** found while verifying S15.
+  - **Where:** `api/app.module.ts`, `formatError`. It reads the message from `extensions.exception.response.message` or `extensions.response.message`, the shape older Nest versions used.
+  - **Problem:**
+    - In `@nestjs/apollo` 12 the details of a Nest `HttpException` are in **`extensions.originalError`** (`{ message, error, statusCode }`), so those reads never match.
+    - Exceptions with a string message still arrive, because Nest copies that string into the error message.
+    - But `ValidationPipe` puts its messages (an **array**) only in `originalError.message`, so the client gets just `"Bad Request Exception"`.
+    - Every class-validator message is lost this way, e.g. `INVALID_PHONE`, `PASSWORD_TOO_SHORT` and the `productDesc` length.
+  - **Fix:** read `extensions.originalError.message` first. The S15 redaction still applies to the result (string or array). Update `FormattedErrorExtensions` to the real shape.
+  - **Verify:** live, check the actual response text:
+    - signup with a bad phone → `INVALID_PHONE`;
+    - signup with a 7-character password → `PASSWORD_TOO_SHORT`;
+    - `createProduct` with a too-short `productDesc` → the class-validator length message;
+    - a string-message exception (`NO_MEMBER_NICK`) is unchanged.
+  - **Fixed:**
+    - `formatError` reads `extensions.originalError?.message || formattedError.message`; the S15 redaction still applies.
+    - `FormattedErrorExtensions` now describes the real `@nestjs/apollo` 12 shape (`originalError`, `status`); the old `exception` / `response` fields are gone.
+  - **Checked live** (requests that fail validation, so nothing is written; `createProduct` with a CREATOR token signed by a throwaway `SECRET_TOKEN` that only the test process used). The response text:
+    - bad phone → `INVALID_PHONE`; 7 characters → `PASSWORD_TOO_SHORT`; 73 bytes → `PASSWORD_TOO_LONG`; both errors → both messages;
+    - `productDesc` of 19 / 3001 characters → the length messages;
+    - `NO_MEMBER_NICK` and `TOKEN_NOT_EXIST` are unchanged;
+    - the log line shows the same messages, with no test password.
+  - **Response shape (decided):** the GraphQL spec defines `message` as a string.
+    - For `ValidationPipe` errors, the messages are **joined with `"; "`** into `message`, and the original array goes to **`extensions.validationErrors`**, so the frontend can show them per field.
+    - Both are redacted (S15).
+    - Other errors have no `validationErrors`.
+    - Rechecked live: 9 cases. The 6 validation cases above have a string `message` and the matching `validationErrors` (the two-error case gives `"…characters!; Phone number…"` and both entries). A Nest string exception, a guard exception and a graphql-js `BAD_USER_INPUT` (still redacted) have no `validationErrors`. No test secret appears in the log.
+- [ ] **B15 — Business errors are thrown as `InternalServerErrorException`**
+  - **When:** found while verifying S15.
+  - **Problem:** user mistakes such as an unknown nick or a wrong password are thrown as `InternalServerErrorException`, so the client gets `INTERNAL_SERVER_ERROR`. It can't tell a user error from a server fault, and monitoring counts every wrong password as a 500.
+  - **Important, check first:** `@nestjs/apollo` 12 maps only 400 → `BAD_REQUEST`, 401 → `UNAUTHENTICATED`, 403 → `FORBIDDEN` and 422 → `BAD_USER_INPUT`. **Any other status, including 404 `NotFoundException`, still becomes `INTERNAL_SERVER_ERROR`**, with the real status in `extensions.status`, which our `formatError` drops. So the fix must also make `formatError` turn `extensions.status` 404 into a `NOT_FOUND` code (or keep `status`). Otherwise the 404 changes below are invisible to clients.
+  - **Proposed classes** (paths under `api/components/`, lines as of commit `f18162e`):
+
+    | Where | Message | Today | Proposed | Why |
+    |---|---|---|---|---|
+    | `member/member.service.ts:59` (login: nick missing or `DELETE`) | `NO_MEMBER_NICK` | 500 | **Unauthorized** | failed login |
+    | `member/member.service.ts:65` (login: no stored password) | `NO_MEMBER_NICK` | 500 | **Unauthorized** | failed login |
+    | `member/member.service.ts:69` (login) | `WRONG_PASSWORD` | 500 | **Unauthorized** | failed login |
+    | `member/member.service.ts:61` (login) | `BLOCKED_USER` | 500 | **Forbidden** | known member, not allowed in |
+    | `member/member.service.ts:84` (`updateMember`: caller not `ACTIVE`, B10) | `UPDATE_FAILED` | 500 | **Unauthorized** (`NOT_AUTHENTICATED`) | same rule as `changePassword` (D-23) |
+    | `follow/follow.service.ts:25` (`subscribe` to yourself) | `SELF_SUBSCRIPTION_DENIED` | 500 | **BadRequest** | invalid request, like the D-22 self-like checks |
+    | `follow/follow.resolver.ts:41, 54`, `follow/follow.service.ts:72, 104` (no member id in the search) | `BAD_REQUEST` | 500 | **BadRequest** | missing input |
+    | `comment/comment.service.ts:74` (`commentRefId` not an ObjectId) | `NO_DATA_FOUND` | 500 | **BadRequest** | malformed input |
+    | `product/product.service.ts:159` (`getCreatorProducts` asks for `DELETE`) | `NO_DATA_FOUND` | 500 | **BadRequest** | invalid filter |
+    | `product/product.service.ts:61` (`getProduct`), `board-article/board-article.service.ts:58` (`getBoardArticle`), `member/member.service.ts:121` (`getMember`) | `NO_DATA_FOUND` | 500 | **NotFound** | target missing or not visible |
+    | `product/product.service.ts:191`, `board-article/board-article.service.ts:138`, `member/member.service.ts:177` (like target) | `NO_DATA_FOUND` | 500 | **NotFound** | target missing or not `ACTIVE` |
+    | `comment/comment.service.ts:90` (comment target) | `NO_DATA_FOUND` | 500 | **NotFound** | target missing or not `ACTIVE` |
+    | `follow/follow.service.ts:62` (`unsubscribe`, not following) | `NO_DATA_FOUND` | 500 | **NotFound** | nothing to remove |
+    | `product/product.service.ts:95`, `board-article/board-article.service.ts:84`, `comment/comment.service.ts:108` (owner updates) | `UPDATE_FAILED` | 500 | **NotFound** | missing, not yours, or not `ACTIVE`. Deliberately not Forbidden, so other members' items aren't revealed |
+    | `product/product.service.ts:247`, `board-article/board-article.service.ts:192`, `member/member.service.ts:223` (admin updates) | `UPDATE_FAILED` | 500 | **NotFound** | target missing or not in an updatable status |
+    | `product/product.service.ts:267`, `board-article/board-article.service.ts:210`, `comment/comment.service.ts:141` (admin removes) | `REMOVE_FAILED` | 500 | **NotFound** | no removable item with that id |
+
+  - **Keep as `InternalServerErrorException`** (real server faults, or unreachable):
+    - **Create `catch` blocks** (database errors): `board-article/board-article.service.ts:47`, `comment/comment.service.ts:42`.
+    - **Stats editors and like-toggle results**, whose target was already checked: `product/product.service.ts:204, 283`, `board-article/board-article.service.ts:154, 221`, `member/member.service.ts:189, 241`.
+    - **Upload write failures:** `member/member.resolver.ts:164, 203, 214`. A file over the size limit is a user error, but it arrives as a stream error; a 413-style code can be added later.
+    - **`changePassword` `UPDATE_FAILED`** (`member/member.service.ts:107`): only possible in a race.
+    - **Unreachable**, because `$facet` always returns exactly one document: `!result.length` / `!result` in `product/product.service.ts:134, 185, 232`, `board-article/board-article.service.ts:129, 181`, `member/member.service.ts:170, 216`, `follow/follow.service.ts:97, 130` and `comment/comment.service.ts:135`. Also `follow/follow.service.ts:29, 54`: `getMember` throws before these checks run. Keep them as 500 guards, or remove them in a cleanup.
+  - **Already correct:** the auth guards (400 / 401 / 403); `changePassword` (400 / 401); the D-22 self-like checks and the duplicate like/follow/product creates (400); the uploader format and target checks (400); `signup` duplicates (400).
+  - **Login messages:** with the proposed classes, `NO_MEMBER_NICK` vs `WRONG_PASSWORD` still tells anyone whether a nick exists (user enumeration). One generic message for both is a separate decision; record it before changing the messages.
+  - **Side note:** `removeBoardArticleByAdmin` (`board-article/board-article.service.ts:203–210`) hard-deletes an article that is still `ACTIVE`, while `removeProductByAdmin` only removes items already set to `DELETE` (Step 6 part 1). Decide which rule is intended before changing either.
+  - **Verify (after the fix):** each listed case returns the proposed code (`BAD_REQUEST`, `UNAUTHENTICATED`, `FORBIDDEN` or `NOT_FOUND`) with its message, and real server faults still return `INTERNAL_SERVER_ERROR`.
 
 ---
 
@@ -953,6 +1015,7 @@ The field-level check covers all of them automatically. Keep the list as the ver
   |---|---|
   | `MemberType.AGENT` | `CREATOR` |
   | `Member.memberProperties`, `memberAddress` | `memberProducts`, plus new `memberBriefs`, `memberEmail`, `memberWhatsapp` (`null` for guests) |
+  | Error responses: validation failures returned only `"Bad Request Exception"` | Since B14: `errors[0].message` is always a string. For validation failures (`extensions.code: BAD_REQUEST`) it holds all messages joined with `"; "`, and `extensions.validationErrors` holds them as an array (one entry per failed rule, e.g. `["Password must be at least 8 characters!", "Phone number must be in international format, …"]`) to show next to the fields. Other errors have only `extensions.code`. Sensitive values in messages are shown as `"***"` (S15) |
   | Update inputs accepted `null` for required fields and stored it | Since B11: `null` is a validation error (`BAD_REQUEST`) for `memberNick`, `memberPhone`, `memberStatus` (admin), `articleTitle`, `articleContent`, `articleStatus`, `commentContent`, `commentStatus`, `productStatus` and `productPrice` (until Step 6 part 12). **Leave a field out to keep it unchanged; don't send `null`.** `null` still clears the optional fields: `memberFullName`, `memberDesc`, `memberEmail`, `memberWhatsapp`, `articleImage`, `productDemoUrl` |
   | Passwords 5–12 characters everywhere | Since S13 (D-26): `signup` and `changePassword.newPassword` need at least 8 characters and at most 72 bytes (UTF-8), with no composition rules; errors `PASSWORD_TOO_SHORT` / `PASSWORD_TOO_LONG`. `login` and `changePassword.currentPassword` only need a non-empty value, so existing passwords keep working |
   | `memberPhone`: any non-empty string | Since B12 (D-25): E.164 only (`+`, country code, digits, 8–15 digits, e.g. `+998901234567`) in `signup`, `updateMember` and `updateMemberByAdmin`; error `INVALID_PHONE`. No spaces or dashes; the API doesn't reformat. Same rule as `memberWhatsapp` |
