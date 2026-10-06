@@ -401,7 +401,8 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - Done in Step 6 part 5.
 - [ ] Add `productCategory`, `productPricing`, `productPrice`, `productDemoUrl` and `productTags`.
   - **Done in Step 6 part 11:** category, pricing, demo URL and tags. `productImages` now rejects `null` and `[]`. **Still open:** `productPrice` with the D-03 check on the merged values (part 12).
-- [ ] (bug, fix in its own commit) `ProductUpdate.productTitle` uses `@IsOptional()`, which lets `null` through. The service then `$set`s `null` on a required field (`findOneAndUpdate` doesn't run schema validators). Reject `null` with the same `@ValidateIf(… !== undefined)` pattern. Found during Step 6 part 11.
+- [x] (bug, fix in its own commit) `ProductUpdate.productTitle` uses `@IsOptional()`, which lets `null` through. The service then `$set`s `null` on a required field (`findOneAndUpdate` doesn't run schema validators). Reject `null` with the same `@ValidateIf(… !== undefined)` pattern. Found during Step 6 part 11.
+  - Fixed: `@ValidateIf((o) => o.productTitle !== undefined)` + `@IsString()` + `@Length(3, 100)`. `null`, `''` and non-strings are rejected; omitting the field still works.
 
 ### Service — `property.service.ts` → `product.service.ts`
 - [ ] `createProperty` (35–50):

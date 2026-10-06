@@ -46,9 +46,10 @@ export class ProductUpdate {
 	@Field(() => ProductPricing, { nullable: true })
 	productPricing?: ProductPricing;
 
-	@IsOptional()
-	@Field(() => String, { nullable: true })
+	@ValidateIf((o) => o.productTitle !== undefined) // reject null: the field is required
+	@IsString()
 	@Length(3, 100)
+	@Field(() => String, { nullable: true })
 	productTitle?: string;
 
 	@IsOptional()
