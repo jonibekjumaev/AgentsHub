@@ -220,8 +220,19 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - deadline must be in the future (D-05)
   - brief already closed
 - [x] Each rename changes the GraphQL enum value. Changing them together with Steps 5–8 keeps the API compiling. Every usage is listed below.
-- [ ] **Step 6 cleanup:** remove `PROPERTY` from `LikeGroup`, `ViewGroup`, `CommentGroup` and `NotificationGroup`, and delete `property.enum.ts`.
-  - **Done in Step 6 part 7:** `property.enum.ts` deleted. No code uses the `PROPERTY` values any more, and the migration converted the stored rows. **Still open:** removing the 4 `PROPERTY` values (part 9).
+- [x] **Step 6 cleanup:** remove `PROPERTY` from `LikeGroup`, `ViewGroup`, `CommentGroup` and `NotificationGroup`, and delete `property.enum.ts`.
+  - **Done in Step 6 part 7:** `property.enum.ts` deleted. No code uses the `PROPERTY` values any more, and the migration converted the stored rows. **Done in Step 6 part 9:** the 4 `PROPERTY` values removed.
+  - **Precondition (checked on 2026-10-06, before the values were removed):** this read-only check in the dev DB had to return 0 for all four counts, and it did. Mongoose takes its `enum:` lists from these enums, so a leftover `PROPERTY` row would be rejected on its next save. Run the same check on any other database before deploying part 9.
+    ```js
+    const d = db.getSiblingDB('agentsHub');
+    printjson({
+    	likes: d.likes.countDocuments({ likeGroup: 'PROPERTY' }),
+    	views: d.views.countDocuments({ viewGroup: 'PROPERTY' }),
+    	comments: d.comments.countDocuments({ commentGroup: 'PROPERTY' }),
+    	notifications: d.notifications.countDocuments({ notificationGroup: 'PROPERTY' }),
+    });
+    ```
+  - Only `CommentGroup` is part of the GraphQL schema (`createComment` input, `Comment` output). `LikeGroup`, `ViewGroup` and `NotificationGroup` are not exposed by any operation, so removing their value is not an API change.
 
 ---
 
@@ -687,7 +698,7 @@ The field-level check covers all of them automatically. Keep the list as the ver
   | `getFavorities`, `getVisited` (return `Properties`) | same names, return `Products` |
   | Property search: `locationList`, `typeList`, `roomsList`, `bedsList`, `options`, `squaresRange` | removed; replaced by `categoryList`, `pricingList`, tags |
   | `PropertyStatus` enum; `PropertyStatus.SOLD`, `soldAt`, `constructedAt`, barter/rent | `ProductStatus`; SOLD and the dates removed; `PAUSED` is listed, but `updateProduct` / `updateProductByAdmin` reject it until the D-16 part |
-  | `LikeGroup` / `ViewGroup` / `CommentGroup` `PROPERTY` | `PRODUCT` (+ `BRIEF` for view/comment). Since Step 6 part 7, `createComment` on a product needs `commentGroup: PRODUCT`; `PROPERTY` returns `NO_DATA_FOUND` until the value is removed (part 9) |
+  | `LikeGroup` / `ViewGroup` / `CommentGroup` `PROPERTY` | `PRODUCT` (+ `BRIEF` for view/comment). Since Step 6 part 9, `CommentGroup.PROPERTY` no longer exists: `createComment` with `commentGroup: PROPERTY` fails GraphQL validation (`GRAPHQL_VALIDATION_FAILED`). The other group enums are not in the GraphQL schema |
   | `imagesUploader(target: "property")` | `target: "product"` |
   | — | new `Brief` queries and mutations (Step 7) |
   | `getComments(search: { commentRefId })` | `search: { commentRefId, commentGroup }`. `commentGroup` is required; a paused or missing product returns `NO_DATA_FOUND` (D-16) |

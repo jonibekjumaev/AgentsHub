@@ -202,7 +202,7 @@ Unique index: `{ followingId: 1, followerId: 1 }`.
 |---|---|---|---|---|
 | _id | ObjectId | NN | PK | |
 | notificationType | enum | NN | | unchanged |
-| notificationGroup | enum | NN | | if it contains `PROPERTY`, replace it with `PRODUCT` and add `BRIEF` |
+| notificationGroup | enum NotificationGroup | NN | | `MEMBER`, `PRODUCT`, `BRIEF` or `ARTICLE` |
 | notificationStatus | enum | NN | | unchanged |
 | notificationTitle | string | NN | | |
 | notificationDesc | string | | | optional, the title can be enough (D-18) |
