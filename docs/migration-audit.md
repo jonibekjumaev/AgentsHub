@@ -96,6 +96,53 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - call `checkAuthRoles` with a valid token → the API's stdout contains no `Bearer` string and no token
     - `checkAuth`, `checkAuthRoles` and the `@AuthMember('_id')` endpoints still work
 
+- [ ] **S11 — Password changes through member updates are stored unhashed (D-24)**
+  - **When:** found after Step 6 part 11, while checking the update DTOs for `null` (B11).
+  - **Where:**
+    - `api/libs/dto/member/member.update.ts`: `MemberUpdate.memberPassword` and `MemberUpdateByAdmin.memberPassword`
+    - `api/components/member/member.service.ts`: `updateMember` (70–85) and `updateMemberByAdmin` (196–202) pass the input to `$set` as it is. Only `signup` hashes the password (`:31`).
+  - **Problem:**
+    - A password set through an update is stored as **plain text**.
+    - The member can't log in any more, because `login` compares with bcrypt against a value that isn't a bcrypt hash.
+    - An admin can set any member's password, so the admin knows it.
+    - `updateMember` changes the password without asking for the current one, so a stolen token is enough to take over the account.
+  - **Fix (D-24, Proposed):**
+    - remove `memberPassword` from `MemberUpdate` and `MemberUpdateByAdmin`
+    - add `changePassword(currentPassword, newPassword)` for the logged-in member: verify the current password with bcrypt, validate the new one, hash it and save it
+    - no admin password setting in the MVP
+  - **Data:** check the dev DB for members whose `memberPassword` is not a bcrypt hash. They were set through the old update path and can't log in.
+  - **Verify:** see the S11 plan; at minimum:
+    - `updateMember` / `updateMemberByAdmin` with `memberPassword` → GraphQL validation error (unknown field)
+    - `changePassword` with a wrong current password → error, and the old password still works
+    - `changePassword` with the right one → the new password logs in, the old one doesn't, and the DB holds a bcrypt hash
+- [ ] **S12 — Passwords can appear in the request log**
+  - **When:** found while planning S11.
+  - **Where:** `api/libs/interceptor/logging.interceptor.ts` logs the first 75 characters of every GraphQL request body (`this.stringify(requestContext.req?.body)`, label `REQUEST`).
+  - **Problem:**
+    - When a mutation has its arguments written inline instead of passed as variables, the password can fall within those 75 characters.
+    - Examples: `{"query":"mutation { changePassword(input: {currentPassword: \"…` reaches the value at about character 63, and `login` (`memberPassword`) behaves the same.
+    - Anyone who can read the logs can see the password or part of it.
+  - **Fix:**
+    - Redact the password fields `memberPassword`, `currentPassword` and `newPassword` before logging.
+    - Handle both forms: the values in `variables`, and inline values in the `query` string (e.g. replace the value after `memberPassword:` / `currentPassword:` / `newPassword:` with `"***"`).
+    - Redact first, then truncate.
+  - **Verify:**
+    - `login`, `signup` and `changePassword`, each with inline arguments and with variables → the `REQUEST` log line contains `***`, never the password
+    - other requests are logged as before
+- [ ] **S13 — Password policy is too weak (decision needed)**
+  - **When:** raised while planning S11.
+  - **Where:** `@Length(5, 12)` on `MemberInput.memberPassword` (signup), `LoginInput.memberPassword`, and `ChangePasswordInput.currentPassword` / `newPassword` (S11).
+  - **Problem:** 5–12 characters is too weak, and the 12-character maximum blocks passphrases and generated passwords from password managers.
+  - **Proposed:**
+    - min 8, max 72 characters (the bcrypt limit) for `signup` and `changePassword.newPassword`
+    - `login` and `changePassword.currentPassword` keep only a non-empty check, so existing 5–12 character passwords still work
+  - **Before implementing:** record the policy as its own decision in `docs/decisions.md` (**Proposed** first). S11 keeps the current 5–12 rule until then.
+  - **Verify (after the decision):**
+    - signup / `changePassword` with 7 characters → validation error
+    - 8 and 72 characters → OK
+    - 73 characters → validation error
+    - an existing 5-character password still logs in
+
 ### Other bugs in surviving code
 - [x] **B1 — `MembersInquiry.search` type**
   - **Where:** `api/libs/dto/member/member.input.ts:123–124`
@@ -157,6 +204,55 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - A calls `likeTargetMember(A)` → error, `memberLikes` unchanged
     - B viewing or liking A still counts
   - The product half (own product views and likes) is rewritten code, so it is fixed in Step 6.
+- [ ] **B10 — `updateMember` ignores its `memberStatus` filter**
+  - **When:** found after Step 6 part 11.
+  - **Where:** `api/components/member/member.service.ts:71–77`: `findByIdAndUpdate({ _id: memberId, memberStatus: MemberStatus.ACTIVE }, …)`
+  - **Problem:**
+    - An object is passed as the id. Mongoose casts it to its `_id` and drops `memberStatus: ACTIVE`. This is the same mistake as `removePropertyByAdmin`, fixed in Step 6 part 1.
+    - The route guards accept any valid token (D-23), so a `BLOCK` or `DELETE` member with an unexpired token can still update their profile.
+  - **Fix:** `findOneAndUpdate({ _id: memberId, memberStatus: MemberStatus.ACTIVE }, { $set: input }, { new: true })`.
+  - **Verify:**
+    - set a member to `BLOCK` in Compass, then call `updateMember` with their token → `UPDATE_FAILED`, and nothing changed
+    - set them back to `ACTIVE` → the update works
+- [ ] **B11 — `@IsOptional()` lets `null` through to `$set` on required fields**
+  - **When:** found after Step 6 part 11; `ProductUpdate.productTitle` was fixed on its own first.
+  - **Problem:**
+    - `@IsOptional()` skips every validator when the value is `null`.
+    - The services pass the input to `findOneAndUpdate` / `findByIdAndUpdate`, which don't run schema validators, so `null` is stored even on required fields.
+    - On `*Status` fields, `null` hides the document from every `ACTIVE` query, and the owner can't update it again, because the update matches `ACTIVE`.
+  - **Where:**
+
+    | DTO | Field | Schema |
+    |---|---|---|
+    | `MemberUpdate`, `MemberUpdateByAdmin` | `memberNick` | required, unique |
+    | | `memberPhone` | required, unique |
+    | `MemberUpdateByAdmin` | `memberStatus` | enum, default `ACTIVE` |
+    | `BoardArticleUpdate` | `articleTitle`, `articleContent` | required |
+    | | `articleStatus` | enum, default `ACTIVE` |
+    | `CommentUpdate` | `commentContent` | required |
+    | | `commentStatus` | enum, default `ACTIVE` |
+    | `ProductUpdate` | `productStatus` | enum, default `ACTIVE` (`@IsIn` is skipped for `null`) |
+
+    `memberPassword` is left out: S11 removes it from the update inputs.
+  - **Correctly nullable, no change:**
+    - `memberFullName` and `memberDesc`
+    - `memberEmail` and `memberWhatsapp` (`null` removes the contact)
+    - `articleImage` and `productDemoUrl`
+    - `productPrice`, which may be `null` for `FREE` / `CUSTOM` under D-03 (Step 6 part 12)
+  - **Fix:** the D-15 / B2 pattern for every field in the table: `@ValidateIf((o) => o.<field> !== undefined)` plus a type check (`@IsString()` or `@IsEnum(...)`), keeping the existing length and `@IsIn` rules.
+  - **Verify:** for each field, `null` → validation error; leaving the field out → still works; a valid value → still works.
+- [ ] **B12 — `memberPhone` has no format validation**
+  - **When:** found after Step 6 part 11.
+  - **Where:**
+    - `api/libs/dto/member/member.input.ts` (`MemberInput`, signup): only `@IsNotEmpty()`
+    - `member.update.ts` (`MemberUpdate`, `MemberUpdateByAdmin`): only `@IsOptional()`
+  - **Problem:**
+    - Any string is accepted as a phone number, and `''` is accepted on update.
+    - The field is required and unique (`Member.model.ts:24–28`), so junk values also take up the unique slot.
+  - **Fix:** one phone rule shared by signup and both updates (e.g. E.164 like `whatsappNumberRegex`, with its own `Message`).
+    - Choosing the format is a decision: record it in `docs/decisions.md` first.
+    - Existing members with an invalid phone are only checked on their next update.
+  - **Verify:** signup and update with `''`, letters, or a too-short or too-long number → validation error; a valid number → OK.
 
 ---
 
@@ -719,6 +815,7 @@ The field-level check covers all of them automatically. Keep the list as the ver
   |---|---|
   | `MemberType.AGENT` | `CREATOR` |
   | `Member.memberProperties`, `memberAddress` | `memberProducts`, plus new `memberBriefs`, `memberEmail`, `memberWhatsapp` (`null` for guests) |
+  | `updateMember` / `updateMemberByAdmin` with `memberPassword` | removed (S11, D-24): sending it fails GraphQL validation. New `changePassword(input: { currentPassword, newPassword }): Boolean!` for the logged-in member; errors `WRONG_PASSWORD`, `SAME_PASSWORD`, and `NOT_AUTHENTICATED` for a blocked or deleted member. Admins can't set passwords. Existing tokens stay valid after a change |
   | `getAgents(AgentsInquiry)`, search input type `AISearch` | `getCreators(CreatorsInquiry)`, search input type `CRISearch` (same fields: `memberStatus`, `memberType`, `text`) |
   | `Property`, `Properties` types | `Product`, `Products` |
   | `Property.property*` fields (`propertyStatus`, `propertyTitle`, `propertyPrice`, `propertyViews`, `propertyLikes`, `propertyComments`, `propertyRank`, `propertyImages`, `propertyDesc`) | `product*` (same fields; also inside `getFavorities` / `getVisited`) |

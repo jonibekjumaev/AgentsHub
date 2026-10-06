@@ -543,3 +543,34 @@
   - **Blocked / deleted members with a valid token** get `null`, the same as guests. After S9 the token has no `memberStatus`, so the status is read from the database (once per request, see above). This is the same rule as the chat connection check (S4: `findOne({ _id, memberStatus: ACTIVE })`). It is stricter than the route guards, which still accept any valid token; changing the guards is out of scope here.
   - **Own data in `signup` / `login`:** the request has no token yet, so the contacts come back `null`. Accepted: one rule with no exceptions, and the client loads them with `getMember` and the new `accessToken` afterwards. `signup` can't set contacts anyway (`MemberInput` has no contact fields). `updateMember` is called with a token, so an `ACTIVE` caller gets their own contacts back.
 - **Consequence:** Every request that returns contact fields with a token costs one extra `members` read (by `_id`, so it uses the primary index). New queries that return a `Member` need nothing extra. Code outside GraphQL (JWT payload, socket `memberData`) must keep omitting the contacts (S9, S3).
+
+## D-24 — How a member's password is changed
+
+**Status:** Accepted
+
+- **Context:** `memberPassword` is a field of both update inputs, `MemberUpdate` (`updateMember`) and `MemberUpdateByAdmin` (`updateMemberByAdmin`). Both services `$set` the input as it is, and only `signup` hashes the password. So a changed password is stored as plain text, and the member can't log in afterwards (audit S11). Hashing it in the update would fix the storage, but two problems would remain:
+  - `updateMember` would change the password with only a token, without the current password.
+  - An admin could set any member's password and would know it.
+- **Options:**
+  - **A. Keep `memberPassword` in both update inputs, and hash it in the services.**
+    - Pro: The smallest change; no new mutation.
+    - Con: No re-authentication, so a stolen or forgotten-open session is enough to take over the account. Admins still choose and know members' passwords.
+  - **B. Remove `memberPassword` from both update inputs, and add a dedicated `changePassword` mutation that requires the current password. No admin password setting.**
+    - Pro: Re-authentication, and admins never know a password. Password handling lives in one method.
+    - Con: A breaking API change, and the MVP has no way to recover a forgotten password.
+- **Decision:** Option B.
+  - `memberPassword` is removed from `MemberUpdate` and `MemberUpdateByAdmin`.
+  - New mutation `changePassword(input: { currentPassword, newPassword })` for the logged-in member. It:
+    - verifies the current password with bcrypt;
+    - validates the new password with the same rules as signup;
+    - hashes the new password and saves it.
+  - There is no admin password setting in the MVP.
+- **Reason:**
+  - **Re-authentication:** changing the password is the most sensitive account action. A valid token alone (possibly stolen, or on a shared device) must not be enough; the member proves they know the current password.
+  - **Admins must not know passwords:** an admin who sets a password knows it and can log in as that member, and members can't tell. The admin's tools (status, block) are enough for moderation.
+  - **One place for password rules:** hashing and validation live in one service method, so an update path can't store a password unhashed again.
+- **Consequence:**
+  - `updateMember` / `updateMemberByAdmin` with `memberPassword` fail GraphQL validation (a frontend change; Step 12 table).
+  - **No password recovery in the MVP:** a member who forgets their password can't reset it, and admins can't either. A reset flow (e.g. an emailed one-time link) needs its own decision later.
+  - **Existing tokens stay valid:** the JWT has no password or version claim (S9), so changing the password doesn't log out other sessions until their tokens expire (30 days). Revoking tokens on a password change would need its own decision.
+  - Dev members whose password was set through the old update path hold a plain-text value and can't log in. They are found with a read-only check (`memberPassword` not a bcrypt hash).
