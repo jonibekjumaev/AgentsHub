@@ -1,8 +1,8 @@
 import { Field, InputType, Int } from '@nestjs/graphql';
-import { IsIn, IsNotEmpty, IsOptional, Length, MaxLength, Min } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, Length, Matches, MaxLength, Min } from 'class-validator';
 import { MemberAuthType, MemberStatus, MemberType } from '../../enums/member.enum';
-import { Direction } from '../../enums/common.enum';
-import { aviableCreatorSorts, aviableMemberSorts, searchTextMaxLength } from '../../config';
+import { Direction, Message } from '../../enums/common.enum';
+import { aviableCreatorSorts, aviableMemberSorts, e164PhoneRegex, searchTextMaxLength } from '../../config';
 
 @InputType()
 export class MemberInput {
@@ -17,6 +17,7 @@ export class MemberInput {
 	memberPassword!: string;
 
 	@IsNotEmpty()
+	@Matches(e164PhoneRegex, { message: Message.INVALID_PHONE }) // E.164 (D-25)
 	@Field(() => String)
 	memberPhone!: string;
 

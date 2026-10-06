@@ -574,3 +574,29 @@
   - **No password recovery in the MVP:** a member who forgets their password can't reset it, and admins can't either. A reset flow (e.g. an emailed one-time link) needs its own decision later.
   - **Existing tokens stay valid:** the JWT has no password or version claim (S9), so changing the password doesn't log out other sessions until their tokens expire (30 days). Revoking tokens on a password change would need its own decision.
   - Dev members whose password was set through the old update path hold a plain-text value and can't log in. They are found with a read-only check (`memberPassword` not a bcrypt hash).
+
+## D-25 — Phone number format
+
+**Status:** Accepted
+
+- **Context:** `memberPhone` is required and unique (`Member.model.ts`), but it has no format rule. Signup accepts any non-empty string, and the update inputs accepted any string, including `''` (audit B12). `memberWhatsapp` already uses E.164 since Step 5 part 2. The Nestar dev data holds Korean local numbers like `010…`.
+- **Options:**
+  - **A. Korean local format (`010…`).**
+    - Pro: Matches the existing Nestar dev data.
+    - Con: AgentsHub is international; a local format can't hold other countries' numbers. **Rejected.**
+  - **B. International E.164 (`+`, country code, digits only, 8–15 digits), the same rule as `memberWhatsapp`.**
+    - Pro: Works for every country. One format for both phone fields. Unambiguous.
+    - Con: Existing dev numbers don't match.
+  - **C. No format, only non-empty.**
+    - Pro: No change for anyone.
+    - Con: Junk values, and the same number in different spellings (`+998 90…`, `99890…`) passes the unique index as different values. **Rejected.**
+- **Decision:** Option B. `memberPhone` uses E.164: `+`, a country code without a leading 0, digits only, 8–15 digits in total (e.g. `+998901234567`). It is the same rule, and the same shared regex constant, as `memberWhatsapp`. It is checked at signup and in both member update inputs.
+- **Reason:**
+  - **AgentsHub is international:** creators and users come from any country.
+  - **One format for both phone fields:** `memberPhone` and `memberWhatsapp` follow one rule, and one constant enforces it.
+  - **The unique index really prevents duplicates:** E.164 has one canonical spelling per number (no spaces, dashes or local prefixes), so the same number can't be registered twice in different spellings.
+  - **SMS / OTP services expect E.164,** so phone verification can be added later without converting numbers.
+- **Consequence:**
+  - **Existing dev members with `010…` numbers keep working:** login uses the nick, not the phone, and reads don't validate the stored value. They must send an E.164 number the next time they update their phone.
+  - **The seed script** creates E.164 numbers.
+  - Clients must send the number already in E.164. The API checks the format but doesn't reformat (no stripping of spaces or dashes).

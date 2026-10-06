@@ -298,7 +298,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - All 10 kept fields still accept `null`.
     - The existing rules still hold: `PAUSED` is rejected by the temporary guard; `memberNick` too short; `articleTitle` too long; `''` comment; an unknown `memberStatus`; a string price; `memberImage: null` (B2).
   - **API:** the GraphQL schema is unchanged. Clients that send `null` for fields they don't want to change must leave them out instead (Step 12 table).
-- [ ] **B12 — `memberPhone` has no format validation**
+- [x] **B12 — `memberPhone` has no format validation (D-25)**
   - **When:** found after Step 6 part 11.
   - **Where:**
     - `api/libs/dto/member/member.input.ts` (`MemberInput`, signup): only `@IsNotEmpty()`
@@ -310,6 +310,17 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - Choosing the format is a decision: record it in `docs/decisions.md` first.
     - Existing members with an invalid phone are only checked on their next update.
   - **Verify:** signup and update with `''`, letters, or a too-short or too-long number → validation error; a valid number → OK.
+  - **Decision:** D-25 (Accepted): E.164, the same rule as `memberWhatsapp`. Options A (Korean `010…`) and C (no format) were rejected.
+  - **Fixed:**
+    - `whatsappNumberRegex` was **renamed to `e164PhoneRegex`** (`api/libs/config.ts`). It is the one shared rule for `memberPhone` and `memberWhatsapp`; the old name is gone from `apps/`.
+    - `memberPhone` gets `@Matches(e164PhoneRegex, { message: Message.INVALID_PHONE })` in `MemberInput` (signup), `MemberUpdate` and `MemberUpdateByAdmin`.
+    - New message `INVALID_PHONE`; `memberWhatsapp` keeps `INVALID_WHATSAPP`.
+    - The update inputs keep the B11 `@ValidateIf` + `@IsString()`, so `null` is still rejected.
+  - **Checked:** 45 direct cases.
+    - 13 phone values in each of the 3 inputs: valid `+998…`, `+8210…`, `+1…`, and the 8- and 15-digit limits; rejected: `010…` without `+`, 7 and 16 digits, a country code starting with 0, spaces, dashes, `''` and letters.
+    - Signup without a phone is still required; `null` on update is still rejected; leaving the phone out of an update is OK.
+    - `memberWhatsapp` still validates with the same rule and its own message, and `null` still clears it.
+  - **Data:** existing dev members with `010…` numbers keep working (login uses the nick). They must send E.164 the next time they update their phone (D-25).
 
 ---
 
@@ -873,6 +884,7 @@ The field-level check covers all of them automatically. Keep the list as the ver
   | `MemberType.AGENT` | `CREATOR` |
   | `Member.memberProperties`, `memberAddress` | `memberProducts`, plus new `memberBriefs`, `memberEmail`, `memberWhatsapp` (`null` for guests) |
   | Update inputs accepted `null` for required fields and stored it | Since B11: `null` is a validation error (`BAD_REQUEST`) for `memberNick`, `memberPhone`, `memberStatus` (admin), `articleTitle`, `articleContent`, `articleStatus`, `commentContent`, `commentStatus`, `productStatus` and `productPrice` (until Step 6 part 12). **Leave a field out to keep it unchanged; don't send `null`.** `null` still clears the optional fields: `memberFullName`, `memberDesc`, `memberEmail`, `memberWhatsapp`, `articleImage`, `productDemoUrl` |
+  | `memberPhone`: any non-empty string | Since B12 (D-25): E.164 only (`+`, country code, digits, 8–15 digits, e.g. `+998901234567`) in `signup`, `updateMember` and `updateMemberByAdmin`; error `INVALID_PHONE`. No spaces or dashes; the API doesn't reformat. Same rule as `memberWhatsapp` |
   | `updateMember` / `updateMemberByAdmin` with `memberPassword` | removed (S11, D-24): sending it fails GraphQL validation. New `changePassword(input: { currentPassword, newPassword }): Boolean!` for the logged-in member; errors `WRONG_PASSWORD`, `SAME_PASSWORD`, and `NOT_AUTHENTICATED` for a blocked or deleted member. Admins can't set passwords. Existing tokens stay valid after a change |
   | `getAgents(AgentsInquiry)`, search input type `AISearch` | `getCreators(CreatorsInquiry)`, search input type `CRISearch` (same fields: `memberStatus`, `memberType`, `text`) |
   | `Property`, `Properties` types | `Product`, `Products` |

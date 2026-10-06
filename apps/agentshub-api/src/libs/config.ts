@@ -40,8 +40,9 @@ export const productTagMaxLength = 30;
 /**  CONTACT CONFIGURATION (D-07)  **/
 
 export const memberEmailMaxLength = 254;
-// E.164: '+', country code without a leading 0, 8–15 digits in total (max 16 characters)
-export const whatsappNumberRegex = /^\+[1-9]\d{7,14}$/;
+// E.164: '+', country code without a leading 0, 8–15 digits in total (max 16 characters).
+// One rule for memberPhone and memberWhatsapp (D-25)
+export const e164PhoneRegex = /^\+[1-9]\d{7,14}$/;
 
 // User search text is plain text, never a regex pattern (S8)
 export const escapeRegex = (text: string): string => {

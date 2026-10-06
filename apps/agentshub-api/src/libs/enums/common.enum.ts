@@ -23,6 +23,7 @@ export enum Message {
 	INVALID_CHAT_MESSAGE = 'Message must be text of 1 to 500 characters!',
 	CHAT_RATE_LIMITED = 'You can send at most 1 message per second!',
 	INVALID_EMAIL = 'Please provide a valid email of at most 254 characters!',
+	INVALID_PHONE = 'Phone number must be in international format, e.g. +998901234567 (8 to 15 digits)!',
 	INVALID_WHATSAPP = 'WhatsApp number must be in international format, e.g. +998901234567 (8 to 15 digits)!',
 
 	PRICE_REQUIRED = 'Price greater than 0 is required for ONE_TIME and SUBSCRIPTION pricing!',

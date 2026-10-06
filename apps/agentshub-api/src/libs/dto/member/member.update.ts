@@ -13,12 +13,13 @@ import {
 import { MemberStatus } from '../../enums/member.enum';
 import { Message } from '../../enums/common.enum';
 import type { ObjectId } from '../../types/common';
-import { memberEmailMaxLength, whatsappNumberRegex } from '../../config';
+import { e164PhoneRegex, memberEmailMaxLength } from '../../config';
 
 @InputType()
 export class MemberUpdate {
-	@ValidateIf((o) => o.memberPhone !== undefined) // reject null: the field is required (format check: B12)
+	@ValidateIf((o) => o.memberPhone !== undefined) // reject null: the field is required (B11)
 	@IsString()
+	@Matches(e164PhoneRegex, { message: Message.INVALID_PHONE }) // E.164 (D-25)
 	@Field(() => String, { nullable: true })
 	memberPhone?: string;
 
@@ -46,7 +47,7 @@ export class MemberUpdate {
 	memberEmail?: string;
 
 	@IsOptional()
-	@Matches(whatsappNumberRegex, { message: Message.INVALID_WHATSAPP })
+	@Matches(e164PhoneRegex, { message: Message.INVALID_WHATSAPP })
 	@Field(() => String, { nullable: true })
 	memberWhatsapp?: string;
 
@@ -68,8 +69,9 @@ export class MemberUpdateByAdmin {
 	@Field(() => MemberStatus, { nullable: true })
 	memberStatus?: MemberStatus;
 
-	@ValidateIf((o) => o.memberPhone !== undefined) // reject null: the field is required (format check: B12)
+	@ValidateIf((o) => o.memberPhone !== undefined) // reject null: the field is required (B11)
 	@IsString()
+	@Matches(e164PhoneRegex, { message: Message.INVALID_PHONE }) // E.164 (D-25)
 	@Field(() => String, { nullable: true })
 	memberPhone?: string;
 
@@ -97,7 +99,7 @@ export class MemberUpdateByAdmin {
 	memberEmail?: string;
 
 	@IsOptional()
-	@Matches(whatsappNumberRegex, { message: Message.INVALID_WHATSAPP })
+	@Matches(e164PhoneRegex, { message: Message.INVALID_WHATSAPP })
 	@Field(() => String, { nullable: true })
 	memberWhatsapp?: string;
 
