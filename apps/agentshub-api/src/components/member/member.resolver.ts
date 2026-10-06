@@ -20,6 +20,8 @@ import { WithoutGuard } from '../auth/guards/without.guard';
 import type { AuthPayload, ObjectId } from '../../libs/types/common';
 import { GraphQLUpload } from 'graphql-upload';
 import { createWriteStream } from 'fs';
+import { mkdir } from 'fs/promises';
+import { dirname } from 'path';
 import { Message } from '../../libs/enums/common.enum';
 import type { FileUpload } from 'graphql-upload';
 
@@ -133,6 +135,8 @@ export class MemberResolver {
 		const imageName = getSerialForImage(filename);
 		const url = getUploadPath(target, imageName);
 		if (!url) throw new BadRequestException(Message.BAD_REQUEST);
+		// uploads/<target>/ is gitignored, so a fresh server may not have it
+		await mkdir(dirname(url), { recursive: true });
 		const stream = createReadStream();
 
 		const result = await new Promise((resolve, reject) => {
@@ -168,6 +172,8 @@ export class MemberResolver {
 				const imageName = getSerialForImage(filename);
 				const url = getUploadPath(target, imageName);
 				if (!url) throw new BadRequestException(Message.BAD_REQUEST);
+				// uploads/<target>/ is gitignored, so a fresh server may not have it
+				await mkdir(dirname(url), { recursive: true });
 				const stream = createReadStream();
 
 				const result = await new Promise((resolve, reject) => {

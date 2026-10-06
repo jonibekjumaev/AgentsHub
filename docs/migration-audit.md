@@ -489,8 +489,14 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - Done in Step 6 part 10: `['member', 'product', 'article']`.
 - [x] Create `uploads/product/` (the folder is local and gitignored, so create it on each machine). Old Nestar images in `uploads/property/` are not migrated (D-13).
   - Done in Step 6 part 10 on this machine, as an empty folder. Nothing was copied from `uploads/property/`, and `productImages` paths in the dev DB were not rewritten: those are Nestar real-estate images and test data (D-13), which the seed script will replace. `uploads/property/` stays on disk for now.
-- [ ] (bug, separate fix, commit later) Upload folders must be created by the code (mkdir recursive) at startup or before writing, so a fresh server does not fail every upload.
-  - Today `imageUploader` / `imagesUploader` (`member.resolver.ts`) pipe into `createWriteStream(url)`, which does not create folders. On a machine without `uploads/<target>/`, every upload to that target fails (`UPLOAD_FAILED`, or a silently skipped image in `imagesUploader`).
+- [x] (bug, separate fix, commit later) Upload folders must be created by the code (mkdir recursive) at startup or before writing, so a fresh server does not fail every upload.
+  - Before the fix, `imageUploader` / `imagesUploader` (`member.resolver.ts`) piped into `createWriteStream(url)`, which does not create folders. On a machine without `uploads/<target>/`, every upload to that target failed (`UPLOAD_FAILED`, or a silently skipped image in `imagesUploader`).
+  - Fixed after Step 6 part 10: both uploaders call `mkdir(dirname(url), { recursive: true })` right before writing, after the target allow-list and path checks. Doing it before each write (not only at startup) also covers a folder deleted while the server runs.
+- [ ] (bug) `imagesUploader` hides a failed image. The per-file `catch` only logs `'Error, file missing!'` (it also swallows the `PROVIDE_ALLOWED_FORMAT` error), and the result is `[String!]!`:
+  - If the **last** file(s) fail, the array is just shorter, so the image is silently dropped.
+  - If an **earlier** file fails, the array has a hole, and GraphQL returns an opaque "Cannot return null for non-nullable field" error.
+  - In both cases the client can't tell which file failed, and the files that were written stay on disk as orphans.
+  - The fix (fail the whole request vs. per-file results) is waiting for a decision.
 
 ---
 
