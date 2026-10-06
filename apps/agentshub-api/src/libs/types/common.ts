@@ -6,11 +6,11 @@ export interface FormattedErrorExtensions {
 	code?: string;
 	exception?: {
 		response?: {
-			message?: string;
+			message?: string | string[];
 		};
 	};
 	response?: {
-		message?: string;
+		message?: string | string[]; // ValidationPipe errors: one message per failed rule
 	};
 }
 

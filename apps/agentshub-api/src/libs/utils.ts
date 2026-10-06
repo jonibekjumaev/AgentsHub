@@ -5,15 +5,22 @@ export const normalizeTags = (tags: string[]): string[] => {
 	return [...new Set(tags.map((tag) => tag.trim().toLowerCase()))];
 };
 
-/**  REQUEST LOG REDACTION (S12)  **/
+/**  LOG REDACTION (S12, S15)  **/
 
 const REDACTED = '***';
 const sensitiveNames = sensitiveLogFields.join('|');
-// inline values in the query text: `memberPassword: """…"""` and `memberPassword: "…"` (with escaped quotes)
-const inlineBlockString = new RegExp(`\\b(${sensitiveNames})(\\s*:\\s*)"""[\\s\\S]*?"""`, 'g');
-const inlineString = new RegExp(`\\b(${sensitiveNames})(\\s*:\\s*)"(?:[^"\\\\]|\\\\.)*"`, 'g');
+// `memberPassword: """…"""` (GraphQL block string)
+const keyedBlockString = new RegExp(`\\b(${sensitiveNames})("?\\s*:\\s*)"""[\\s\\S]*?"""`, 'g');
+// `memberPassword: "…"` (GraphQL query text, graphql-js error messages) and `"memberPassword":"…"` (JSON),
+// with escaped quotes inside the value
+const keyedString = new RegExp(`\\b(${sensitiveNames})("?\\s*:\\s*)"(?:[^"\\\\]|\\\\.)*"`, 'g');
 // `memberPassword: $p` → the value is in variables.p
 const variableReference = new RegExp(`\\b(?:${sensitiveNames})\\s*:\\s*\\$(\\w+)`, 'g');
+
+/** Replaces the value after every sensitive key in a piece of text with "***": query text, error messages, stacks. */
+export const redactSensitiveText = (text: string): string => {
+	return text.replace(keyedBlockString, `$1$2"${REDACTED}"`).replace(keyedString, `$1$2"${REDACTED}"`);
+};
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -30,21 +37,19 @@ const redactValues = (value: unknown, topLevelNames: Set<string> = new Set()): u
 	return result;
 };
 
-/** A copy of a GraphQL request body with password values replaced by '***'. The original body is not changed. */
+/** A copy of a GraphQL request body with sensitive values replaced by '***'. The original body is not changed. */
 export const redactRequestBody = (body: unknown): unknown => {
 	if (Array.isArray(body)) return body.map((item) => redactRequestBody(item)); // batched requests
 	if (!isPlainObject(body)) return body;
 
 	const result: Record<string, unknown> = { ...body };
-	const passwordVariables = new Set<string>();
+	const sensitiveVariables = new Set<string>();
 
 	if (typeof body.query === 'string') {
-		result.query = body.query
-			.replace(inlineBlockString, `$1$2"${REDACTED}"`)
-			.replace(inlineString, `$1$2"${REDACTED}"`);
-		for (const match of body.query.matchAll(variableReference)) passwordVariables.add(match[1]);
+		result.query = redactSensitiveText(body.query);
+		for (const match of body.query.matchAll(variableReference)) sensitiveVariables.add(match[1]);
 	}
-	if (body.variables !== undefined) result.variables = redactValues(body.variables, passwordVariables);
+	if (body.variables !== undefined) result.variables = redactValues(body.variables, sensitiveVariables);
 
 	return result;
 };

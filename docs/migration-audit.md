@@ -203,7 +203,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - the stored document keeps the hash, so login still works;
     - a wrong password → `WRONG_PASSWORD`.
 
-- [ ] **S15 — GraphQL error logs echo input values, including passwords (fix first)**
+- [x] **S15 — GraphQL error logs echo input values, including passwords (fix first)**
   - **When:** found in the S10 log sweep; **confirmed live**.
   - **Where:** `api/app.module.ts`, `formatError`:
     - `console.log('GRAPHQL GLOBAL ERR:', error)` (24) prints the raw error;
@@ -218,6 +218,15 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
       Both test passwords appeared twice in the API log. A wrong-typed field echoes only its own value.
   - **Fix:** redact the `sensitiveLogFields` values in error messages before they are logged (reusing the S12 redaction), or log only the code and path for `BAD_USER_INPUT`.
   - **Verify:** repeat the live probes → the test passwords appear nowhere in the API log; other errors are still logged usefully.
+  - **Fixed:**
+    - New `redactSensitiveText()` (`api/libs/utils.ts`). It replaces the value after any `sensitiveLogFields` key with `"***"` in graphql-js text (`memberPassword: "…"`), JSON (`"memberPassword":"…"`) and GraphQL block strings, including escaped quotes. S12's `redactRequestBody` now uses it for the query text, so there is one redaction rule.
+    - `sensitiveLogFields` now also contains `accessToken`.
+    - `formatError` redacts the message, each entry if it's an array. The **redacted message is also what the client gets.**
+    - The two raw log lines are replaced by one: `GRAPHQL ERROR [<code>] <path>: <message>`.
+    - Unexpected errors (not a Nest `HttpException` or a `GraphQLError`, found with Apollo's `unwrapResolverError`) also log their stack, redacted.
+  - **Checked:**
+    - 13 direct cases for `redactSensitiveText` (graphql-js form, nested input, two fields, escaped quotes, the JSON form, `accessToken`, block strings, a stack, and three texts without secrets that stay unchanged) plus `accessToken` in request variables. The 11 S12 cases still pass after the switch.
+    - Live: `login` without `memberNick`, `updateMember` with `memberPassword`, and an input carrying `accessToken`, all via variables → the client and the log show `"***"`. A `login` with an unknown nick and an inline `signup` with a bad phone are logged with their code and path. None of the 6 test secrets appear anywhere in the API log.
 - [ ] **S16 — The `RESPONSE` log prints response bodies; only truncation keeps secrets out**
   - **When:** found in the S10 log sweep.
   - **Where:** `api/libs/interceptor/logging.interceptor.ts`: `this.logger.log(`${this.stringify(data)} - …ms`, 'RESPONSE')` logs the first 75 characters of every resolver result.

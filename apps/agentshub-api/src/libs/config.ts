@@ -25,8 +25,8 @@ export const searchTextMaxLength = 100;
 
 /**  LOGGING CONFIGURATION  **/
 
-// GraphQL argument fields whose values are replaced with '***' in the request log (S12)
-export const sensitiveLogFields = ['memberPassword', 'currentPassword', 'newPassword'];
+// Fields whose values are replaced with '***' wherever they appear in logs or error text (S12, S15)
+export const sensitiveLogFields = ['memberPassword', 'currentPassword', 'newPassword', 'accessToken'];
 
 /**  PRODUCT CONFIGURATION  **/
 
