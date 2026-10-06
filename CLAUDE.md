@@ -96,7 +96,9 @@ apps/
                           (note: D-08 says no in-platform chat in the MVP)
   agentshub-batch/src/    @nestjs/schedule cron ranking: rollback 01:00:00, products 01:00:20, agents 01:00:40
                           AgentsHubBatchModule; imports schemas, DTOs and enums directly from ../../agentshub-api/src/...
-uploads/{member,property,article}/   local image storage (gitignored)
+uploads/{member,product,article}/    local image storage (gitignored); the folders must exist on each machine,
+                                     uploads into a missing folder fail
+                                     (uploads/property/ holds old Nestar images; not migrated, D-13)
 docs/                     agentshub-er.md (schema source of truth), decisions.md
 ```
 

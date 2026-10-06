@@ -485,8 +485,12 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - Done in Step 6 part 7.
 
 ### Uploads (moved from Step 3)
-- [ ] Upload target whitelist `validUploadTargets` (added in Step 2.5, S2) in `api/libs/config.ts`: change `property` → `product`. This changes behaviour (uploads with `target: "property"` are rejected afterwards), so it belongs here and not in Step 3.
-- [ ] Create `uploads/product/` (the folder is local and gitignored, so create it on each machine). Old Nestar images in `uploads/property/` are not migrated (D-13).
+- [x] Upload target whitelist `validUploadTargets` (added in Step 2.5, S2) in `api/libs/config.ts`: change `property` → `product`. This changes behaviour (uploads with `target: "property"` are rejected afterwards), so it belongs here and not in Step 3.
+  - Done in Step 6 part 10: `['member', 'product', 'article']`.
+- [x] Create `uploads/product/` (the folder is local and gitignored, so create it on each machine). Old Nestar images in `uploads/property/` are not migrated (D-13).
+  - Done in Step 6 part 10 on this machine, as an empty folder. Nothing was copied from `uploads/property/`, and `productImages` paths in the dev DB were not rewritten: those are Nestar real-estate images and test data (D-13), which the seed script will replace. `uploads/property/` stays on disk for now.
+- [ ] (bug, separate fix, commit later) Upload folders must be created by the code (mkdir recursive) at startup or before writing, so a fresh server does not fail every upload.
+  - Today `imageUploader` / `imagesUploader` (`member.resolver.ts`) pipe into `createWriteStream(url)`, which does not create folders. On a machine without `uploads/<target>/`, every upload to that target fails (`UPLOAD_FAILED`, or a silently skipped image in `imagesUploader`).
 
 ---
 

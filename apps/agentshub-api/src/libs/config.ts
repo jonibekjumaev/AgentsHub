@@ -42,7 +42,7 @@ export const getSerialForImage = (filename: string) => {
 	return uuidv4() + ext;
 };
 
-export const validUploadTargets = ['member', 'property', 'article'];
+export const validUploadTargets = ['member', 'product', 'article'];
 export const getUploadPath = (target: string, imageName: string): string | null => {
 	if (!validUploadTargets.includes(target)) return null;
 
