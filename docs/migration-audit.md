@@ -115,7 +115,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - `updateMember` / `updateMemberByAdmin` with `memberPassword` → GraphQL validation error (unknown field)
     - `changePassword` with a wrong current password → error, and the old password still works
     - `changePassword` with the right one → the new password logs in, the old one doesn't, and the DB holds a bcrypt hash
-- [ ] **S12 — Passwords can appear in the request log**
+- [x] **S12 — Passwords can appear in the request log**
   - **When:** found while planning S11.
   - **Where:** `api/libs/interceptor/logging.interceptor.ts` logs the first 75 characters of every GraphQL request body (`this.stringify(requestContext.req?.body)`, label `REQUEST`).
   - **Problem:**
@@ -129,6 +129,14 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **Verify:**
     - `login`, `signup` and `changePassword`, each with inline arguments and with variables → the `REQUEST` log line contains `***`, never the password
     - other requests are logged as before
+  - **Fixed:**
+    - `redactRequestBody()` (`api/libs/utils.ts`) builds a redacted copy of the body; the real `req.body` is not changed.
+    - The field list `sensitiveLogFields` is in `api/libs/config.ts`.
+    - `LoggingInterceptor` redacts before it truncates.
+    - It covers inline string and block-string values in the query, `variables` objects at any depth, scalar variables referenced by a password field (`memberPassword: $p`), and batched (array) bodies.
+  - **Checked:**
+    - 11 direct cases, including escaped quotes, nested signup variables, unchanged bodies without passwords, and that the original is not mutated.
+    - A live `login` with an inline password, an input variable and scalar variables: the `REQUEST` lines show `***` or are cut before the value, and none of the test passwords appear anywhere in the API log.
 - [ ] **S13 — Password policy is too weak (decision needed)**
   - **When:** raised while planning S11.
   - **Where:** `@Length(5, 12)` on `MemberInput.memberPassword` (signup), `LoginInput.memberPassword`, and `ChangePasswordInput.currentPassword` / `newPassword` (S11).

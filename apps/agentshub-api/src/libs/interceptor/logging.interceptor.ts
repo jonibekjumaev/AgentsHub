@@ -2,6 +2,7 @@ import { Injectable, NestInterceptor, ExecutionContext, CallHandler, Logger } fr
 import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
+import { redactRequestBody } from '../utils';
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
@@ -15,7 +16,8 @@ export class LoggingInterceptor implements NestInterceptor {
 			/* (1) Print Request */
 			const gqlContext = GqlExecutionContext.create(context);
 			const requestContext = gqlContext.getContext<{ req?: { body?: unknown } }>();
-			this.logger.log(this.stringify(requestContext.req?.body), 'REQUEST');
+			// redact before truncating, so a password can't be cut in half and partly logged (S12)
+			this.logger.log(this.stringify(redactRequestBody(requestContext.req?.body)), 'REQUEST');
 
 			/* (2) Errors handing via GraphQL */
 

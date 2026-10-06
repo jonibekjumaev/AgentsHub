@@ -23,6 +23,11 @@ export const availableCommentSorts = ['createdAt', 'updatedAt'];
 
 export const searchTextMaxLength = 100;
 
+/**  LOGGING CONFIGURATION  **/
+
+// GraphQL argument fields whose values are replaced with '***' in the request log (S12)
+export const sensitiveLogFields = ['memberPassword', 'currentPassword', 'newPassword'];
+
 /**  PRODUCT CONFIGURATION  **/
 
 // productDesc is the main text for semantic search later (D-18)
