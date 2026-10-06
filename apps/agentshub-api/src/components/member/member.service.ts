@@ -76,13 +76,9 @@ export class MemberService {
 	}
 
 	public async updateMember(memberId: ObjectId, input: MemberUpdate): Promise<Member> {
+		// findOneAndUpdate, not findByIdAndUpdate: an object passed as the id loses memberStatus (B10)
 		const result = await this.memberModel
-			.findByIdAndUpdate(
-				{ _id: memberId, memberStatus: MemberStatus.ACTIVE },
-
-				{ $set: input },
-				{ new: true },
-			)
+			.findOneAndUpdate({ _id: memberId, memberStatus: MemberStatus.ACTIVE }, { $set: input }, { new: true })
 			.exec();
 
 		if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);

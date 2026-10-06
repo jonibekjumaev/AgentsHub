@@ -235,7 +235,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - A calls `likeTargetMember(A)` → error, `memberLikes` unchanged
     - B viewing or liking A still counts
   - The product half (own product views and likes) is rewritten code, so it is fixed in Step 6.
-- [ ] **B10 — `updateMember` ignores its `memberStatus` filter**
+- [x] **B10 — `updateMember` ignores its `memberStatus` filter**
   - **When:** found after Step 6 part 11.
   - **Where:** `api/components/member/member.service.ts:71–77`: `findByIdAndUpdate({ _id: memberId, memberStatus: MemberStatus.ACTIVE }, …)`
   - **Problem:**
@@ -245,6 +245,10 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **Verify:**
     - set a member to `BLOCK` in Compass, then call `updateMember` with their token → `UPDATE_FAILED`, and nothing changed
     - set them back to `ACTIVE` → the update works
+  - **Fixed:** `findOneAndUpdate({ _id: memberId, memberStatus: MemberStatus.ACTIVE }, { $set: input }, { new: true })`. No other call in `apps/` passes an object as an id.
+  - **Checked:**
+    - Mongoose's own query cast (8.24.3, no DB): the old call's filter becomes `{ _id }`, which confirms the dropped status; the new one keeps `{ _id, memberStatus: "ACTIVE" }`.
+    - `updateMember` with the real model building the query: `ACTIVE` → updated with a new `accessToken`; `BLOCK` / `DELETE` → `UPDATE_FAILED`.
 - [ ] **B11 — `@IsOptional()` lets `null` through to `$set` on required fields**
   - **When:** found after Step 6 part 11; `ProductUpdate.productTitle` was fixed on its own first.
   - **Problem:**
