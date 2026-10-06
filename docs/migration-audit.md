@@ -229,19 +229,20 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 
 ### Schema — `api/schemas/Member.model.ts`
 - [x] Remove `memberAddress` (lines 51–53).
-- [ ] `memberProperties` → `memberProducts` (lines 59–62). **Expand done in Step 5:** `memberProducts` is added next to `memberProperties`. Removing `memberProperties` is Step 6, when the Property service and the batch stop using it (the build must stay green).
+- [x] `memberProperties` → `memberProducts` (lines 59–62). **Expand done in Step 5:** `memberProducts` is added next to `memberProperties`. Removing `memberProperties` is Step 6, when the Property service and the batch stop using it (the build must stay green).
+  - **Done in Step 6 part 8:** `memberProperties` removed from the schema. Existing values were moved to `memberProducts` by `scripts/migrations/step6-part8-member-products.mongosh.js`.
 - [x] Add `memberBriefs: { type: Number, default: 0 }`.
 - [x] Add `memberEmail` and `memberWhatsapp` (String, optional). Stored only; they are not GraphQL fields until D-07 is implemented.
 - [x] `memberImage` default stays `''` (line 48); the ER doc now matches (D-15). No schema change. Do **not** add Mongoose `required: true`, because it rejects `''`.
 - `memberImage: null` on update (D-15): fixed in Step 2.5 (B2).
 
 ### DTOs — `api/libs/dto/member/`
-- [ ] `member.ts`:
+- [x] `member.ts`:
   - remove `memberAddress` (35–36)
   - `memberProperties` → `memberProducts` (41–42)
   - add `memberBriefs`, plus `memberEmail` and `memberWhatsapp` as nullable fields
 
-  **Done in Step 5:** `memberAddress` removed; `memberProducts` and `memberBriefs` added. **Still open:** removing `memberProperties` (Step 6); `memberEmail`/`memberWhatsapp` are plain properties without `@Field` until [Step 9](#step-9--contact-visibility-d-07) (D-07).
+  **Done in Step 5:** `memberAddress` removed; `memberProducts` and `memberBriefs` added. **Done in Step 6 part 8:** the `memberProperties` `@Field` removed (a GraphQL change, already in the Step 12 table). `memberEmail` / `memberWhatsapp` became nullable fields in [Step 9](#step-9--contact-visibility-d-07) (D-07).
 - [x] `member.input.ts`:
   - `AgentsInquiry` (61) → `CreatorsInquiry`
   - its `AISearch` class (46) → e.g. `CISearch`
@@ -261,7 +262,8 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [x] `getAgents` checks `if (!result)` instead of `!result.length` (144). Make it consistent with the other list queries.
   - Fixed in `getCreators` (Step 5, its own `fix:` commit). No behaviour change: `$facet` always returns one document, so an empty result is `list: []`, not an error.
 - Contact visibility for `memberEmail` / `memberWhatsapp` (D-07): `getMember` (87), the list queries and the `$lookup`s return the whole document. **Moved to [Step 9 — Contact visibility (D-07)](#step-9--contact-visibility-d-07)**, together with the list of paths that must hide the fields from guests.
-- [ ] `memberStatsEditor` callers that pass `'memberProperties'` are listed in Step 6.
+- [x] `memberStatsEditor` callers that pass `'memberProperties'` are listed in Step 6.
+  - Done in Step 6 part 8: all 3 callers (`createProduct`, `updateProduct`, `updateProductByAdmin`) pass `'memberProducts'`.
 
 ### Resolver — `api/components/member/member.resolver.ts`
 - [x] `getAgents` query (72–77) → `getCreators`, using `CreatorsInquiry`.
@@ -271,6 +273,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 ### Config — `api/libs/config.ts`
 - [x] `aviableAgentSorts` (6) → `aviableCreatorSorts`. Consider adding `memberProducts`.
   - Renamed with the same values. Adding `memberProducts` is deferred to Step 6, when the counter is actually maintained.
+  - [ ] The counter is maintained since Step 6 part 8. Adding `memberProducts` as a sort option is still open: it is a new API option, so it was kept out of the pure-rename part.
 
 ### Auth side effect
 - [ ] `api/components/auth/auth.service.ts:21–31` puts the **whole member** in the JWT, and `RolesGuard` (`guards/roles.guard.ts:30`) reads `memberType` from the token. Tokens issued before the rename still carry `AGENT` and `memberProperties` for up to 30 days. Rotate `SECRET_TOKEN` or force a re-login after the migration.
@@ -285,6 +288,12 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 > - The dev DB migration `scripts/migrations/step6-part7-property-to-product.mongosh.js` ran on the dev DB. Every check was 0: no `properties` collection, no `property*` keys in `products`, and no `PROPERTY` likes, views, comments or notifications.
 > - Postman smoke tests passed for all 9 renamed operations, plus `getFavorities`, `getVisited` and `createComment(PRODUCT)`, including the temporary `PAUSED` rejection on `updateProduct` / `updateProductByAdmin`.
 > - Deliberately left for later parts: `memberProperties` (part 8), the `PROPERTY` enum values (part 9), and the `property` upload target (part 10).
+
+> **Part 8 (`memberProperties` → `memberProducts`) verified on 2026-10-06.**
+> - Both apps build with 0 errors. The GraphQL `Member` type has `memberProducts` and no `memberProperties`.
+> - The dev DB migration `scripts/migrations/step6-part8-member-products.mongosh.js` ran; no member has `memberProperties` any more.
+> - Postman smoke tests passed: `createProduct` adds 1 to `memberProducts`, and owner and admin `DELETE` each subtract 1. Querying `memberProperties` is rejected by schema validation, and `getCreators` returns `memberProducts`.
+> - Still open from this area: `memberProducts` as a creator sort option (Step 5 config) and the D-22 creator formula (Step 10).
 
 ### Files to rename
 - [x] `api/schemas/Property.model.ts` → `Product.model.ts`
@@ -378,6 +387,8 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [ ] `createProperty` (35–50):
   - add the D-03 price/pricing check
   - the memberStatsEditor key `'memberProperties'` (41) → `'memberProducts'`
+
+  **Done in Step 6 part 8:** the counter key. **Still open:** D-03 (part 12).
 - [x] `getProperty` (52–76):
   - `ViewGroup.PROPERTY` (62) → `PRODUCT`
   - `LikeGroup.PROPERTY` (70) → `PRODUCT`
@@ -389,7 +400,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - run D-03 on the **merged** pricing/price, so the existing doc must be loaded first
   - `'memberProperties'` (96) → `'memberProducts'`
 
-  **Done in Step 6 part 5:** the `SOLD` → `soldAt` branch was removed; the counter now changes only on `DELETE`. **Still open:** D-03 on the merged values (part 12) and the counter key (part 8).
+  **Done in Step 6 part 5:** the `SOLD` → `soldAt` branch was removed; the counter now changes only on `DELETE`. **Done in Step 6 part 8:** the counter key. **Still open:** D-03 on the merged values (part 12).
 - [ ] `getProduct` (D-16):
   - `ACTIVE` → everyone
   - `PAUSED` → only the owner (`memberId` matches the caller) or an `ADMIN` caller; everyone else gets `NO_DATA_FOUND`
@@ -425,8 +436,8 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   Done in Step 6 part 7 (now `likeTargetProduct`); the `ACTIVE` check is unchanged.
 - [ ] `getAllPropertiesByAdmin` (224–251): `propertyLocationList` filter → category filter. Admins see every status, including `PAUSED` (D-16).
   - **Done in Step 6 part 5:** the location filter was removed. **Still open:** the category filter (part 13).
-- [ ] `updatePropertyByAdmin` (253–275): the same `SOLD`/`soldAt` removal, plus `'memberProperties'` (269).
-  - **Done in Step 6 part 5:** the `SOLD` / `soldAt` removal. **Still open:** the counter key (part 8).
+- [x] `updatePropertyByAdmin` (253–275): the same `SOLD`/`soldAt` removal, plus `'memberProperties'` (269).
+  - **Done in Step 6 part 5:** the `SOLD` / `soldAt` removal. **Done in Step 6 part 8:** the counter key.
 - [x] `removePropertyByAdmin` (277–286) (bug, fix in its own commit): `findByIdAndDelete(search)` passes an object as the id. Use `findOneAndDelete(search)`.
   - Fixed in Step 6 part 1. Mongoose cast the object to its `_id` and dropped the `propertyStatus: DELETE` condition, so `ACTIVE` properties were hard-deleted too. Now only a property that is already `DELETE` can be removed.
 - [x] (bug, D-22, fix in its own commit) Self-engagement on own products:
@@ -639,6 +650,7 @@ The field-level check covers all of them automatically. Keep the list as the ver
 - [ ] `batchAgents` (55–71) → `batchCreators`:
   - `memberType: AGENT` (58)
   - formula (65–66) `memberProperties*5 + memberArticles*3 + memberLikes*2 + memberViews*1` → **`memberLikes*2 + memberViews*1`** (D-22). Drop `memberProperties`/`memberProducts` and `memberArticles` from both the formula and the destructuring at line 65. The creator's own post counts are not a ranking signal.
+  - Step 6 part 8 renamed `memberProperties` → `memberProducts` in the current formula (`memberProducts*5 + …`, weights unchanged). The D-22 change above is still open.
 - Self-engagement in rankings (D-22): the profile half is fixed in Step 2.5 (B9), and the product half in Step 6 (its own commit).
 - [ ] `batch/batch.controller.ts`:
   - `BATCH_TOP_PROPERTIES` / `BATCH_TOP_AGENTS` (4, 35, 46)

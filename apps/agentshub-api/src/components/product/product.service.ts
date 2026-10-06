@@ -35,10 +35,10 @@ export class ProductService {
 	public async createProduct(input: ProductInput): Promise<Product> {
 		try {
 			const result = await this.productModel.create(input);
-			//Increase memberProperty+
+			//Increase memberProducts+
 			await this.memberService.memberStatsEditor({
 				_id: result.memberId,
-				targetKey: 'memberProperties',
+				targetKey: 'memberProducts',
 				modifier: 1,
 			});
 			return result;
@@ -94,7 +94,7 @@ export class ProductService {
 		if (input.deletedAt) {
 			await this.memberService.memberStatsEditor({
 				_id: memberId,
-				targetKey: 'memberProperties',
+				targetKey: 'memberProducts',
 				modifier: -1,
 			});
 		}
@@ -245,7 +245,7 @@ export class ProductService {
 		if (input.deletedAt) {
 			await this.memberService.memberStatsEditor({
 				_id: result?.memberId,
-				targetKey: 'memberProperties',
+				targetKey: 'memberProducts',
 				modifier: -1,
 			});
 		}

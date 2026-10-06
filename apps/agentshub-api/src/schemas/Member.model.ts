@@ -64,12 +64,6 @@ const MemberSchema = new Schema(
 			type: String,
 		},
 
-		// Replaced by memberProducts; removed in Step 6 when Property code is converted
-		memberProperties: {
-			type: Number,
-			default: 0,
-		},
-
 		memberProducts: {
 			type: Number,
 			default: 0,
