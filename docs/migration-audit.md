@@ -492,11 +492,17 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [x] (bug, separate fix, commit later) Upload folders must be created by the code (mkdir recursive) at startup or before writing, so a fresh server does not fail every upload.
   - Before the fix, `imageUploader` / `imagesUploader` (`member.resolver.ts`) piped into `createWriteStream(url)`, which does not create folders. On a machine without `uploads/<target>/`, every upload to that target failed (`UPLOAD_FAILED`, or a silently skipped image in `imagesUploader`).
   - Fixed after Step 6 part 10: both uploaders call `mkdir(dirname(url), { recursive: true })` right before writing, after the target allow-list and path checks. Doing it before each write (not only at startup) also covers a folder deleted while the server runs.
-- [ ] (bug) `imagesUploader` hides a failed image. The per-file `catch` only logs `'Error, file missing!'` (it also swallows the `PROVIDE_ALLOWED_FORMAT` error), and the result is `[String!]!`:
+- [x] (bug) `imagesUploader` hides a failed image. The per-file `catch` only logs `'Error, file missing!'` (it also swallows the `PROVIDE_ALLOWED_FORMAT` error), and the result is `[String!]!`:
   - If the **last** file(s) fail, the array is just shorter, so the image is silently dropped.
   - If an **earlier** file fails, the array has a hole, and GraphQL returns an opaque "Cannot return null for non-nullable field" error.
   - In both cases the client can't tell which file failed, and the files that were written stay on disk as orphans.
-  - The fix (fail the whole request vs. per-file results) is waiting for a decision.
+  - Fixed with option A, **all-or-nothing** (chosen over per-file results because it needs no API change, and product image sets are used as a whole):
+    - All files are processed with `Promise.allSettled`.
+    - If any file fails, every file this request wrote (including a partly written one) is deleted. The request then fails with the error of the first failing file in upload order, naming it, e.g. `Please provide jpg, jpeg or png images! (file 2: c.gif)` (400) or `Upload failed! (file 3: big.png)` (500).
+    - Writing uses `stream/promises` `pipeline` instead of `pipe`. Before, a read-stream error (e.g. a file over the 15 MB limit) was not forwarded, so the request never finished.
+    - The return type stays `[String!]!`; on success the URLs are in upload order.
+    - Checked with a direct call of the resolver method in a scratch folder: all valid; a bad MIME type in file 2; a read error in file 3; target `property`. After each failure, no files were left.
+- [ ] (bug) `imageUploader` (single file) has the same stream handling: `pipe` doesn't forward read-stream errors (a file over the size limit makes the request hang), a write error rejects with `false` instead of an exception, and a partly written file is not removed. Fix it the same way (`pipeline`, remove the file on failure) in its own commit.
 
 ---
 

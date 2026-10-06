@@ -2,7 +2,7 @@ import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { MemberService } from './member.service';
 import { CreatorsInquiry, LoginInput, MemberInput, MembersInquiry } from '../../libs/dto/member/member.input';
 import { Member, Members } from '../../libs/dto/member/member';
-import { BadRequestException, InternalServerErrorException, UseGuards } from '@nestjs/common';
+import { BadRequestException, HttpException, InternalServerErrorException, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { AuthMember } from '../auth/decorators/authMember.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -20,8 +20,9 @@ import { WithoutGuard } from '../auth/guards/without.guard';
 import type { AuthPayload, ObjectId } from '../../libs/types/common';
 import { GraphQLUpload } from 'graphql-upload';
 import { createWriteStream } from 'fs';
-import { mkdir } from 'fs/promises';
+import { mkdir, unlink } from 'fs/promises';
 import { dirname } from 'path';
+import { pipeline } from 'stream/promises';
 import { Message } from '../../libs/enums/common.enum';
 import type { FileUpload } from 'graphql-upload';
 
@@ -161,36 +162,42 @@ export class MemberResolver {
 
 		if (!validUploadTargets.includes(target)) throw new BadRequestException(Message.BAD_REQUEST);
 
-		const uploadedImages: string[] = [];
-		const promisedList = files.map(async (img: Promise<FileUpload>, index: number): Promise<Promise<void>> => {
-			try {
-				const { filename, mimetype, encoding, createReadStream } = await img;
+		// All-or-nothing: if any file fails, the files already written by this request are removed
+		// and the request fails with the first failing file's error.
+		const writtenUrls: string[] = [];
+		const settled = await Promise.allSettled(
+			files.map(async (img: Promise<FileUpload>, index: number): Promise<string> => {
+				const { filename, mimetype, createReadStream } = await img;
+				const fileLabel = `(file ${index + 1}: ${filename})`;
 
-				const validMime = validMimeTypes.includes(mimetype);
-				if (!validMime) throw new BadRequestException(Message.PROVIDE_ALLOWED_FORMAT);
+				if (!validMimeTypes.includes(mimetype))
+					throw new BadRequestException(`${Message.PROVIDE_ALLOWED_FORMAT} ${fileLabel}`);
 
 				const imageName = getSerialForImage(filename);
 				const url = getUploadPath(target, imageName);
-				if (!url) throw new BadRequestException(Message.BAD_REQUEST);
+				if (!url) throw new BadRequestException(`${Message.BAD_REQUEST} ${fileLabel}`);
 				// uploads/<target>/ is gitignored, so a fresh server may not have it
 				await mkdir(dirname(url), { recursive: true });
-				const stream = createReadStream();
 
-				const result = await new Promise((resolve, reject) => {
-					stream
-						.pipe(createWriteStream(url))
-						.on('finish', () => resolve(true))
-						.on('error', () => reject(false));
-				});
-				if (!result) throw new InternalServerErrorException(Message.UPLOAD_FAILED);
+				writtenUrls.push(url); // before writing, so a partly written file is removed too
+				try {
+					// pipeline (unlike pipe) also fails on read-stream errors, e.g. a file over the size limit
+					await pipeline(createReadStream(), createWriteStream(url));
+				} catch {
+					throw new InternalServerErrorException(`${Message.UPLOAD_FAILED} ${fileLabel}`);
+				}
+				return url;
+			}),
+		);
 
-				uploadedImages[index] = url;
-			} catch {
-				console.log('Error, file missing!');
-			}
-		});
+		const failed = settled.find((res): res is PromiseRejectedResult => res.status === 'rejected');
+		if (failed) {
+			console.log('Error: imagesUploader', failed.reason);
+			await Promise.all(writtenUrls.map((url) => unlink(url).catch(() => console.log('Error: could not remove', url))));
+			if (failed.reason instanceof HttpException) throw failed.reason;
+			throw new InternalServerErrorException(Message.UPLOAD_FAILED);
+		}
 
-		await Promise.all(promisedList);
-		return uploadedImages;
+		return settled.map((res) => (res as PromiseFulfilledResult<string>).value);
 	}
 }
