@@ -227,7 +227,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **Checked:**
     - 13 direct cases for `redactSensitiveText` (graphql-js form, nested input, two fields, escaped quotes, the JSON form, `accessToken`, block strings, a stack, and three texts without secrets that stay unchanged) plus `accessToken` in request variables. The 11 S12 cases still pass after the switch.
     - Live: `login` without `memberNick`, `updateMember` with `memberPassword`, and an input carrying `accessToken`, all via variables → the client and the log show `"***"`. A `login` with an unknown nick and an inline `signup` with a bad phone are logged with their code and path. None of the 6 test secrets appear anywhere in the API log.
-- [ ] **S16 — The `RESPONSE` log prints response bodies; only truncation keeps secrets out**
+- [x] **S16 — The `RESPONSE` log prints response bodies; only truncation keeps secrets out**
   - **When:** found in the S10 log sweep.
   - **Where:** `api/libs/interceptor/logging.interceptor.ts`: `this.logger.log(`${this.stringify(data)} - …ms`, 'RESPONSE')` logs the first 75 characters of every resolver result.
   - **Problem:**
@@ -244,6 +244,12 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - `login`, `signup`, `updateMember` and a product list → the `RESPONSE` lines show only the operation name, duration and status, with no token, hash or data;
     - after the `$project`, the `memberData` objects from the lookups have no `memberPassword` key;
     - the GraphQL responses are unchanged.
+  - **Fixed:**
+    - `LoggingInterceptor` logs `RESPONSE` as `<Query|Mutation> <fieldName> - <ms>ms - success|error`, never the body. The name comes from the resolver info, not the client's optional `operationName`. Errors now get a line too (before, only successful results were logged). The `REQUEST` line and its redaction (S12) are unchanged.
+    - New shared stage `excludeMemberSecrets` (`{ $project: { memberPassword: 0 } }`) in `api/libs/config.ts`.
+      - The five member `$lookup`s (`lookupMember`, `lookupFollowingData`, `lookupFollowerData`, `lookupFavorite`, `lookupVisit`) use it as their `pipeline`, in the `localField`/`foreignField` + `pipeline` form (MongoDB 5.0+).
+      - Two aggregations that run on `members` directly had the same leak and were not in the original list: `getCreators` and `getAllMembersByAdmin` (`api/components/member/member.service.ts`). Both now run the stage right after `$match`.
+    - `memberPassword` has no `@Field`, so the GraphQL schema and responses are unchanged (not a breaking change).
 
 ### Other bugs in surviving code
 - [x] **B1 — `MembersInquiry.search` type**

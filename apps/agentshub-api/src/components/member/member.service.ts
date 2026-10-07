@@ -21,7 +21,7 @@ import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { LikeService } from '../like/like.service';
 import { Follower, Following, MeFollowed } from '../../libs/dto/follow/follow';
-import { escapeRegex, lookupAuthMemberLiked } from '../../libs/config';
+import { escapeRegex, excludeMemberSecrets, lookupAuthMemberLiked } from '../../libs/config';
 
 @Injectable()
 export class MemberService {
@@ -158,6 +158,7 @@ export class MemberService {
 		const result = await this.memberModel
 			.aggregate([
 				{ $match: match },
+				excludeMemberSecrets,
 				{ $sort: sort },
 				{
 					$facet: {
@@ -203,6 +204,7 @@ export class MemberService {
 		const result = await this.memberModel
 			.aggregate([
 				{ $match: match },
+				excludeMemberSecrets,
 				{ $sort: sort },
 				{
 					$facet: {

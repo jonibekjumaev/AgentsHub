@@ -1,5 +1,6 @@
 import { Injectable, NestInterceptor, ExecutionContext, CallHandler, Logger } from '@nestjs/common';
 import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
+import { GraphQLResolveInfo } from 'graphql';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { redactRequestBody } from '../utils';
@@ -19,14 +20,18 @@ export class LoggingInterceptor implements NestInterceptor {
 			// redact before truncating, so a password can't be cut in half and partly logged (S12)
 			this.logger.log(this.stringify(redactRequestBody(requestContext.req?.body)), 'REQUEST');
 
-			/* (2) Errors handing via GraphQL */
-
-			/* (3) No Errors, giving Response below */
+			/* (2) Print Response: operation, duration and result only, never the body (S16) */
+			const info = gqlContext.getInfo<GraphQLResolveInfo>();
+			const operation = `${info.parentType.name} ${info.fieldName}`;
+			const logResponse = (result: 'success' | 'error') => {
+				const responseTime = Date.now() - recordTime;
+				this.logger.log(`${operation} - ${responseTime}ms - ${result} \n\n`, 'RESPONSE');
+			};
 
 			return next.handle().pipe(
-				tap((data) => {
-					const responseTime = Date.now() - recordTime;
-					this.logger.log(`${this.stringify(data)} - ${responseTime}ms \n\n`, 'RESPONSE');
+				tap({
+					next: () => logResponse('success'),
+					error: () => logResponse('error'),
 				}),
 			);
 		}

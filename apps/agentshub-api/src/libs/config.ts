@@ -148,11 +148,16 @@ export const lookupAuthMemberFollowed = (input: LookupAuthMemberFollowed) => {
 	};
 };
 
+// select: false on memberPassword only applies to find(), not to aggregate(), so every pipeline
+// that returns members (directly or via $lookup) drops the hash with this stage (S16)
+export const excludeMemberSecrets = { $project: { memberPassword: 0 } };
+
 export const lookupMember = {
 	$lookup: {
 		from: 'members',
 		localField: 'memberId',
 		foreignField: '_id',
+		pipeline: [excludeMemberSecrets],
 		as: 'memberData',
 	},
 };
@@ -162,6 +167,7 @@ export const lookupFollowingData = {
 		from: 'members',
 		localField: 'followingId',
 		foreignField: '_id',
+		pipeline: [excludeMemberSecrets],
 		as: 'followingData',
 	},
 };
@@ -171,6 +177,7 @@ export const lookupFollowerData = {
 		from: 'members',
 		localField: 'followerId',
 		foreignField: '_id',
+		pipeline: [excludeMemberSecrets],
 		as: 'followerData',
 	},
 };
@@ -180,6 +187,7 @@ export const lookupFavorite = {
 		from: 'members',
 		localField: 'favoriteProduct.memberId',
 		foreignField: '_id',
+		pipeline: [excludeMemberSecrets],
 		as: 'favoriteProduct.memberData',
 	},
 };
@@ -189,6 +197,7 @@ export const lookupVisit = {
 		from: 'members',
 		localField: 'visitedProduct.memberId',
 		foreignField: '_id',
+		pipeline: [excludeMemberSecrets],
 		as: 'visitedProduct.memberData',
 	},
 };
