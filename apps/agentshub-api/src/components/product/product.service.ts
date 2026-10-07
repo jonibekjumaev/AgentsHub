@@ -6,11 +6,13 @@ import {
 	NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { HydratedDocument, Model, UpdateQuery } from 'mongoose';
+import { HydratedDocument, Model, PipelineStage, UpdateQuery } from 'mongoose';
 import {
 	CreatorProductsInquiry,
 	AllProductsInquiry,
 	ProductsInquiry,
+	PeriodsRange,
+	ProductFilters,
 	ProductInput,
 } from '../../libs/dto/product/product.input';
 import { OrdinaryInquiry } from '../../libs/dto/common.input';
@@ -24,7 +26,13 @@ import { ViewService } from '../view/view.service';
 import { ViewInput } from '../../libs/dto/view/view.input';
 import { ProductUpdate } from '../../libs/dto/product/product.update';
 import moment from 'moment';
-import { escapeRegex, lookupAuthMemberLiked, lookupMember, shapeInToMongoObjectId } from '../../libs/config';
+import {
+	escapeRegex,
+	lookupAuthMemberLiked,
+	lookupMember,
+	paidProductPricings,
+	shapeInToMongoObjectId,
+} from '../../libs/config';
 import { LikeService } from '../like/like.service';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
@@ -120,15 +128,14 @@ export class ProductService {
 	}
 
 	public async getProducts(memberId: ObjectId, input: ProductsInquiry): Promise<Products> {
-		const match = { productStatus: ProductStatus.ACTIVE };
-		const sort = { [input?.sort ?? 'createdAt']: input?.direction ?? Direction.DESC };
+		const match: T = { productStatus: ProductStatus.ACTIVE };
 
-		this.shapeMatchQuery(match, input);
+		this.shapeMatchQuery(match, input.search);
 
 		const result = await this.productModel
 			.aggregate([
 				{ $match: match },
-				{ $sort: sort },
+				...this.shapeSortStages(input.sort, input.direction),
 				{
 					$facet: {
 						list: [
@@ -149,15 +156,45 @@ export class ProductService {
 		return result[0] as Products;
 	}
 
-	private shapeMatchQuery(match: T, input: ProductsInquiry): void {
-		const { memberId, periodsRange, pricesRange, text } = input.search;
+	/** The search filters shared by the three product lists (Step 6 part 13). Empty lists mean "no filter". */
+	private shapeMatchQuery(
+		match: T,
+		search: ProductFilters & { memberId?: ObjectId; periodsRange?: PeriodsRange },
+	): void {
+		const { memberId, periodsRange, pricesRange, categoryList, pricingList, tagList, text } = search;
 
 		if (memberId) match.memberId = shapeInToMongoObjectId(memberId);
+		if (categoryList?.length) match.productCategory = { $in: categoryList };
+		if (pricingList?.length) match.productPricing = { $in: pricingList };
 
-		if (pricesRange) match.productPrice = { $gte: pricesRange.start, $lte: pricesRange.end };
+		if (pricesRange) {
+			if (pricesRange.start > pricesRange.end) throw new BadRequestException(Message.INVALID_PRICE_RANGE);
+			// D-03: only ONE_TIME / SUBSCRIPTION products have a price; with a pricingList, only the overlap is matched
+			const pricings = pricingList?.length
+				? pricingList.filter((pricing) => paidProductPricings.includes(pricing))
+				: paidProductPricings;
+			match.productPricing = { $in: pricings };
+			match.productPrice = { $gte: pricesRange.start, $lte: pricesRange.end };
+		}
+
+		if (tagList?.length) match.productTags = { $all: normalizeTags(tagList) };
 		if (periodsRange) match.createdAt = { $gte: periodsRange.start, $lte: periodsRange.end };
-
 		if (text) match.productTitle = { $regex: new RegExp(escapeRegex(text), 'i') };
+	}
+
+	/**
+	 * The $sort stages of the product lists. Ties are broken by the newest _id, so skip/limit pages stay stable.
+	 * Sorting by productPrice puts products without a price (FREE / CUSTOM, D-03) last in both directions.
+	 */
+	private shapeSortStages(sort: string = 'createdAt', direction: Direction = Direction.DESC): PipelineStage[] {
+		if (sort === 'productPrice') {
+			return [
+				{ $addFields: { _hasPrice: { $cond: [{ $isNumber: '$productPrice' }, 1, 0] } } },
+				{ $sort: { _hasPrice: -1, productPrice: direction, _id: -1 } },
+				{ $unset: '_hasPrice' },
+			];
+		}
+		return [{ $sort: { [sort]: direction, _id: -1 } }];
 	}
 
 	public async getFavorities(memberId: ObjectId, input: OrdinaryInquiry): Promise<Products> {
@@ -172,16 +209,16 @@ export class ProductService {
 		const { productStatus } = input.search;
 		if (productStatus === ProductStatus.DELETE) throw new BadRequestException(Message.NO_DATA_FOUND);
 
-		const match = {
+		const match: T = {
 			memberId,
 			productStatus: productStatus ?? { $ne: ProductStatus.DELETE },
 		};
-		const sort = { [input?.sort ?? 'createdAt']: input?.direction ?? Direction.DESC };
+		this.shapeMatchQuery(match, input.search);
 
 		const result = await this.productModel
 			.aggregate([
 				{ $match: match },
-				{ $sort: sort },
+				...this.shapeSortStages(input.sort, input.direction),
 				{
 					$facet: {
 						list: [
@@ -222,14 +259,14 @@ export class ProductService {
 	public async getAllProductsByAdmin(input: AllProductsInquiry): Promise<Products> {
 		const { productStatus } = input.search;
 		const match: T = {};
-		const sort = { [input?.sort ?? 'createdAt']: input?.direction ?? Direction.DESC };
 
 		if (productStatus) match.productStatus = productStatus;
+		this.shapeMatchQuery(match, input.search);
 
 		const result = await this.productModel
 			.aggregate([
 				{ $match: match },
-				{ $sort: sort },
+				...this.shapeSortStages(input.sort, input.direction),
 				{
 					$facet: {
 						list: [
@@ -307,7 +344,7 @@ export class ProductService {
 
 	/** D-03, the only place it is checked: ONE_TIME / SUBSCRIPTION need a price > 0, FREE / CUSTOM must have none. */
 	private checkPricingRule(productPricing: ProductPricing, productPrice: number | null | undefined): void {
-		const isPaid = productPricing === ProductPricing.ONE_TIME || productPricing === ProductPricing.SUBSCRIPTION;
+		const isPaid = paidProductPricings.includes(productPricing);
 		const hasPrice = productPrice !== null && productPrice !== undefined;
 
 		if (isPaid && !(hasPrice && productPrice > 0)) throw new BadRequestException(Message.PRICE_REQUIRED);
@@ -323,7 +360,7 @@ export class ProductService {
 		if (!stored) throw new NotFoundException(Message.UPDATE_FAILED);
 
 		const finalPricing = input.productPricing ?? stored.productPricing;
-		const isPaid = finalPricing === ProductPricing.ONE_TIME || finalPricing === ProductPricing.SUBSCRIPTION;
+		const isPaid = paidProductPricings.includes(finalPricing);
 		let finalPrice: number | null | undefined;
 		if (input.productPrice !== undefined) finalPrice = input.productPrice;
 		else finalPrice = isPaid ? stored.productPrice : null;

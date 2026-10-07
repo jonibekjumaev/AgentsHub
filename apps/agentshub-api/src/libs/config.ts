@@ -1,9 +1,17 @@
 import { Types } from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
+import { ProductPricing } from './enums/product.enum';
 import { ObjectId } from './types/common';
 
-export const aviableCreatorSorts = ['createdAt', 'updatedAt', 'memberLikes', 'memberViews', 'memberRank'];
+export const aviableCreatorSorts = [
+	'createdAt',
+	'updatedAt',
+	'memberLikes',
+	'memberViews',
+	'memberRank',
+	'memberProducts',
+];
 export const aviableMemberSorts = ['createdAt', 'updatedAt', 'memberLikes', 'memberViews'];
 
 export const aviableProductSorts = [
@@ -36,6 +44,9 @@ export const productDescMaxLength = 3000;
 export const productDemoUrlMaxLength = 500;
 export const productTagsMaxCount = 10;
 export const productTagMaxLength = 30;
+
+// the pricings that have a price (D-03): the price rule and the price range filter use this list
+export const paidProductPricings: ProductPricing[] = [ProductPricing.ONE_TIME, ProductPricing.SUBSCRIPTION];
 
 /**  PASSWORD CONFIGURATION (D-26)  **/
 

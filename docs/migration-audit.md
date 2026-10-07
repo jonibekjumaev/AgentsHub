@@ -491,6 +491,13 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - The client-visible change is in the Step 12 table.
   - **Verify (after the fix):** each listed case returns the proposed code (`BAD_REQUEST`, `UNAUTHENTICATED`, `FORBIDDEN` or `NOT_FOUND`) with its message, and real server faults still return `INTERNAL_SERVER_ERROR`.
 
+- [ ] **B16 — Nested `search` inputs are never validated**
+  - **When:** found in Step 6 part 13.
+  - **Where:** every `*Inquiry` with a nested `search` object outside products: `BoardArticlesInquiry` (`BAISearch`), `AllBoardArticlesInquiry` (`ABAISearch`), `CommentsInquiry` (`CISearch`), `FollowInquiry` (`FollowSearch`), `CreatorsInquiry` (`CRISearch`) and `MembersInquiry` (`MISearch`).
+  - **Problem:** the `search` fields have only `@IsNotEmpty()`. Without `@ValidateNested()` and `@Type(() => …)`, class-validator never checks the rules inside `search`. Checked with the real `ValidationPipe`: a 500-character `search.text` passed although it has `@MaxLength(100)`. So `searchTextMaxLength` and the enum checks in these search types are not enforced today.
+  - **Fix:** add `@ValidateNested()` + `@Type(() => <SearchType>)` to each `search` field, as the three product inquiries got in Step 6 part 13.
+  - **Verify:** a 101-character `search.text` in `getBoardArticles`, `getComments`, `getCreators` and `getAllMembersByAdmin` → `BAD_REQUEST`; valid searches still work.
+
 ---
 
 ## Step 3 — Config (package names, DB name, env, app names)
@@ -715,18 +722,19 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   **Done in Step 6 part 5:** the dropped fields (first sub-point). **Done in Step 6 part 7:** the rename. **Done in Step 6 part 11:** `productCategory` / `productPricing` required, image minimum (`@ArrayMinSize(1)`), required desc (20–3000), demo URL and tags. **Done in Step 6 part 12:** optional price (`@IsOptional() @IsNumber()`); the D-03 check is in the service.
 - [x] Remove `SquaresRange` (81–88). Decide whether `PeriodsRange` (90–97) is still needed.
   - Done in Step 6 part 5. `SquaresRange` is deleted. `PeriodsRange` is kept, because filtering listings by `createdAt` is still useful.
-- [ ] `PricesRange` (73–79) uses `Int`. Prices are Float in USD (D-06), so use `Float`. Per D-03, price filters must only match `ONE_TIME` / `SUBSCRIPTION`.
-- [ ] `PIsearch` (99–141):
+- [x] `PricesRange` (73–79) uses `Int`. Prices are Float in USD (D-06), so use `Float`. Per D-03, price filters must only match `ONE_TIME` / `SUBSCRIPTION`.
+  - Done in Step 6 part 13: `start` / `end` are `Float` (≥ 0); a price range only matches `ONE_TIME` / `SUBSCRIPTION` products, and `start > end` is rejected.
+- [x] `PIsearch` (99–141):
   - remove `locationList`, `typeList`, `roomsList`, `bedsList`, `options` and `squaresRange`
   - add `categoryList: AgentCategory[]`, `pricingList: ProductPricing[]` and `tagList?`
 
-  **Done in Step 6 part 5:** the removals (first sub-point). **Still open:** the new category, pricing and tag lists (part 13).
+  **Done in Step 6 part 5:** the removals (first sub-point). **Done in Step 6 part 13:** `categoryList`, `pricingList` and `tagList` (all tags must match), in a shared abstract `ProductFilters` input that `PIsearch`, `CPISearch` and `ALPISearch` extend.
 - [x] `PropertiesInquiry` (144) → `ProductsInquiry`.
   - Done in Step 6 part 7. `PIsearch` keeps its name (the letters still fit "Product").
 - [x] `AgentPropertiesInquiry` (177) → `CreatorProductsInquiry`. `APISearch.propertyStatus` → `productStatus`.
   - Done in Step 6 part 7. `APISearch` became `CPISearch` (the "A" was the agent role, like `AISearch` → `CRISearch` in Step 5).
-- [ ] `AllPropertiesInquiry` (214) → `AllProductsInquiry`. In `ALPISearch`, `propertyLocationList` (209) → `productCategoryList`.
-  - **Done in Step 6 part 5:** `propertyLocationList` was removed. **Done in Step 6 part 7:** the `AllProductsInquiry` rename (`ALPISearch` keeps its name; `propertyStatus` → `productStatus`). **Still open:** `productCategoryList` (part 13).
+- [x] `AllPropertiesInquiry` (214) → `AllProductsInquiry`. In `ALPISearch`, `propertyLocationList` (209) → `productCategoryList`.
+  - **Done in Step 6 part 5:** `propertyLocationList` was removed. **Done in Step 6 part 7:** the `AllProductsInquiry` rename (`ALPISearch` keeps its name; `propertyStatus` → `productStatus`). **Done in Step 6 part 13:** `ALPISearch` has the shared filters, including `categoryList` (named like the public filter, not `productCategoryList`), plus `memberId` and `periodsRange`.
 - [x] `OrdinaryInquiry` (240–250) is generic, but it lives in the property DTO and is imported by `like.service.ts:8` and `view.service.ts:6`. Move it to a shared place, e.g. `libs/dto/common.input.ts`.
   - Moved to `libs/dto/common.input.ts` in Step 6 part 4. Like, view and the property service/resolver import it from there. The GraphQL type name and fields are unchanged, so it is not an API change.
 
@@ -789,8 +797,8 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - keep the `ACTIVE`-only target check (207). It rejects likes **and** unlikes on `PAUSED` products (D-16).
 
   Done in Step 6 part 7 (now `likeTargetProduct`); the `ACTIVE` check is unchanged.
-- [ ] `getAllPropertiesByAdmin` (224–251): `propertyLocationList` filter → category filter. Admins see every status, including `PAUSED` (D-16).
-  - **Done in Step 6 part 5:** the location filter was removed. **Still open:** the category filter (part 13).
+- [x] `getAllPropertiesByAdmin` (224–251): `propertyLocationList` filter → category filter. Admins see every status, including `PAUSED` (D-16).
+  - **Done in Step 6 part 5:** the location filter was removed. **Done in Step 6 part 13:** the category filter and the other shared filters, applied by the same `shapeMatchQuery` as `getProducts` and `getCreatorProducts`.
 - [x] `updatePropertyByAdmin` (253–275): the same `SOLD`/`soldAt` removal, plus `'memberProperties'` (269).
   - **Done in Step 6 part 5:** the `SOLD` / `soldAt` removal. **Done in Step 6 part 8:** the counter key.
 - [x] `removePropertyByAdmin` (277–286) (bug, fix in its own commit): `findByIdAndDelete(search)` passes an object as the id. Use `findOneAndDelete(search)`.
@@ -1066,7 +1074,8 @@ The field-level check covers all of them automatically. Keep the list as the ver
   | `sort` values `propertyLikes`, `propertyViews`, `propertyRank`, `propertyPrice` | `productLikes`, `productViews`, `productRank`, `productPrice` (old values are rejected) |
   | `getAllPropertiesByAdmin`, `updatePropertyByAdmin`, `removePropertyByAdmin(propertyId)` | `getAllProductsByAdmin`, `updateProductByAdmin`, `removeProductByAdmin(productId)` |
   | `getFavorities`, `getVisited` (return `Properties`) | same names, return `Products` |
-  | Property search: `locationList`, `typeList`, `roomsList`, `bedsList`, `options`, `squaresRange` | removed; replaced by `categoryList`, `pricingList`, tags |
+  | Property search: `locationList`, `typeList`, `roomsList`, `bedsList`, `options`, `squaresRange` | removed; replaced by `categoryList`, `pricingList`, `tagList` (Step 6 part 13, see the row below) |
+  | Product list search: `PIsearch` (`memberId`, `pricesRange` as `Int`, `periodsRange`, `text`), `CPISearch` / `ALPISearch` (`productStatus` only); `sort: productPrice` put products without a price first in ASC; `search` fields were not validated | Since Step 6 part 13: all three search inputs share `categoryList: [AgentCategory!]`, `pricingList: [ProductPricing!]`, `pricesRange`, `tagList: [String!]` and `text`. `ALPISearch` also gets `memberId` and `periodsRange`; `CPISearch` has no `memberId` (always the caller). `PricesRange` is `Float!` (≥ 0) and only matches `ONE_TIME` / `SUBSCRIPTION` products (D-03); with `pricingList`, only the overlap is matched. `start > end` → `BAD_REQUEST` `INVALID_PRICE_RANGE`. `tagList` matches products that have **all** the tags (normalized like `productTags`). The rules inside `search` are now enforced (`BAD_REQUEST`): unknown enum values, an invalid `memberId`, `text` over 100 characters, more than 10 tags, negative prices. `sort: productPrice` puts products without a price last in both directions; every product sort breaks ties by the newest `_id`. `getCreators` gets the sort `memberProducts` (a sort option only, not part of `memberRank`, D-22) |
   | `createProduct(input)` with title, price, images and an optional desc | Since Step 6 part 11: `productCategory: AgentCategory!` and `productPricing: ProductPricing!` are required; `productDesc` is required (20–3000 characters); `productImages` needs at least 1 image; optional `productDemoUrl` (http(s), max 500) and `productTags` (max 10, 1–30 characters, returned normalized: trimmed, lowercased, no duplicates). `updateProduct` / `updateProductByAdmin` reject `null` for category, pricing, tags, images and desc, and `''` for desc |
   | `Product.productPrice: Float!`, `ProductInput.productPrice: Float!`; any price with any pricing (including 0) | Since Step 6 part 12 (D-03): `Product.productPrice` and `ProductInput.productPrice` are nullable `Float`; the price is `null` for `FREE` / `CUSTOM` (typed clients must handle `null`). `createProduct`, `updateProduct` and `updateProductByAdmin` return `BAD_REQUEST`: `PRICE_NOT_ALLOWED` ("Price is not allowed for FREE and CUSTOM pricing!") for a price with `FREE` / `CUSTOM`, and `PRICE_REQUIRED` ("Price greater than 0 is required for ONE_TIME and SUBSCRIPTION pricing!") for a missing price or one ≤ 0 with `ONE_TIME` / `SUBSCRIPTION`. Updates check the **final** pair (stored values merged with the input): leave `productPrice` out to keep it, send `null` to clear it. Switching to `FREE` / `CUSTOM` without a price clears the stored price; switching to `ONE_TIME` / `SUBSCRIPTION` needs a price unless one is already stored. `SUBSCRIPTION` prices are per month, all prices in USD (D-06) |
   | `PropertyStatus` enum; `PropertyStatus.SOLD`, `soldAt`, `constructedAt`, barter/rent | `ProductStatus`; SOLD and the dates removed; `PAUSED` is listed, but `updateProduct` / `updateProductByAdmin` reject it until the D-16 part |

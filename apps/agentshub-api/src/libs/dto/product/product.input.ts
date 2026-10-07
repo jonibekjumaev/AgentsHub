@@ -3,7 +3,9 @@ import {
 	ArrayMaxSize,
 	ArrayMinSize,
 	IsArray,
+	IsEnum,
 	IsIn,
+	IsMongoId,
 	IsNotEmpty,
 	IsNumber,
 	IsOptional,
@@ -13,7 +15,9 @@ import {
 	Matches,
 	MaxLength,
 	Min,
+	ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ProductPricing, ProductStatus } from '../../enums/product.enum';
 import { AgentCategory } from '../../enums/agent-category.enum';
 import type { ObjectId } from '../../types/common';
@@ -80,10 +84,14 @@ export class ProductInput {
 
 @InputType()
 export class PricesRange {
-	@Field(() => Int)
+	@IsNumber()
+	@Min(0)
+	@Field(() => Float)
 	start!: number;
 
-	@Field(() => Int)
+	@IsNumber()
+	@Min(0)
+	@Field(() => Float)
 	end!: number;
 }
 
@@ -96,24 +104,56 @@ export class PeriodsRange {
 	end!: Date;
 }
 
-@InputType()
-export class PIsearch {
+// Filters shared by every product list (Step 6 part 13). ProductService applies them in shapeMatchQuery;
+// pricesRange only matches ONE_TIME / SUBSCRIPTION products there (D-03)
+@InputType({ isAbstract: true })
+export abstract class ProductFilters {
 	@IsOptional()
-	@Field(() => String, { nullable: true })
-	memberId?: ObjectId;
+	@IsArray()
+	@ArrayMaxSize(Object.values(AgentCategory).length)
+	@IsEnum(AgentCategory, { each: true })
+	@Field(() => [AgentCategory], { nullable: true })
+	categoryList?: AgentCategory[];
 
 	@IsOptional()
+	@IsArray()
+	@ArrayMaxSize(Object.values(ProductPricing).length)
+	@IsEnum(ProductPricing, { each: true })
+	@Field(() => [ProductPricing], { nullable: true })
+	pricingList?: ProductPricing[];
+
+	@IsOptional()
+	@ValidateNested()
+	@Type(() => PricesRange)
 	@Field(() => PricesRange, { nullable: true })
 	pricesRange?: PricesRange;
 
+	// a product must have all of these tags; normalized like productTags before matching (normalizeTags)
 	@IsOptional()
-	@Field(() => PeriodsRange, { nullable: true })
-	periodsRange?: PeriodsRange;
+	@IsArray()
+	@ArrayMaxSize(productTagsMaxCount)
+	@IsString({ each: true })
+	@Length(1, productTagMaxLength, { each: true })
+	@Matches(/\S/, { each: true, message: 'each tag must contain a non-space character' })
+	@Field(() => [String], { nullable: true })
+	tagList?: string[];
 
 	@IsOptional()
 	@MaxLength(searchTextMaxLength)
 	@Field(() => String, { nullable: true })
 	text?: string;
+}
+
+@InputType()
+export class PIsearch extends ProductFilters {
+	@IsOptional()
+	@IsMongoId()
+	@Field(() => String, { nullable: true })
+	memberId?: ObjectId;
+
+	@IsOptional()
+	@Field(() => PeriodsRange, { nullable: true })
+	periodsRange?: PeriodsRange;
 }
 
 @InputType()
@@ -137,13 +177,17 @@ export class ProductsInquiry {
 	@Field(() => Direction, { nullable: true })
 	direction?: Direction;
 
+	// without @ValidateNested + @Type the rules inside search are never checked
 	@IsNotEmpty()
+	@ValidateNested()
+	@Type(() => PIsearch)
 	@Field(() => PIsearch)
 	search!: PIsearch;
 }
 
+// the creator's own list: memberId is always the caller
 @InputType()
-class CPISearch {
+class CPISearch extends ProductFilters {
 	@IsOptional()
 	@Field(() => ProductStatus, { nullable: true })
 	productStatus?: ProductStatus;
@@ -171,15 +215,26 @@ export class CreatorProductsInquiry {
 	direction?: Direction;
 
 	@IsNotEmpty()
+	@ValidateNested()
+	@Type(() => CPISearch)
 	@Field(() => CPISearch)
 	search!: CPISearch;
 }
 
 @InputType()
-class ALPISearch {
+class ALPISearch extends ProductFilters {
 	@IsOptional()
 	@Field(() => ProductStatus, { nullable: true })
 	productStatus?: ProductStatus;
+
+	@IsOptional()
+	@IsMongoId()
+	@Field(() => String, { nullable: true })
+	memberId?: ObjectId;
+
+	@IsOptional()
+	@Field(() => PeriodsRange, { nullable: true })
+	periodsRange?: PeriodsRange;
 }
 
 @InputType()
@@ -204,6 +259,8 @@ export class AllProductsInquiry {
 	direction?: Direction;
 
 	@IsNotEmpty()
+	@ValidateNested()
+	@Type(() => ALPISearch)
 	@Field(() => ALPISearch)
 	search!: ALPISearch;
 }
