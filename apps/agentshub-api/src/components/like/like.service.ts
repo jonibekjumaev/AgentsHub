@@ -10,6 +10,7 @@ import { Products } from '../../libs/dto/product/product';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { ProductStatus } from '../../libs/enums/product.enum';
 import { lookupFavorite } from '../../libs/config';
+import { describeDbError } from '../../libs/utils';
 
 @Injectable()
 export class LikeService {
@@ -27,8 +28,7 @@ export class LikeService {
 			try {
 				await this.likeModel.create(input);
 			} catch (err) {
-				const message = err instanceof Error ? err.message : 'Unknown error occurred';
-				console.log('Error: Service.model', message);
+				console.log('Error: Service.model', describeDbError(err));
 				throw new BadRequestException(Message.CREATE_FAILED);
 			}
 		}
@@ -76,7 +76,6 @@ export class LikeService {
 			])
 			.exec();
 
-		console.log('data:', data);
 		const result: Products = { list: [], metaCounter: data[0].metaCounter };
 
 		result.list = data[0].list.map((ele) => ele.favoriteProduct);

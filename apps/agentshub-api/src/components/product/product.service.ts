@@ -22,7 +22,7 @@ import { escapeRegex, lookupAuthMemberLiked, lookupMember, shapeInToMongoObjectI
 import { LikeService } from '../like/like.service';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
-import { normalizeTags } from '../../libs/utils';
+import { describeDbError, normalizeTags } from '../../libs/utils';
 
 @Injectable()
 export class ProductService {
@@ -45,8 +45,7 @@ export class ProductService {
 			});
 			return result;
 		} catch (err) {
-			const message = err instanceof Error ? err.message : 'Unknown error occurred';
-			console.log('Error: Service.model', message);
+			console.log('Error: Service.model', describeDbError(err));
 			throw new BadRequestException(Message.CREATE_FAILED);
 		}
 	}
@@ -109,7 +108,6 @@ export class ProductService {
 		const sort = { [input?.sort ?? 'createdAt']: input?.direction ?? Direction.DESC };
 
 		this.shapeMatchQuery(match, input);
-		console.log('match:', match);
 
 		const result = await this.productModel
 			.aggregate([

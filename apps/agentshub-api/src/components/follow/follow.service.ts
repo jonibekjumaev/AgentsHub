@@ -5,6 +5,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { MemberService } from '../member/member.service';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import type { ObjectId, T } from '../../libs/types/common';
+import { describeDbError } from '../../libs/utils';
 import { FollowInquiry } from '../../libs/dto/follow/follow.input';
 import {
 	lookupAuthMemberFollowed,
@@ -43,8 +44,7 @@ export class FollowService {
 				followerId: followerId,
 			});
 		} catch (err) {
-			const message = err instanceof Error ? err.message : 'Unknown error occurred';
-			console.log('Error: Service.model', message);
+			console.log('Error: Service.model', describeDbError(err));
 			throw new BadRequestException(Message.CREATE_FAILED);
 		}
 	}
@@ -71,7 +71,6 @@ export class FollowService {
 		const { page, limit, search } = input;
 		if (!search?.followerId) throw new InternalServerErrorException(Message.BAD_REQUEST);
 		const match: T = { followerId: search?.followerId };
-		console.log('match:', match);
 
 		const result = await this.followModel
 			.aggregate([
@@ -104,7 +103,6 @@ export class FollowService {
 		if (!search?.followingId) throw new InternalServerErrorException(Message.BAD_REQUEST);
 
 		const match: T = { followingId: search?.followingId }; // followingId ni egasiga kimlar follow qilgan busa topib ularni followerId qilib chiqaradi
-		console.log('match:', match);
 
 		const result = await this.followModel
 			.aggregate([

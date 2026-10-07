@@ -22,6 +22,20 @@ export const redactSensitiveText = (text: string): string => {
 	return text.replace(keyedBlockString, `$1$2"${REDACTED}"`).replace(keyedString, `$1$2"${REDACTED}"`);
 };
 
+// `E11000 duplicate key error collection: agentsHub.members index: memberPhone_1 dup key: { memberPhone: "…" }`
+// The values run to the end of the line (a product title may contain "}"); collection and index names stay (B13)
+const duplicateKeyValues = /dup key: \{[^\n]*/g;
+
+/** Replaces the duplicated values in a MongoDB E11000 message or stack with "***". */
+export const redactDuplicateKey = (text: string): string => {
+	return text.replace(duplicateKeyValues, `dup key: { ${REDACTED} }`);
+};
+
+/** The message of a caught database error, safe to log: E11000 duplicated values are redacted (B13). */
+export const describeDbError = (err: unknown): string => {
+	return redactDuplicateKey(err instanceof Error ? err.message : 'Unknown error occurred');
+};
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
 

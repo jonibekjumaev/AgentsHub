@@ -22,6 +22,7 @@ import { LikeGroup } from '../../libs/enums/like.enum';
 import { LikeService } from '../like/like.service';
 import { Follower, Following, MeFollowed } from '../../libs/dto/follow/follow';
 import { escapeRegex, excludeMemberSecrets, lookupAuthMemberLiked } from '../../libs/config';
+import { describeDbError } from '../../libs/utils';
 
 @Injectable()
 export class MemberService {
@@ -44,8 +45,7 @@ export class MemberService {
 
 			return result;
 		} catch (err) {
-			const message = err instanceof Error ? err.message : 'Unknown error occurred';
-			console.log('Error: Service.model', message);
+			console.log('Error: Service.model', describeDbError(err));
 			throw new BadRequestException(Message.USED_MEMBER_NICK_OR_PHONE);
 		}
 	}
@@ -153,7 +153,6 @@ export class MemberService {
 		const sort: T = { [input?.sort ?? 'createdAt']: input?.direction ?? Direction.DESC };
 
 		if (text) match.memberNick = { $regex: new RegExp(escapeRegex(text), 'i') };
-		console.log('match:', match);
 
 		const result = await this.memberModel
 			.aggregate([
@@ -199,7 +198,6 @@ export class MemberService {
 		if (memberStatus) match.memberStatus = memberStatus;
 		if (memberType) match.memberType = memberType;
 		if (text) match.memberNick = { $regex: new RegExp(escapeRegex(text), 'i') };
-		console.log('match:', match);
 
 		const result = await this.memberModel
 			.aggregate([

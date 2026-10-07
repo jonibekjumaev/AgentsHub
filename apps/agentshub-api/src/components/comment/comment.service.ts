@@ -11,6 +11,7 @@ import { ProductService } from '../product/product.service';
 import { BoardArticleService } from '../board-article/board-article.service';
 import { CommentUpdate } from '../../libs/dto/comment/comment.update';
 import { lookupMember } from '../../libs/config';
+import { describeDbError } from '../../libs/utils';
 import { Product } from '../../libs/dto/product/product';
 import { BoardArticle } from '../../libs/dto/board-article/board-article';
 import { Member } from '../../libs/dto/member/member';
@@ -37,8 +38,7 @@ export class CommentService {
 		try {
 			result = await this.commentModel.create(input);
 		} catch (err) {
-			const message = err instanceof Error ? err.message : 'Unknown error occurred';
-			console.log('Error: Service.model', message);
+			console.log('Error: Service.model', describeDbError(err));
 			throw new InternalServerErrorException(Message.CREATE_FAILED);
 		}
 

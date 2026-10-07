@@ -16,6 +16,7 @@ import { ViewGroup } from '../../libs/enums/view.enum';
 import { ViewService } from '../view/view.service';
 import { BoardArticleUpdate } from '../../libs/dto/board-article/board-article.update';
 import { escapeRegex, lookupAuthMemberLiked, lookupMember, shapeInToMongoObjectId } from '../../libs/config';
+import { describeDbError } from '../../libs/utils';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { LikeService } from '../like/like.service';
@@ -42,8 +43,7 @@ export class BoardArticleService {
 
 			return result;
 		} catch (err) {
-			const message = err instanceof Error ? err.message : 'Unknown error occurred';
-			console.log('Error: Service.model', message);
+			console.log('Error: Service.model', describeDbError(err));
 			throw new InternalServerErrorException(Message.CREATE_FAILED);
 		}
 	}
@@ -104,7 +104,6 @@ export class BoardArticleService {
 		if (input.search?.memberId) {
 			match.memberId = shapeInToMongoObjectId(input.search.memberId);
 		}
-		console.log('match:', match);
 
 		const result = await this.boardArticleModel
 			.aggregate([

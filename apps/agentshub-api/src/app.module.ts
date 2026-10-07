@@ -11,7 +11,7 @@ import { FormattedErrorExtensions } from './libs/types/common';
 import { GraphQLError, GraphQLFormattedError } from 'graphql';
 import { unwrapResolverError } from '@apollo/server/errors';
 import { SocketModule } from './socket/socket.module';
-import { redactSensitiveText } from './libs/utils';
+import { redactDuplicateKey, redactSensitiveText } from './libs/utils';
 
 @Module({
 	imports: [
@@ -37,12 +37,16 @@ import { redactSensitiveText } from './libs/utils';
 					: undefined;
 				const message = validationErrors ? validationErrors.join('; ') : redactSensitiveText(String(rawMessage));
 				const path = formattedError.path?.join('.') ?? '-';
-				console.log(`GRAPHQL ERROR [${code}] ${path}: ${message}`);
+				// E11000 duplicated values (phone, nick, title) are redacted in the log only; the client message is unchanged (B13)
+				console.log(`GRAPHQL ERROR [${code}] ${path}: ${redactDuplicateKey(message)}`);
 
 				// unexpected errors (bugs, database errors) also get their stack; Nest exceptions and GraphQL errors don't need it
 				const original = unwrapResolverError(error);
 				if (original instanceof Error && !(original instanceof HttpException) && !(original instanceof GraphQLError)) {
-					console.log('GRAPHQL ERROR stack:', redactSensitiveText(original.stack ?? original.message));
+					console.log(
+						'GRAPHQL ERROR stack:',
+						redactDuplicateKey(redactSensitiveText(original.stack ?? original.message)),
+					);
 				}
 
 				return { message, extensions: validationErrors ? { code, validationErrors } : { code } };

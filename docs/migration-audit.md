@@ -386,7 +386,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - Signup without a phone is still required; `null` on update is still rejected; leaving the phone out of an update is OK.
     - `memberWhatsapp` still validates with the same rule and its own message, and `null` still clears it.
   - **Data:** existing dev members with `010…` numbers keep working (login uses the nick). They must send E.164 the next time they update their phone (D-25).
-- [ ] **B13 — Debug and error logs print data they shouldn't**
+- [x] **B13 — Debug and error logs print data they shouldn't**
   - **When:** found in the S10 log sweep.
   - **Where and problem:**
     - `api/components/like/like.service.ts:79`: `console.log('data:', data)` is a leftover debug line that prints the favorites aggregation. Node's default print depth hides `memberData` as `[Object]` today, so it's fragile, not leaking.
@@ -397,6 +397,14 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **Verify:**
     - `getFavorities` → no `data:` line;
     - signup with an existing phone → the log line names the duplicate index, not the phone number; the client still gets `USED_MEMBER_NICK_OR_PHONE`.
+  - **Fixed:**
+    - Removed 7 debug logs in services: `console.log('data:', data)` in `like.service.ts`, and the `console.log('match:', match)` lines, which print filters built from client input, in `board-article.service.ts`, `follow.service.ts` (×2), `member.service.ts` (×2: `getCreators`, `getAllMembersByAdmin`) and `product.service.ts`. Service logs without data (`- Like modifier N -`, `memberStatsEditor: executed`, `- New View Insert -`) stay.
+    - New helpers in `api/libs/utils.ts`:
+      - `redactDuplicateKey()` replaces everything after `dup key: {` up to the end of the line with `***`. The collection and index names (e.g. `agentsHub.members index: memberPhone_1`) stay, so the log still names the field.
+      - `describeDbError()` is the old `err instanceof Error ? …` message with that redaction applied.
+    - The 6 `'Error: Service.model'` catch blocks (member `signup`, product, like, follow, board-article and comment creates) log `describeDbError(err)`. The thrown `Message.*` is unchanged.
+    - E11000 errors that are not caught (`updateMember`, `updateMemberByAdmin`, `updateProduct`, `updateProductByAdmin`, and a `recordView` race) reach `formatError`. Its `GRAPHQL ERROR` line and stack line now apply `redactDuplicateKey`. The message returned to the client is unchanged; that leak is tracked in B15.
+    - No GraphQL response changes.
 - [x] **B14 — `ValidationPipe` messages never reach the client**
   - **When:** found while verifying S15.
   - **Where:** `api/app.module.ts`, `formatError`. It reads the message from `extensions.exception.response.message` or `extensions.response.message`, the shape older Nest versions used.
@@ -457,6 +465,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - **Unreachable**, because `$facet` always returns exactly one document: `!result.length` / `!result` in `product/product.service.ts:134, 185, 232`, `board-article/board-article.service.ts:129, 181`, `member/member.service.ts:170, 216`, `follow/follow.service.ts:97, 130` and `comment/comment.service.ts:135`. Also `follow/follow.service.ts:29, 54`: `getMember` throws before these checks run. Keep them as 500 guards, or remove them in a cleanup.
   - **Already correct:** the auth guards (400 / 401 / 403); `changePassword` (400 / 401); the D-22 self-like checks and the duplicate like/follow/product creates (400); the uploader format and target checks (400); `signup` duplicates (400).
   - **Login messages:** with the proposed classes, `NO_MEMBER_NICK` vs `WRONG_PASSWORD` still tells anyone whether a nick exists (user enumeration). One generic message for both is a separate decision; record it before changing the messages.
+  - **Duplicate keys in updates (added in B13):** update methods without a catch (`updateMember`, `updateMemberByAdmin`, `updateProduct`, `updateProductByAdmin`) return the raw E11000 message to the client. Map duplicate-key errors to `USED_MEMBER_NICK_OR_PHONE` / a product title message. Since B13 the log redacts the value, but the client message still contains it.
   - **Side note:** `removeBoardArticleByAdmin` (`board-article/board-article.service.ts:203–210`) hard-deletes an article that is still `ACTIVE`, while `removeProductByAdmin` only removes items already set to `DELETE` (Step 6 part 1). Decide which rule is intended before changing either.
   - **Verify (after the fix):** each listed case returns the proposed code (`BAD_REQUEST`, `UNAUTHENTICATED`, `FORBIDDEN` or `NOT_FOUND`) with its message, and real server faults still return `INTERNAL_SERVER_ERROR`.
 
@@ -1072,6 +1081,7 @@ The field-level check covers all of them automatically. Keep the list as the ver
   - `libs/utils.ts` was created in Step 6 part 11 with `normalizeTags()`.
   - Candidates to move: `escapeRegex`, `getSerialForImage`, `getUploadPath`, `shapeInToMongoObjectId`, and the `$lookup` builders (`lookupMember`, `lookupAuthMemberLiked`, …).
   - Update every import in the same commit. This is a pure move with no behaviour change.
+- [ ] guards (auth/roles/without) use console.log for memberNick; move to Logger.debug or remove
 
 ---
 
