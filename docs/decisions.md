@@ -677,3 +677,24 @@
   - No counter change in the remove itself.
   - Admin UI: soft-delete first, then remove (Step 12 table).
   - Comments and likes on a hard-deleted article (or product) are left behind. Cleaning them up is a separate issue, not covered here.
+
+## D-29 — Which product status changes an admin can make
+
+**Status:** Accepted
+
+- **Context:** D-16 defines the owner's status changes (`ACTIVE ↔ PAUSED`, `ACTIVE | PAUSED → DELETE`, `DELETE` final) but not the admin's. `updateProductByAdmin` matched only `ACTIVE` products, so an admin could not touch a paused product, and `PAUSED` could not be set at all until Step 6 part 15.
+- **Options:**
+  - **A. The same transitions as the owner** (pause, resume, delete), on any non-deleted product.
+    - Pro: One transition table for both paths. An admin can take a listing offline temporarily (`PAUSED`) instead of deleting it, and the owner can see and fix it.
+    - Con: An admin can resume a product the owner paused.
+  - **B. Admins may only delete,** and edit fields.
+    - Pro: Pausing stays the owner's choice.
+    - Con: Moderation has only the irreversible option.
+- **Decision:** Option A.
+- **Reason:** Moderation needs a reversible step. Sharing the owner's rules keeps one code path and one counter rule.
+- **Consequence:**
+  - `updateProduct` and `updateProductByAdmin` share one update path: they match `productStatus ≠ DELETE` (a deleted product → `NOT_FOUND` `UPDATE_FAILED`, the same as a missing one) and apply the D-16 transitions.
+  - Sending the current status again is no change, not an error. Any other transition → `BAD_REQUEST` `INVALID_PRODUCT_STATUS_CHANGE`.
+  - `memberProducts` of the owner is decremented only on a change to `DELETE` (D-16), whoever makes it.
+  - The write is pinned to the status that was read, so a concurrent change (e.g. two `DELETE`s) makes the later call fail with `NOT_FOUND` `UPDATE_FAILED` and the counter is decremented once.
+  - Admins have no separate "locked by admin" state: an owner can resume a product an admin paused. If that becomes a problem, add a moderation state as a new decision.

@@ -100,35 +100,7 @@ export class ProductService {
 	}
 
 	public async updateProduct(memberId: ObjectId, input: ProductUpdate): Promise<Product> {
-		const { productStatus } = input;
-		if (input.productTags) input.productTags = normalizeTags(input.productTags);
-
-		const search = {
-			_id: input._id,
-			memberId: memberId,
-			productStatus: ProductStatus.ACTIVE,
-		};
-
-		if (productStatus === ProductStatus.DELETE) input.deletedAt = moment().toDate();
-		const update = await this.shapePricingUpdate(search, input);
-
-		let result: HydratedDocument<Product> | null;
-		try {
-			result = await this.productModel.findOneAndUpdate(search, update, { new: true }).exec();
-		} catch (err) {
-			if (isDuplicateKeyError(err)) throw new ConflictException(Message.USED_PRODUCT_TITLE); // B15
-			throw err;
-		}
-		if (!result) throw new NotFoundException(Message.UPDATE_FAILED);
-
-		if (input.deletedAt) {
-			await this.memberService.memberStatsEditor({
-				_id: memberId,
-				targetKey: 'memberProducts',
-				modifier: -1,
-			});
-		}
-		return result;
+		return await this.applyProductUpdate({ _id: input._id, memberId: memberId }, input);
 	}
 
 	public async getProducts(memberId: ObjectId, input: ProductsInquiry): Promise<Products> {
@@ -289,34 +261,8 @@ export class ProductService {
 	}
 
 	public async updateProductByAdmin(input: ProductUpdate): Promise<Product> {
-		const { productStatus } = input;
-		if (input.productTags) input.productTags = normalizeTags(input.productTags);
-		const search = {
-			_id: input._id,
-			productStatus: ProductStatus.ACTIVE,
-		};
-
-		if (productStatus === ProductStatus.DELETE) input.deletedAt = moment().toDate();
-		const update = await this.shapePricingUpdate(search, input);
-
-		let result: HydratedDocument<Product> | null;
-		try {
-			result = await this.productModel.findOneAndUpdate(search, update, { new: true }).exec();
-		} catch (err) {
-			if (isDuplicateKeyError(err)) throw new ConflictException(Message.USED_PRODUCT_TITLE); // B15
-			throw err;
-		}
-		if (!result) throw new NotFoundException(Message.UPDATE_FAILED);
-
-		if (input.deletedAt) {
-			await this.memberService.memberStatsEditor({
-				_id: result?.memberId,
-				targetKey: 'memberProducts',
-				modifier: -1,
-			});
-		}
-
-		return result;
+		// admins may make the same status changes as the owner (D-29)
+		return await this.applyProductUpdate({ _id: input._id }, input);
 	}
 
 	public async removeProductByAdmin(productId: ObjectId): Promise<Product> {
@@ -370,13 +316,69 @@ export class ProductService {
 	}
 
 	/**
+	 * The update shared by updateProduct (search has the owner's memberId) and updateProductByAdmin. A deleted product
+	 * is not matched, so it answers like a missing one. The write is pinned to the status that was read and checked,
+	 * so a concurrent change (e.g. a second DELETE) matches nothing: memberProducts is decremented once (D-16).
+	 */
+	private async applyProductUpdate(search: T, input: ProductUpdate): Promise<Product> {
+		if (input.productTags) input.productTags = normalizeTags(input.productTags);
+
+		const stored = await this.productModel
+			.findOne({ ...search, productStatus: { $ne: ProductStatus.DELETE } })
+			.select('productStatus productPricing productPrice')
+			.lean()
+			.exec();
+		if (!stored) throw new NotFoundException(Message.UPDATE_FAILED);
+
+		const isDeleting = this.checkStatusChange(stored.productStatus, input.productStatus);
+		if (isDeleting) input.deletedAt = moment().toDate();
+		const update = this.shapePricingUpdate(stored, input);
+
+		let result: HydratedDocument<Product> | null;
+		try {
+			result = await this.productModel
+				.findOneAndUpdate({ ...search, productStatus: stored.productStatus }, update, { new: true })
+				.exec();
+		} catch (err) {
+			if (isDuplicateKeyError(err)) throw new ConflictException(Message.USED_PRODUCT_TITLE); // B15
+			throw err;
+		}
+		if (!result) throw new NotFoundException(Message.UPDATE_FAILED); // the status changed since it was read
+
+		// memberProducts counts ACTIVE + PAUSED: only a change to DELETE decrements it, pause/resume don't (D-16)
+		if (isDeleting) {
+			await this.memberService.memberStatsEditor({
+				_id: result.memberId,
+				targetKey: 'memberProducts',
+				modifier: -1,
+			});
+		}
+		return result;
+	}
+
+	/**
+	 * D-16 / D-29 status changes: ACTIVE <-> PAUSED, ACTIVE | PAUSED -> DELETE; DELETE is final. The same status (or
+	 * none) is no change. Returns whether the product is being deleted.
+	 */
+	private checkStatusChange(current: ProductStatus, next: ProductStatus | undefined): boolean {
+		if (next === undefined || next === current) return false;
+
+		const isAllowed =
+			(current === ProductStatus.ACTIVE && next === ProductStatus.PAUSED) ||
+			(current === ProductStatus.PAUSED && next === ProductStatus.ACTIVE) ||
+			(current !== ProductStatus.DELETE && next === ProductStatus.DELETE);
+		if (!isAllowed) throw new BadRequestException(Message.INVALID_PRODUCT_STATUS_CHANGE);
+		return next === ProductStatus.DELETE;
+	}
+
+	/**
 	 * Checks D-03 on the final pricing/price of an update (stored values merged with the input) and returns the update.
 	 * A price left out is kept, except that switching to FREE / CUSTOM clears it; no price is stored as $unset, not null.
 	 */
-	private async shapePricingUpdate(search: T, input: ProductUpdate): Promise<UpdateQuery<Product>> {
-		const stored = await this.productModel.findOne(search).select('productPricing productPrice').lean().exec();
-		if (!stored) throw new NotFoundException(Message.UPDATE_FAILED);
-
+	private shapePricingUpdate(
+		stored: Pick<Product, 'productPricing' | 'productPrice'>,
+		input: ProductUpdate,
+	): UpdateQuery<Product> {
 		const finalPricing = input.productPricing ?? stored.productPricing;
 		const isPaid = paidProductPricings.includes(finalPricing);
 		let finalPrice: number | null | undefined;

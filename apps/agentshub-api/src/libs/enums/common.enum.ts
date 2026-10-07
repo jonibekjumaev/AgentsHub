@@ -32,6 +32,7 @@ export enum Message {
 	PRICE_REQUIRED = 'Price greater than 0 is required for ONE_TIME and SUBSCRIPTION pricing!',
 	PRICE_NOT_ALLOWED = 'Price is not allowed for FREE and CUSTOM pricing!',
 	INVALID_PRICE_RANGE = 'Price range start must not be greater than its end!',
+	INVALID_PRODUCT_STATUS_CHANGE = 'Product status can only change between ACTIVE and PAUSED, or to DELETE!',
 	INVALID_BUDGET = 'Budget must be greater than 0!',
 	DEADLINE_IN_PAST = 'Deadline must be in the future!',
 	BRIEF_ALREADY_CLOSED = 'This brief is already closed!',

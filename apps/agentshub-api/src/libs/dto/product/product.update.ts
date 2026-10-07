@@ -4,7 +4,6 @@ import {
 	ArrayMinSize,
 	IsArray,
 	IsEnum,
-	IsIn,
 	IsNotEmpty,
 	IsNumber,
 	IsOptional,
@@ -37,10 +36,9 @@ export class ProductUpdate {
 	@Field(() => AgentCategory, { nullable: true })
 	productCategory?: AgentCategory;
 
-	// reject null (B11). @IsIn is temporary until the D-16 part (PAUSED is not supported yet). It also rejects null here;
-	// when it goes, replace it with @IsEnum(ProductStatus), or null passes again.
+	// reject null (B11). The allowed status changes are checked in ProductService (D-16, D-29)
 	@ValidateIf((o) => o.productStatus !== undefined)
-	@IsIn([ProductStatus.ACTIVE, ProductStatus.DELETE])
+	@IsEnum(ProductStatus)
 	@Field(() => ProductStatus, { nullable: true })
 	productStatus?: ProductStatus;
 
