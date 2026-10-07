@@ -552,6 +552,19 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [x] `MONGODB_DEV` and `MONGODB_PROD` both point to the database **`Nestar`**. Point `MONGODB_DEV` to a new, empty database **`agentsHub`**, so the original Nestar data stays untouched (D-01, D-13).
 - [x] `MONGODB_PROD`: the production database name is decided at deploy time (D-13). Until then, it must not point to `Nestar`.
 - [ ] No Nestar data is migrated (D-13, Accepted). Write a seed script (creators, users, products, briefs) for development.
+  - **Done except briefs:** `npm run seed` (`scripts/seed/`) creates, through the API's services and after checking the API's DTOs:
+    - 4 creators and 4 users, one of them `BLOCK`
+    - 12 products covering every category and pricing, with one `PAUSED` and one `DELETE`
+    - 4 board articles
+    - follows, likes, views and comments
+    - Seed members' nicks start with `seed_`, and all of them use `SEED_PASSWORD`.
+    - The placeholder images in `scripts/seed/images/` are copied into `uploads/product/`.
+  - **Rules:**
+    - It refuses `NODE_ENV=production`, and also refuses when `MONGODB_DEV` equals `MONGODB_PROD`. It never drops a collection.
+    - A re-run deletes the seed members and everything by or pointing at them in one transaction, then recreates them. A replica set is needed; Atlas is one.
+    - Manual records are never deleted, except likes, views, comments and follows pointing at seed records. Manual counters are corrected for those deletes.
+    - The first admin is created only if missing (D-14, `npm run create-admin`).
+  - **Still open:** briefs. Add them in Step 7 through `BriefService`.
 - [x] No `.env.example` exists. Add one listing `PORT_API`, `PORT_BATCH`, `MONGODB_DEV`, `MONGODB_PROD` and `SECRET_TOKEN`.
 - [x] Both `api/database/database.module.ts` and `batch/database/database.module.ts` (line 9) pick the URI by `NODE_ENV`. No change needed; keep them in sync.
 
@@ -925,6 +938,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [ ] `api/components/brief/brief.module.ts`: import Auth, Member and View, then register it in `api/components/components.module.ts`.
 - [ ] `api/libs/config.ts`: add `aviableBriefSorts` (`createdAt`, `updatedAt`, `briefViews`, `briefBudget`, `briefDeadline`).
 - [ ] Briefs have no likes (no `briefLikes`, and `LikeGroup` has no `BRIEF`), so there is no `likeTargetBrief` and no `meLiked`.
+- [ ] Seed (`scripts/seed/`): add briefs by the seed users through `BriefService` (`OPEN`, `CLOSED` and `DELETE`, with and without budget/deadline). Add `briefs` to the seed cleanup, plus brief views and comments, which use `briefViews` / `briefComments`, to its counter fix-ups.
 
 ---
 

@@ -54,6 +54,8 @@ The code is still almost entirely Nestar. Main conversions:
 | `npm run format` | Prettier on `apps/**/*.ts` |
 | `npm test` | Jest. There are no unit specs yet |
 | `npm run test:e2e` / `test:e2e:batch` | Jest with `apps/agentshub-*/test/jest-e2e.json` |
+| `npm run seed` | Dev only (refuses `NODE_ENV=production`). Deletes and recreates the `seed_*` members and their data through the services; creates the admin if missing. Needs `SEED_PASSWORD` and the `ADMIN_*` keys |
+| `npm run create-admin` | Creates the `ADMIN_NICK` admin if missing, never changes an existing one (D-14). Allowed in production |
 
 Known issues, so you don't trip over them:
 

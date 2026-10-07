@@ -201,6 +201,12 @@
     - `MemberUpdateByAdmin` does (`member.update.ts:48–50`) and must drop it.
     - Once a field is removed from the input class, GraphQL rejects it as an unknown input field before the resolver runs.
   - **First admin:** created only by the seed script (D-13), using `ADMIN_NICK` and `ADMIN_PASSWORD` from `.env`. The seed must hash the password the same way `AuthService.hashPassword` does.
+    - **Amended when the seed was written:** the seed refuses to run in production, so the admin has its own command, `npm run create-admin` (`scripts/create-admin.ts`).
+      - It is allowed in production (`NODE_ENV=production` uses `MONGODB_PROD`).
+      - It reads `ADMIN_NICK`, `ADMIN_PASSWORD` and `ADMIN_PHONE` (E.164, D-25). A missing key → exit with an error naming it.
+      - It creates the admin only if no member has `ADMIN_NICK` yet, through `MemberService.signup` (so the password is hashed by `AuthService.hashPassword`) after checking the signup DTO rules except `memberType`. An existing admin is never changed, reset or deleted. If the nick belongs to a non-admin member, it exits with an error.
+      - `npm run seed` calls the same logic: it creates the admin if missing, otherwise skips it. Seed cleanup never deletes an `ADMIN` member.
+      - It runs with `ts-node` (a devDependency), so it needs a checkout with dev dependencies installed.
   - This replaces the recommendation's note about promoting admins through `updateMemberByAdmin`. That path no longer exists.
 - **Validation pipe:** **Yes.** A global `ValidationPipe` is enabled in `apps/nestar-api/src/main.ts:11` (`app.useGlobalPipes(new ValidationPipe())`), so `@IsIn` on the signup input is enforced. It has no options (`whitelist` is off), so excluding `memberType` from updates relies on the field being absent from the GraphQL input types, not on the pipe.
 - **Verification:** after the fix,
@@ -211,7 +217,7 @@
 - **Consequence:**
   - Changing a member's type, including promoting someone to admin, is only possible directly in the database.
   - A creator who also wants to post briefs needs a second account (D-02).
-  - `memberPhone` is required and unique in the schema, so the seeded admin also needs a phone value. The seed script must either use a fixed placeholder or read an extra key; decide this when the seed script is written.
+  - `memberPhone` is required and unique in the schema, so the seeded admin also needs a phone value. The seed script must either use a fixed placeholder or read an extra key; decide this when the seed script is written. **Answered:** an extra key, `ADMIN_PHONE` (E.164), read by `npm run create-admin`.
   - When the code fix lands is decided by D-20.
 
 ## D-15 — Default `memberImage`
