@@ -27,9 +27,9 @@ const ProductSchema = new Schema(
 			required: true,
 		},
 
+		// conditional on productPricing (D-03); the rule is checked in ProductService, not here
 		productPrice: {
 			type: Number,
-			required: true,
 		},
 
 		productDemoUrl: {

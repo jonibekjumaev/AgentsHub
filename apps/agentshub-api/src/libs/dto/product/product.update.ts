@@ -55,8 +55,8 @@ export class ProductUpdate {
 	@Field(() => String, { nullable: true })
 	productTitle?: string;
 
-	// reject null for now: productPrice is still required (B11). Part 12 (D-03) replaces this rule: null for FREE / CUSTOM
-	@ValidateIf((o) => o.productPrice !== undefined)
+	// leave out to keep the stored price, null clears it. The final pricing/price pair is checked in ProductService (D-03)
+	@IsOptional()
 	@IsNumber()
 	@Field(() => Float, { nullable: true })
 	productPrice?: number;

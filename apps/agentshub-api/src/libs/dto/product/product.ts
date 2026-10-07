@@ -22,8 +22,9 @@ export class Product {
 	@Field(() => String)
 	productTitle!: string;
 
-	@Field(() => Float)
-	productPrice!: number;
+	// null for FREE and CUSTOM pricing (D-03)
+	@Field(() => Float, { nullable: true })
+	productPrice?: number;
 
 	@Field(() => String, { nullable: true })
 	productDemoUrl?: string;

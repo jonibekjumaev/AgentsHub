@@ -6,7 +6,7 @@ import {
 	NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { HydratedDocument, Model } from 'mongoose';
+import { HydratedDocument, Model, UpdateQuery } from 'mongoose';
 import {
 	CreatorProductsInquiry,
 	AllProductsInquiry,
@@ -18,7 +18,7 @@ import { Products, Product } from '../../libs/dto/product/product';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { MemberService } from '../member/member.service';
 import { ObjectId, StatisticModifier, T } from '../../libs/types/common';
-import { ProductStatus } from '../../libs/enums/product.enum';
+import { ProductPricing, ProductStatus } from '../../libs/enums/product.enum';
 import { ViewGroup } from '../../libs/enums/view.enum';
 import { ViewService } from '../view/view.service';
 import { ViewInput } from '../../libs/dto/view/view.input';
@@ -41,6 +41,8 @@ export class ProductService {
 
 	public async createProduct(input: ProductInput): Promise<Product> {
 		if (input.productTags) input.productTags = normalizeTags(input.productTags);
+		this.checkPricingRule(input.productPricing, input.productPrice);
+		if (input.productPrice === null) delete input.productPrice; // FREE / CUSTOM: no price is stored (D-03)
 		try {
 			const result = await this.productModel.create(input);
 			//Increase memberProducts+
@@ -96,10 +98,11 @@ export class ProductService {
 		};
 
 		if (productStatus === ProductStatus.DELETE) input.deletedAt = moment().toDate();
+		const update = await this.shapePricingUpdate(search, input);
 
 		let result: HydratedDocument<Product> | null;
 		try {
-			result = await this.productModel.findOneAndUpdate(search, input, { new: true }).exec();
+			result = await this.productModel.findOneAndUpdate(search, update, { new: true }).exec();
 		} catch (err) {
 			if (isDuplicateKeyError(err)) throw new ConflictException(Message.USED_PRODUCT_TITLE); // B15
 			throw err;
@@ -253,10 +256,11 @@ export class ProductService {
 		};
 
 		if (productStatus === ProductStatus.DELETE) input.deletedAt = moment().toDate();
+		const update = await this.shapePricingUpdate(search, input);
 
 		let result: HydratedDocument<Product> | null;
 		try {
-			result = await this.productModel.findOneAndUpdate(search, input, { new: true }).exec();
+			result = await this.productModel.findOneAndUpdate(search, update, { new: true }).exec();
 		} catch (err) {
 			if (isDuplicateKeyError(err)) throw new ConflictException(Message.USED_PRODUCT_TITLE); // B15
 			throw err;
@@ -299,5 +303,38 @@ export class ProductService {
 
 		if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
 		return result;
+	}
+
+	/** D-03, the only place it is checked: ONE_TIME / SUBSCRIPTION need a price > 0, FREE / CUSTOM must have none. */
+	private checkPricingRule(productPricing: ProductPricing, productPrice: number | null | undefined): void {
+		const isPaid = productPricing === ProductPricing.ONE_TIME || productPricing === ProductPricing.SUBSCRIPTION;
+		const hasPrice = productPrice !== null && productPrice !== undefined;
+
+		if (isPaid && !(hasPrice && productPrice > 0)) throw new BadRequestException(Message.PRICE_REQUIRED);
+		if (!isPaid && hasPrice) throw new BadRequestException(Message.PRICE_NOT_ALLOWED);
+	}
+
+	/**
+	 * Checks D-03 on the final pricing/price of an update (stored values merged with the input) and returns the update.
+	 * A price left out is kept, except that switching to FREE / CUSTOM clears it; no price is stored as $unset, not null.
+	 */
+	private async shapePricingUpdate(search: T, input: ProductUpdate): Promise<UpdateQuery<Product>> {
+		const stored = await this.productModel.findOne(search).select('productPricing productPrice').lean().exec();
+		if (!stored) throw new NotFoundException(Message.UPDATE_FAILED);
+
+		const finalPricing = input.productPricing ?? stored.productPricing;
+		const isPaid = finalPricing === ProductPricing.ONE_TIME || finalPricing === ProductPricing.SUBSCRIPTION;
+		let finalPrice: number | null | undefined;
+		if (input.productPrice !== undefined) finalPrice = input.productPrice;
+		else finalPrice = isPaid ? stored.productPrice : null;
+
+		this.checkPricingRule(finalPricing, finalPrice);
+
+		const update: UpdateQuery<Product> = { ...input };
+		if (finalPrice === null || finalPrice === undefined) {
+			delete update.productPrice;
+			update.$unset = { productPrice: 1 };
+		}
+		return update;
 	}
 }

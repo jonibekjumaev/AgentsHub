@@ -5,6 +5,7 @@ import {
 	IsArray,
 	IsIn,
 	IsNotEmpty,
+	IsNumber,
 	IsOptional,
 	IsString,
 	IsUrl,
@@ -42,9 +43,11 @@ export class ProductInput {
 	@Length(3, 100)
 	productTitle!: string;
 
-	@IsNotEmpty()
-	@Field(() => Float)
-	productPrice!: number;
+	// required and > 0 for ONE_TIME / SUBSCRIPTION, absent for FREE / CUSTOM: checked in ProductService (D-03)
+	@IsOptional()
+	@IsNumber()
+	@Field(() => Float, { nullable: true })
+	productPrice?: number;
 
 	@IsOptional()
 	@IsUrl({ protocols: ['http', 'https'], require_protocol: true })
