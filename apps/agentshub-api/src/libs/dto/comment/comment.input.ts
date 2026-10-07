@@ -1,5 +1,6 @@
 import { Field, InputType, Int } from '@nestjs/graphql';
-import { IsIn, IsNotEmpty, IsOptional, Length, Min } from 'class-validator';
+import { IsIn, IsMongoId, IsNotEmpty, IsOptional, Length, Min, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import type { ObjectId } from '../../types/common';
 import { CommentGroup } from '../../enums/comment.enum';
 import { Direction } from '../../enums/common.enum';
@@ -26,6 +27,7 @@ export class CommentInput {
 @InputType()
 class CISearch {
 	@IsNotEmpty()
+	@IsMongoId()
 	@Field(() => String)
 	commentRefId!: ObjectId;
 }
@@ -52,6 +54,8 @@ export class CommentsInquiry {
 	direction?: Direction;
 
 	@IsNotEmpty()
+	@ValidateNested()
+	@Type(() => CISearch)
 	@Field(() => CISearch)
 	search!: CISearch;
 }

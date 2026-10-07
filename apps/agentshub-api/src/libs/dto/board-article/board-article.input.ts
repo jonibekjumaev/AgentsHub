@@ -1,5 +1,6 @@
 import { Field, InputType, Int } from '@nestjs/graphql';
-import { IsIn, IsNotEmpty, IsOptional, Length, MaxLength, Min } from 'class-validator';
+import { IsIn, IsMongoId, IsNotEmpty, IsOptional, Length, MaxLength, Min, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 
 import { BoardArticleCategory, BoardArticleStatus } from '../../enums/board-article.enum';
 import { Direction } from '../../enums/common.enum';
@@ -41,6 +42,7 @@ class BAISearch {
 	text?: string;
 
 	@IsOptional()
+	@IsMongoId()
 	@Field(() => String, { nullable: true })
 	memberId?: ObjectId;
 }
@@ -67,6 +69,8 @@ export class BoardArticlesInquiry {
 	direction?: Direction;
 
 	@IsNotEmpty()
+	@ValidateNested()
+	@Type(() => BAISearch)
 	@Field(() => BAISearch)
 	search!: BAISearch;
 }
@@ -104,6 +108,8 @@ export class AllBoardArticlesInquiry {
 	direction?: Direction;
 
 	@IsNotEmpty()
+	@ValidateNested()
+	@Type(() => ABAISearch)
 	@Field(() => ABAISearch)
 	search!: ABAISearch;
 }

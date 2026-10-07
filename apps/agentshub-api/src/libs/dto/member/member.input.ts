@@ -10,7 +10,9 @@ import {
 	MaxLength,
 	Min,
 	MinLength,
+	ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { MemberAuthType, MemberStatus, MemberType } from '../../enums/member.enum';
 import { Direction, Message } from '../../enums/common.enum';
 import {
@@ -83,14 +85,6 @@ export class ChangePasswordInput {
 @InputType()
 class CRISearch {
 	@IsOptional()
-	@Field(() => MemberStatus, { nullable: true })
-	memberStatus?: MemberStatus;
-
-	@IsOptional()
-	@Field(() => MemberType, { nullable: true })
-	memberType?: MemberType;
-
-	@IsOptional()
 	@MaxLength(searchTextMaxLength)
 	@Field(() => String, { nullable: true })
 	text?: string;
@@ -118,6 +112,8 @@ export class CreatorsInquiry {
 	direction?: Direction;
 
 	@IsNotEmpty()
+	@ValidateNested()
+	@Type(() => CRISearch)
 	@Field(() => CRISearch)
 	search!: CRISearch;
 }
@@ -160,6 +156,8 @@ export class MembersInquiry {
 	direction?: Direction;
 
 	@IsNotEmpty()
+	@ValidateNested()
+	@Type(() => MISearch)
 	@Field(() => MISearch)
 	search!: MISearch;
 }
