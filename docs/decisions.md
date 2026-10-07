@@ -654,3 +654,26 @@
   - If the bcrypt cost of `hashPassword` changes, `dummyPasswordHash` must be regenerated with the same cost, or the timing difference returns.
   - `signup` still answers `USED_MEMBER_NICK_OR_PHONE` for a taken nick. That's unavoidable for a unique, public nick and is not covered by this decision.
   - Frontend: show the one login error message; there is no separate "unknown nick" state any more (Step 12 table).
+
+## D-28 — Which board articles an admin can hard-delete
+
+**Status:** Accepted
+
+- **Context:** `removeBoardArticleByAdmin` hard-deleted an article only while it was `ACTIVE`, in one call (audit B15). This had three problems:
+  - the author's `memberArticles` was never decremented, so it stayed one too high for good (only the update to `DELETE` decrements it);
+  - an article already set to `DELETE`, by its owner or an admin, could never be removed;
+  - it was the opposite of `removeProductByAdmin`, which removes only products already set to `DELETE` (Step 6 part 1).
+- **Options:**
+  - **A. Same rule as products:** only `DELETE` articles can be removed. An admin first runs `updateBoardArticleByAdmin` → `DELETE`, then `removeBoardArticleByAdmin`.
+    - Pro: One rule for every admin remove. The counter stays correct with no extra code, because the decrement already happens on the soft delete. A live article can't be wiped by a single call. Soft-deleted articles can finally be purged.
+    - Con: Moderation takes two calls. An admin UI that removed `ACTIVE` articles directly stops working.
+  - **B. One-step hard delete of `ACTIVE` or `DELETE` articles,** decrementing `memberArticles` when the removed article was `ACTIVE`.
+    - Pro: Fast one-call moderation (e.g. spam). Old `DELETE` articles can be removed too.
+    - Con: A different rule from products. A live article can be wiped irreversibly by one call. The counter logic needs two branches.
+- **Decision:** Option A.
+- **Reason:** One rule for every admin remove is easier to reason about and to build an admin UI for. The two-step flow makes the irreversible step deliberate, and it keeps the counter correct by reusing the existing decrement instead of adding a second one.
+- **Consequence:**
+  - `removeBoardArticleByAdmin` matches `{ _id, articleStatus: DELETE }`. An `ACTIVE` article returns `NOT_FOUND` (`REMOVE_FAILED`).
+  - No counter change in the remove itself.
+  - Admin UI: soft-delete first, then remove (Step 12 table).
+  - Comments and likes on a hard-deleted article (or product) are left behind. Cleaning them up is a separate issue, not covered here.

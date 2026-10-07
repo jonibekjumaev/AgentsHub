@@ -200,9 +200,11 @@ export class BoardArticleService {
 	}
 
 	public async removeBoardArticleByAdmin(articleId: ObjectId): Promise<BoardArticle> {
+		// only soft-deleted articles, same rule as removeProductByAdmin; memberArticles was already decremented
+		// when the article was set to DELETE (D-28)
 		const search = {
 			_id: articleId,
-			articleStatus: BoardArticleStatus.ACTIVE,
+			articleStatus: BoardArticleStatus.DELETE,
 		};
 
 		const result = await this.boardArticleModel.findOneAndDelete(search).exec();
