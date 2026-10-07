@@ -43,10 +43,11 @@ export class CommentResolver {
 	public async getComments(
 		@Args('input') input: CommentsInquiry,
 		@AuthMember('_id') memberId: ObjectId,
+		@AuthMember('memberType') memberType: MemberType,
 	): Promise<Comments> {
 		console.log('Query: getComments');
 		input.search.commentRefId = shapeInToMongoObjectId(input.search.commentRefId);
-		return await this.commentService.getComments(memberId, input);
+		return await this.commentService.getComments(memberId, memberType, input);
 	}
 
 	/** ADMIN */

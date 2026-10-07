@@ -30,6 +30,11 @@ class CISearch {
 	@IsMongoId()
 	@Field(() => String)
 	commentRefId!: ObjectId;
+
+	// the target type: a PRODUCT target follows the product's visibility (D-16); BRIEF is rejected until Step 7
+	@IsNotEmpty()
+	@Field(() => CommentGroup)
+	commentGroup!: CommentGroup;
 }
 
 @InputType()

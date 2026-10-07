@@ -17,7 +17,7 @@ import { BoardArticle } from '../../libs/dto/board-article/board-article';
 import { Member } from '../../libs/dto/member/member';
 import { ProductStatus } from '../../libs/enums/product.enum';
 import { BoardArticleStatus } from '../../libs/enums/board-article.enum';
-import { MemberStatus } from '../../libs/enums/member.enum';
+import { MemberStatus, MemberType } from '../../libs/enums/member.enum';
 
 @Injectable()
 export class CommentService {
@@ -109,9 +109,23 @@ export class CommentService {
 		return result;
 	}
 
-	public async getComments(memberId: ObjectId, input: CommentsInquiry): Promise<Comments> {
-		const { commentRefId } = input.search;
-		const match = { commentRefId: commentRefId, commentStatus: CommentStatus.ACTIVE };
+	public async getComments(
+		memberId: ObjectId | null,
+		memberType: MemberType | null,
+		input: CommentsInquiry,
+	): Promise<Comments> {
+		const { commentRefId, commentGroup } = input.search;
+		if (commentGroup === CommentGroup.BRIEF) throw new BadRequestException(Message.BAD_REQUEST); // until Step 7
+
+		// comments follow the product's visibility; a hidden product answers like a missing one (D-16)
+		if (commentGroup === CommentGroup.PRODUCT) {
+			const product = await this.productModel.findById(commentRefId).select('productStatus memberId').lean().exec();
+			if (!product || !this.productService.isProductVisible(product, memberId, memberType)) {
+				throw new NotFoundException(Message.NO_DATA_FOUND);
+			}
+		}
+
+		const match = { commentRefId: commentRefId, commentGroup: commentGroup, commentStatus: CommentStatus.ACTIVE };
 		const sort: T = { [input?.sort ?? 'createdAt']: input?.direction ?? Direction.DESC };
 
 		const result = await this.commentModel

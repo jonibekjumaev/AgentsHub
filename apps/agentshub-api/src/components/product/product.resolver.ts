@@ -37,10 +37,14 @@ export class ProductResolver {
 
 	@UseGuards(WithoutGuard)
 	@Query(() => Product)
-	public async getProduct(@Args('productId') input: string, @AuthMember('_id') memberId: ObjectId): Promise<Product> {
+	public async getProduct(
+		@Args('productId') input: string,
+		@AuthMember('_id') memberId: ObjectId,
+		@AuthMember('memberType') memberType: MemberType,
+	): Promise<Product> {
 		console.log('Query: getProduct');
 		const productId = shapeInToMongoObjectId(input);
-		return await this.productService.getProduct(memberId, productId);
+		return await this.productService.getProduct(memberId, memberType, productId);
 	}
 
 	@Roles(MemberType.CREATOR)

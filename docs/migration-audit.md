@@ -505,6 +505,15 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - Checked with the real `ValidationPipe` (14 cases): valid searches pass for all six. A 101-character `text` in `BAISearch` / `CRISearch` / `MISearch` is rejected, and so are a malformed `memberId` / `commentRefId` / `followerId` and an empty `commentRefId`.
     - The client-visible changes are in the Step 12 table.
 
+- [ ] **B17 — Guards trust the JWT only; a blocked or deleted member's token keeps working**
+  - **When:** found in Step 6 part 14 (D-16 question 5; first answered "acceptable", then corrected).
+  - **Problem:** guards trust the JWT only. A blocked or deleted member's existing token keeps working until it expires (30 days). For example, a blocked owner can still open their own `PAUSED` product through `getProduct`.
+  - **Fix:**
+    - `AuthGuard` / `RolesGuard` must reject non-`ACTIVE` members (checked in the DB).
+    - `WithoutGuard` must treat them as guests.
+  - **Frontend:** on that error, clear the token and redirect to login.
+  - `getProduct` and `isProductVisible` need no change: once the guards are fixed, a blocked or deleted owner arrives as a guest or is rejected.
+
 ---
 
 ## Step 3 — Config (package names, DB name, env, app names)
@@ -771,12 +780,14 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - `'memberProperties'` (96) → `'memberProducts'`
 
   **Done in Step 6 part 5:** the `SOLD` → `soldAt` branch was removed; the counter now changes only on `DELETE`. **Done in Step 6 part 8:** the counter key. **Done in Step 6 part 12:** `shapePricingUpdate()` loads the stored pricing/price, merges the input, runs `checkPricingRule()`, and clears the price (`$unset`) when the final pricing is `FREE` / `CUSTOM` and no price is sent. `updateProductByAdmin` uses the same helper.
-- [ ] `getProduct` (D-16):
+- [x] `getProduct` (D-16):
   - `ACTIVE` → everyone
   - `PAUSED` → only the owner (`memberId` matches the caller) or an `ADMIN` caller; everyone else gets `NO_DATA_FOUND`
   - `DELETE` → nobody
   - The current search allows only `ACTIVE` (55).
-- [ ] `getProduct` (D-16): record **no view** and don't increment `productViews` when the product is `PAUSED`, even for the owner.
+  - **Done in Step 6 part 14:** `getProduct` loads the product by id and checks it with the new `ProductService.isProductVisible(product, memberId, memberType)`: `ACTIVE` for everyone, `PAUSED` for the owner and `ADMIN` callers, `DELETE` for nobody (admins included; they use `getAllProductsByAdmin`). A hidden product gets `NOT_FOUND` / `NO_DATA_FOUND`, the same as a missing one. The resolver passes `('memberType')`.
+- [x] `getProduct` (D-16): record **no view** and don't increment `productViews` when the product is `PAUSED`, even for the owner.
+  - **Done in Step 6 part 14:** a view is recorded only when the product is `ACTIVE` and the caller isn't the owner (D-22).
 - [ ] `updateProduct` (D-16):
   - match `productStatus: { $ne: DELETE }` instead of `ACTIVE` (84), so a paused product can be resumed
   - allowed owner transitions: `ACTIVE ↔ PAUSED`, and `ACTIVE | PAUSED → DELETE`
@@ -788,12 +799,13 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 - [ ] `getProperties` / `shapeMatchQuery` (103–164):
   - remove the location/rooms/beds/type/squares/options filters and the `$or` for options
     - **Done in Step 6 part 5.**
-  - add category/pricing/tag filters
+  - add category/pricing/tag filters — **Done in Step 6 part 13** (`categoryList`, `pricingList`, `tagList`, shared by the three product lists).
   - text search on `productTitle` (and maybe `productTags`)
   - (bug, fix in its own commit) `text` goes into `new RegExp` unescaped (158). Use the `escapeRegex` helper added in Step 2.5 (S8); the member and board-article cases are already fixed there.
     - **Done in Step 6 part 2:** `escapeRegex(text)`, plus `@MaxLength(searchTextMaxLength)` on `PIsearch.text`, the same as the member and board-article searches. **Still open** in this item: the sub-points not marked done.
   - keep the `productStatus: ACTIVE` match (104) for every caller, including the `memberId` filter used on other members' profiles. Paused products never appear here, not even for the owner (D-16).
-- [ ] `getCreatorProducts` (D-16): the owner sees `ACTIVE` + `PAUSED` (the current `≠ DELETE` match, 180). Keep it.
+- [x] `getCreatorProducts` (D-16): the owner sees `ACTIVE` + `PAUSED` (the current `≠ DELETE` match, 180). Keep it.
+  - Checked in Step 6 part 14: the `≠ DELETE` match and `memberId` = caller are unchanged.
 - [x] `getFavorities` / `getVisited` (166–172) call `likeService.getFavoriteProperties` / `viewService.getVisitedProperties` (see Step 8). Keep the misspelled operation name `getFavorities` (convention).
   - Done in Step 6 part 7: they call `getFavoriteProducts` / `getVisitedProducts` and return `Products`.
 - [x] `getAgentProperties` (174–204) → `getCreatorProducts`.
@@ -939,7 +951,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - add `BRIEF` (target must exist and not be `DELETE`)
 
   **Done in Step 6 part 7:** the `PRODUCT` case (still `ACTIVE` only). **Still open:** `BRIEF`.
-- [ ] `getComments` (D-16, child records inherit the parent's visibility): for a `PRODUCT` target, load the product first.
+- [x] `getComments` (D-16, child records inherit the parent's visibility): for a `PRODUCT` target, load the product first.
   - `ACTIVE` → return comments to everyone
   - `PAUSED` → return comments only if the caller is the owner or an `ADMIN`
   - otherwise (paused for other callers, `DELETE`, or missing) → throw `NO_DATA_FOUND`
@@ -947,6 +959,9 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   This requires:
   - `comment.input.ts:27–31`: add a required `commentGroup` to `CISearch` (a GraphQL API change; add it to the Step 12 table)
   - `comment.resolver.ts:41–50`: pass the caller's `memberType` (or the whole `authMember`) to the service, not only `_id`
+
+  **Done in Step 6 part 14:** `CISearch.commentGroup` (required). For `PRODUCT`, `getComments` loads the product and uses `isProductVisible`; a missing, deleted or hidden product → `NOT_FOUND` / `NO_DATA_FOUND`. The `$match` also filters by `commentGroup`. `BRIEF` → `BAD_REQUEST` until Step 7. The resolver passes `('memberType')`.
+- [ ] Make the `getComments` target checks consistent for `ARTICLE` and `MEMBER` (decided in Step 6 part 14 to leave them for now): today a missing or deleted article or member still returns an empty list, while `PRODUCT` returns `NO_DATA_FOUND`. Add the `BRIEF` check with Step 7.
 
 ### Notification (schema only; no module yet)
 - [ ] `api/schemas/Notification.model.ts`:
@@ -1033,7 +1048,7 @@ The field-level check covers all of them automatically. Keep the list as the ver
   - reset `productRank` for all non-deleted products (`productStatus ≠ DELETE`), not only `ACTIVE`, so a product that is reactivated doesn't keep a stale rank (D-16)
   - `memberType: MemberType.AGENT` (29) → `CREATOR`
 
-  **Done in Step 6 part 7:** the `product*` field rename (still `ACTIVE` only). `CREATOR` has been in place since Step 4. **Still open:** the `≠ DELETE` reset (D-16).
+  **Done in Step 6 part 7:** the `product*` field rename (still `ACTIVE` only). `CREATOR` has been in place since Step 4. **Still open:** the `≠ DELETE` reset (D-16). Left for Step 10 (decided in Step 6 part 14): until then a reactivated product keeps its pre-pause `productRank` until the next rollback.
 - [ ] `batchProperties` (38–53) → `batchProducts`. The rank becomes `productLikes*2 + productViews*1` (line 48: rename the fields only; weights unchanged). Comments are never used (D-17).
   - keep ranking only `ACTIVE` products (41). Paused products get no rank (D-16).
 
@@ -1089,7 +1104,8 @@ The field-level check covers all of them automatically. Keep the list as the ver
   | `LikeGroup` / `ViewGroup` / `CommentGroup` `PROPERTY` | `PRODUCT` (+ `BRIEF` for view/comment). Since Step 6 part 9, `CommentGroup.PROPERTY` no longer exists: `createComment` with `commentGroup: PROPERTY` fails GraphQL validation (`GRAPHQL_VALIDATION_FAILED`). The other group enums are not in the GraphQL schema |
   | `imagesUploader(target: "property")` | `target: "product"` |
   | — | new `Brief` queries and mutations (Step 7) |
-  | `getComments(search: { commentRefId })` | **Not yet changed:** today `search` has only `commentRefId` (a valid ObjectId since B16). With the open D-16 `getComments` item (Step 6, comments), it becomes `search: { commentRefId, commentGroup }` with `commentGroup` required, and a paused or missing product returns `NO_DATA_FOUND` |
+  | `getComments(search: { commentRefId })` | Since Step 6 part 14 (D-16): `search: { commentRefId, commentGroup }`, `commentGroup` required (without it: `GRAPHQL_VALIDATION_FAILED`). Only comments of that group are returned. For `PRODUCT`: a missing, deleted, or paused product (unless the caller is the owner or an admin) → `NOT_FOUND` / `NO_DATA_FOUND` (before: an empty list or the comments). `BRIEF` → `BAD_REQUEST` until briefs exist (Step 7). `ARTICLE` / `MEMBER` targets are not checked yet: a missing target still gives an empty list |
+  | `getProduct` returned only `ACTIVE` products, to everyone | Since Step 6 part 14 (D-16): the owner and admins also get their `PAUSED` product, and no view is recorded on it. Everyone else gets `NOT_FOUND` / `NO_DATA_FOUND` for paused, deleted and missing products alike; deleted products are hidden from admins too (use `getAllProductsByAdmin`). Nothing changes until `PAUSED` can be set (Step 6 part 15) |
   | Nested `search` rules were never checked outside products: any `search.text` length, malformed ids reached the database (`INTERNAL_SERVER_ERROR`) | Since B16: `search.text` over 100 characters → `BAD_REQUEST` in `getBoardArticles`, `getCreators` and `getAllMembersByAdmin`. A malformed id → `BAD_REQUEST` (before: `INTERNAL_SERVER_ERROR`) for `getBoardArticles` `search.memberId`, `getComments` `search.commentRefId` (also `""`) and `getMemberFollowings` / `getMemberFollowers` `search.followerId` / `followingId`. `CreatorsInquiry.search` (`CRISearch`) no longer has `memberStatus` / `memberType`: sending them fails GraphQL validation (`GRAPHQL_VALIDATION_FAILED`); `getCreators` always returned only active creators anyway |
   | Error codes: almost every business error returned `extensions.code: INTERNAL_SERVER_ERROR` | Since B15 part 1, messages unchanged unless stated:<br>• **`NOT_FOUND`**: `getProduct`, `getBoardArticle` and `getMember` when the item is missing or hidden; `likeTargetProduct`, `likeTargetBoardArticle` and `likeTargetMember` when the target is missing; `createComment` when the target is missing or not `ACTIVE`; `unsubscribe` when not following; the owner updates `updateProduct`, `updateBoardArticle` and `updateComment` (missing, not yours, or not `ACTIVE`); `updateProductByAdmin`, `updateBoardArticleByAdmin` and `updateMemberByAdmin`; `removeProductByAdmin`, `removeBoardArticleByAdmin` and `removeCommentByAdmin`.<br>• **`BAD_REQUEST`**: `subscribe` to yourself; `getMemberFollowings` / `getMemberFollowers` without a member id; `createComment` with a malformed `commentRefId`; `getCreatorProducts` asking for `DELETE`.<br>• **`UNAUTHENTICATED`**: `updateMember` by a blocked or deleted member, with the message changed from `UPDATE_FAILED` to `NOT_AUTHENTICATED`; any guarded operation without a token (`TOKEN_NOT_EXIST`, before: `BAD_REQUEST`).<br>Real server faults still return `INTERNAL_SERVER_ERROR` |
   | Duplicate nick, phone or product title: `signup` and `createProduct` returned `BAD_REQUEST` (`createProduct` with `CREATE_FAILED`); the four update operations returned `INTERNAL_SERVER_ERROR` with the raw MongoDB `E11000 …` text | Since B15 part 2, every duplicate returns **`CONFLICT`**:<br>• `signup`, `updateMember`, `updateMemberByAdmin`: `USED_MEMBER_NICK_OR_PHONE` ("Already used member nick or phone")<br>• `createProduct`, `updateProduct`, `updateProductByAdmin`: new `USED_PRODUCT_TITLE` ("A product with this title already exists for this creator!")<br>Other `signup` / `createProduct` failures keep `BAD_REQUEST` |

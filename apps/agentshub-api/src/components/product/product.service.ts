@@ -21,6 +21,7 @@ import { Direction, Message } from '../../libs/enums/common.enum';
 import { MemberService } from '../member/member.service';
 import { ObjectId, StatisticModifier, T } from '../../libs/types/common';
 import { ProductPricing, ProductStatus } from '../../libs/enums/product.enum';
+import { MemberType } from '../../libs/enums/member.enum';
 import { ViewGroup } from '../../libs/enums/view.enum';
 import { ViewService } from '../view/view.service';
 import { ViewInput } from '../../libs/dto/view/view.input';
@@ -67,20 +68,23 @@ export class ProductService {
 		}
 	}
 
-	public async getProduct(memberId: ObjectId, productId: ObjectId): Promise<Product> {
-		const search = {
-			_id: productId,
-			productStatus: ProductStatus.ACTIVE,
-		};
-
-		const targetProduct = await this.productModel.findOne(search).lean().exec();
-		if (!targetProduct) throw new NotFoundException(Message.NO_DATA_FOUND);
+	public async getProduct(
+		memberId: ObjectId | null,
+		memberType: MemberType | null,
+		productId: ObjectId,
+	): Promise<Product> {
+		const targetProduct = await this.productModel.findOne({ _id: productId }).lean().exec();
+		// a product the caller may not see gets the same answer as a missing one (D-16)
+		if (!targetProduct || !this.isProductVisible(targetProduct, memberId, memberType)) {
+			throw new NotFoundException(Message.NO_DATA_FOUND);
+		}
 
 		if (memberId) {
-			// own product views don't count (D-22)
+			// own product views don't count (D-22); a PAUSED product records no view, not even for the owner (D-16)
 			const isOwnProduct = memberId.equals(targetProduct.memberId);
+			const isActive = targetProduct.productStatus === ProductStatus.ACTIVE;
 			const viewInput: ViewInput = { memberId: memberId, viewRefId: productId, viewGroup: ViewGroup.PRODUCT };
-			const newView = isOwnProduct ? null : await this.viewService.recordView(viewInput);
+			const newView = isOwnProduct || !isActive ? null : await this.viewService.recordView(viewInput);
 			if (newView) {
 				await this.productStatsEditor({ _id: productId, targetKey: 'productViews', modifier: 1 });
 				targetProduct.productViews++;
@@ -340,6 +344,20 @@ export class ProductService {
 
 		if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
 		return result;
+	}
+
+	/**
+	 * D-16 visibility of one product: ACTIVE for everyone, PAUSED only for its owner and admins, DELETE for nobody
+	 * (admins see deleted products only in getAllProductsByAdmin). Child records (e.g. comments) follow the same rule.
+	 */
+	public isProductVisible(
+		product: Pick<Product, 'productStatus' | 'memberId'>,
+		memberId: ObjectId | null,
+		memberType: MemberType | null,
+	): boolean {
+		if (product.productStatus === ProductStatus.ACTIVE) return true;
+		if (product.productStatus !== ProductStatus.PAUSED) return false;
+		return memberType === MemberType.ADMIN || (!!memberId && memberId.equals(product.memberId));
 	}
 
 	/** D-03, the only place it is checked: ONE_TIME / SUBSCRIPTION need a price > 0, FREE / CUSTOM must have none. */
