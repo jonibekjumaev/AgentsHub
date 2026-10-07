@@ -626,3 +626,31 @@
   - **Non-Latin passwords:** 72 bytes is fewer than 72 characters (e.g. 36 Cyrillic letters, 18 emoji). The error message says so.
   - **Login has no upper length limit.** bcrypt's work doesn't grow with input length (it only uses the first 72 bytes), and the request body size limit still applies (NestJS / Express default: 100 kB for JSON).
   - The limits are constants in `api/libs/config.ts`, with one message each for "too short" and "too long".
+
+## D-27 — Login must not reveal whether a nick exists
+
+**Status:** Accepted
+
+- **Context:** `login` answered differently depending on the account (audit B15):
+  - an unknown nick, a `DELETE` member or a member without a stored password → `NO_MEMBER_NICK`;
+  - a wrong password → `WRONG_PASSWORD`;
+  - a `BLOCK` member → `BLOCKED_USER`, checked **before** the password.
+
+  So anyone could find out whether a nick has an account and whether it is blocked, without knowing any password. There was also a timing leak: for an unknown nick, bcrypt never ran, so the answer came noticeably faster. Nicks themselves are public (`getMember`, `getCreators`), so what this protects is account status and the login surface (no list of "nicks worth guessing passwords for").
+- **Options:**
+  - **A. Keep the separate messages.**
+    - Pro: Slightly more helpful for a member who mistyped their nick.
+    - Con: User enumeration through the message, the timing and the blocked status. **Rejected.**
+  - **B. One message for every failed login, a constant-time path, and the block status only after a correct password.**
+    - Pro: The response and its timing are the same for an unknown nick and a wrong password. A blocked member still learns why they can't log in, but only once they prove they own the account.
+    - Con: A member who mistyped their nick gets a less specific message. One extra bcrypt compare (~60–100 ms) per failed login with an unknown nick.
+- **Decision:** Option B.
+  - An unknown nick, a `DELETE` member, a member without a stored password and a wrong password all return `UnauthorizedException(INVALID_CREDENTIALS)` ("Wrong member nick or password!", code `UNAUTHENTICATED`).
+  - `login` always runs one bcrypt compare. When there is no usable stored hash, it compares against a fixed dummy hash (`dummyPasswordHash` in `api/libs/config.ts`, same cost as `bcrypt.genSalt()`'s default, 10).
+  - `BLOCK` is checked only after the password matches → `ForbiddenException(BLOCKED_USER)` (code `FORBIDDEN`).
+- **Reason:** Different messages and different response times leak the same fact. Fixing only one leaves the other open. Checking the block status after the password keeps it private from strangers without hiding it from the account owner.
+- **Consequence:**
+  - `NO_MEMBER_NICK` is removed. `WRONG_PASSWORD` stays for `changePassword`, where the caller is already authenticated.
+  - If the bcrypt cost of `hashPassword` changes, `dummyPasswordHash` must be regenerated with the same cost, or the timing difference returns.
+  - `signup` still answers `USED_MEMBER_NICK_OR_PHONE` for a taken nick. That's unavoidable for a unique, public nick and is not covered by this decision.
+  - Frontend: show the one login error message; there is no separate "unknown nick" state any more (Step 12 table).

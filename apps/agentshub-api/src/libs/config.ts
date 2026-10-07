@@ -43,6 +43,10 @@ export const productTagMaxLength = 30;
 export const passwordMinLength = 8; // characters
 export const passwordMaxBytes = 72; // UTF-8 bytes: bcrypt ignores everything after the first 72 bytes
 
+// login compares against this when the nick has no usable password, so an unknown nick takes as long as a
+// wrong password (D-27). The hash of a random, discarded value; its cost (10) must match bcrypt.genSalt()'s default
+export const dummyPasswordHash = '$2a$10$ban1zV0qBemKk3dwfs6JUukL9wuZ0oXIRA/J7IRJF8D6RBczjesP2';
+
 /**  CONTACT CONFIGURATION (D-07)  **/
 
 export const memberEmailMaxLength = 254;

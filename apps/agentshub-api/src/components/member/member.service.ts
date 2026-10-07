@@ -1,6 +1,7 @@
 import {
 	BadRequestException,
 	ConflictException,
+	ForbiddenException,
 	Injectable,
 	InternalServerErrorException,
 	NotFoundException,
@@ -28,7 +29,7 @@ import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { LikeService } from '../like/like.service';
 import { Follower, Following, MeFollowed } from '../../libs/dto/follow/follow';
-import { escapeRegex, excludeMemberSecrets, lookupAuthMemberLiked } from '../../libs/config';
+import { dummyPasswordHash, escapeRegex, excludeMemberSecrets, lookupAuthMemberLiked } from '../../libs/config';
 import { describeDbError, isDuplicateKeyError } from '../../libs/utils';
 
 @Injectable()
@@ -63,18 +64,12 @@ export class MemberService {
 
 		const response = await this.memberModel.findOne({ memberNick: memberNick }).select('+memberPassword').exec();
 
-		if (!response || response.memberStatus === MemberStatus.DELETE) {
-			throw new InternalServerErrorException(Message.NO_MEMBER_NICK);
-		} else if (response.memberStatus === MemberStatus.BLOCK) {
-			throw new InternalServerErrorException(Message.BLOCKED_USER);
-		}
-
-		if (!response.memberPassword) {
-			throw new InternalServerErrorException(Message.NO_MEMBER_NICK);
-		}
-
-		const isMatch = await this.authService.comparePassword(memberPassword, response.memberPassword);
-		if (!isMatch) throw new InternalServerErrorException(Message.WRONG_PASSWORD);
+		// D-27: one message for every failed login, and always one bcrypt compare, so neither the response nor its
+		// timing tells whether the nick exists. BLOCK is revealed only to someone who knows the password
+		const storedHash = response && response.memberStatus !== MemberStatus.DELETE ? response.memberPassword : undefined;
+		const isMatch = await this.authService.comparePassword(memberPassword, storedHash || dummyPasswordHash);
+		if (!response || !storedHash || !isMatch) throw new UnauthorizedException(Message.INVALID_CREDENTIALS);
+		if (response.memberStatus === MemberStatus.BLOCK) throw new ForbiddenException(Message.BLOCKED_USER);
 
 		const result: Member = response.toObject();
 		delete result.memberPassword; // loaded only for the check above; the hash never leaves the service (S14)
