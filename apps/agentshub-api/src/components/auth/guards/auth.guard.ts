@@ -1,6 +1,5 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { AuthService } from '../auth.service';
-import { Message } from '../../../libs/enums/common.enum';
 import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
 import type { Request } from 'express';
 
@@ -15,12 +14,8 @@ export class AuthGuard implements CanActivate {
 			const gqlContext = GqlExecutionContext.create(context);
 			const request: Request = gqlContext.getContext<{ req: Request }>().req;
 
-			const bearerToken = request.headers.authorization;
-			if (!bearerToken) throw new UnauthorizedException(Message.TOKEN_NOT_EXIST);
-
-			const token = bearerToken.split(' ')[1];
-			const authMember = await this.authService.verifyToken(token);
-			if (!authMember) throw new UnauthorizedException(Message.NOT_AUTHENTICATED);
+			// valid token and an ACTIVE member in the DB; otherwise 401 / 403 BLOCKED_USER (B17)
+			const authMember = await this.authService.authenticate(request.headers.authorization);
 
 			console.log('memberNick[auth] =>', authMember.memberNick);
 			(request.body as Record<string, unknown>).authMember = authMember;

@@ -1,10 +1,7 @@
 import { Context, Parent, ResolveField, Resolver } from '@nestjs/graphql';
-import { InjectModel } from '@nestjs/mongoose';
 import type { Request } from 'express';
-import { Model } from 'mongoose';
 import { AuthService } from '../auth/auth.service';
 import { Member } from '../../libs/dto/member/member';
-import { MemberStatus } from '../../libs/enums/member.enum';
 import type { AuthPayload } from '../../libs/types/common';
 
 /**
@@ -17,10 +14,7 @@ export class MemberContactResolver {
 	/** One token + status check per request, shared by every Member field in the response */
 	private readonly viewers = new WeakMap<Request, Promise<AuthPayload | null>>();
 
-	constructor(
-		private readonly authService: AuthService,
-		@InjectModel('Member') private readonly memberModel: Model<Member>,
-	) {}
+	constructor(private readonly authService: AuthService) {}
 
 	@ResolveField(() => String, { nullable: true })
 	public async memberEmail(@Parent() member: Member, @Context('req') req: Request): Promise<string | null> {
@@ -45,17 +39,14 @@ export class MemberContactResolver {
 	/**
 	 * Missing, invalid or expired token → guest (null), never an error.
 	 * A valid token counts only if the member is ACTIVE in the DB now (D-23, same rule as chat S4):
-	 * blocked, deleted or missing members get null like guests.
+	 * blocked, deleted or missing members get null like guests. Uses the guards' check (B17).
 	 */
 	private async verifyViewer(req: Request): Promise<AuthPayload | null> {
-		const token = req.headers.authorization?.split(' ')[1];
 		let viewer: AuthPayload | null = null;
 
-		if (token) {
+		if (req.headers.authorization) {
 			try {
-				const payload = await this.authService.verifyToken(token);
-				const isActive = await this.memberModel.exists({ _id: payload._id, memberStatus: MemberStatus.ACTIVE }).exec();
-				viewer = isActive ? payload : null;
+				viewer = await this.authService.authenticate(req.headers.authorization);
 			} catch {
 				viewer = null;
 			}

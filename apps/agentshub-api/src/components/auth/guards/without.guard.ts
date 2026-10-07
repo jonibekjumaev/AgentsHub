@@ -16,12 +16,12 @@ export class WithoutGuard implements CanActivate {
 			const request: Request = gqlContext.getContext<{ req: Request }>().req;
 			const bearerToken = request.headers.authorization;
 
+			// no token, an invalid one, or a member who isn't ACTIVE in the DB → guest, never an error (B17)
 			let authMember: AuthPayload | null = null;
 
 			if (bearerToken) {
 				try {
-					const token = bearerToken.split(' ')[1];
-					authMember = await this.authService.verifyToken(token);
+					authMember = await this.authService.authenticate(bearerToken);
 				} catch {
 					authMember = null;
 				}
@@ -32,7 +32,7 @@ export class WithoutGuard implements CanActivate {
 			return true;
 		}
 
-		// http, rpc, ws — bu guard hech kimni bloklamaydi, shuning uchun o'tkazib yuboriladi
+		// http, rpc, ws â bu guard hech kimni bloklamaydi, shuning uchun o'tkazib yuboriladi
 		return true;
 	}
 }

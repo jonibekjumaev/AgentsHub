@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, Injectable, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthService } from '../auth.service';
 import { Message } from '../../../libs/enums/common.enum';
@@ -22,15 +22,9 @@ export class RolesGuard implements CanActivate {
 			const gqlContext = GqlExecutionContext.create(context);
 			const request: Request = gqlContext.getContext<{ req: Request }>().req;
 
-			const bearerToken = request.headers.authorization;
-			if (!bearerToken) throw new UnauthorizedException(Message.TOKEN_NOT_EXIST);
-
-			const token = bearerToken.split(' ')[1];
-			const authMember = await this.authService.verifyToken(token);
-			const hasRole = () => roles.indexOf(authMember.memberType) > -1;
-			const hasPermission: boolean = hasRole();
-
-			if (!authMember || !hasPermission) throw new ForbiddenException(Message.ONLY_SPECIFIC_ROLES_ALLOWED);
+			// valid token and an ACTIVE member in the DB first (401 / 403 BLOCKED_USER, B17), then the role
+			const authMember = await this.authService.authenticate(request.headers.authorization);
+			if (!roles.includes(authMember.memberType)) throw new ForbiddenException(Message.ONLY_SPECIFIC_ROLES_ALLOWED);
 
 			console.log('memberNick[roles] =>', authMember.memberNick);
 			(request.body as Record<string, unknown>).authMember = authMember;
