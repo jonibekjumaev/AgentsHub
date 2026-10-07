@@ -1,6 +1,12 @@
-import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import {
+	BadRequestException,
+	ConflictException,
+	Injectable,
+	InternalServerErrorException,
+	NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { HydratedDocument, Model } from 'mongoose';
 import {
 	CreatorProductsInquiry,
 	AllProductsInquiry,
@@ -22,7 +28,7 @@ import { escapeRegex, lookupAuthMemberLiked, lookupMember, shapeInToMongoObjectI
 import { LikeService } from '../like/like.service';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
-import { describeDbError, normalizeTags } from '../../libs/utils';
+import { describeDbError, isDuplicateKeyError, normalizeTags } from '../../libs/utils';
 
 @Injectable()
 export class ProductService {
@@ -46,6 +52,7 @@ export class ProductService {
 			return result;
 		} catch (err) {
 			console.log('Error: Service.model', describeDbError(err));
+			if (isDuplicateKeyError(err)) throw new ConflictException(Message.USED_PRODUCT_TITLE);
 			throw new BadRequestException(Message.CREATE_FAILED);
 		}
 	}
@@ -90,7 +97,13 @@ export class ProductService {
 
 		if (productStatus === ProductStatus.DELETE) input.deletedAt = moment().toDate();
 
-		const result = await this.productModel.findOneAndUpdate(search, input, { new: true }).exec();
+		let result: HydratedDocument<Product> | null;
+		try {
+			result = await this.productModel.findOneAndUpdate(search, input, { new: true }).exec();
+		} catch (err) {
+			if (isDuplicateKeyError(err)) throw new ConflictException(Message.USED_PRODUCT_TITLE); // B15
+			throw err;
+		}
 		if (!result) throw new NotFoundException(Message.UPDATE_FAILED);
 
 		if (input.deletedAt) {
@@ -241,7 +254,13 @@ export class ProductService {
 
 		if (productStatus === ProductStatus.DELETE) input.deletedAt = moment().toDate();
 
-		const result = await this.productModel.findOneAndUpdate(search, input, { new: true }).exec();
+		let result: HydratedDocument<Product> | null;
+		try {
+			result = await this.productModel.findOneAndUpdate(search, input, { new: true }).exec();
+		} catch (err) {
+			if (isDuplicateKeyError(err)) throw new ConflictException(Message.USED_PRODUCT_TITLE); // B15
+			throw err;
+		}
 		if (!result) throw new NotFoundException(Message.UPDATE_FAILED);
 
 		if (input.deletedAt) {

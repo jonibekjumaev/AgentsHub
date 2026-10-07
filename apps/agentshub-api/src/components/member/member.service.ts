@@ -1,12 +1,13 @@
 import {
 	BadRequestException,
+	ConflictException,
 	Injectable,
 	InternalServerErrorException,
 	NotFoundException,
 	UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { HydratedDocument, Model } from 'mongoose';
 import { Member, Members } from '../../libs/dto/member/member';
 import {
 	ChangePasswordInput,
@@ -28,7 +29,7 @@ import { LikeGroup } from '../../libs/enums/like.enum';
 import { LikeService } from '../like/like.service';
 import { Follower, Following, MeFollowed } from '../../libs/dto/follow/follow';
 import { escapeRegex, excludeMemberSecrets, lookupAuthMemberLiked } from '../../libs/config';
-import { describeDbError } from '../../libs/utils';
+import { describeDbError, isDuplicateKeyError } from '../../libs/utils';
 
 @Injectable()
 export class MemberService {
@@ -52,6 +53,7 @@ export class MemberService {
 			return result;
 		} catch (err) {
 			console.log('Error: Service.model', describeDbError(err));
+			if (isDuplicateKeyError(err)) throw new ConflictException(Message.USED_MEMBER_NICK_OR_PHONE);
 			throw new BadRequestException(Message.USED_MEMBER_NICK_OR_PHONE);
 		}
 	}
@@ -83,9 +85,15 @@ export class MemberService {
 
 	public async updateMember(memberId: ObjectId, input: MemberUpdate): Promise<Member> {
 		// findOneAndUpdate, not findByIdAndUpdate: an object passed as the id loses memberStatus (B10)
-		const result = await this.memberModel
-			.findOneAndUpdate({ _id: memberId, memberStatus: MemberStatus.ACTIVE }, { $set: input }, { new: true })
-			.exec();
+		let result: HydratedDocument<Member> | null;
+		try {
+			result = await this.memberModel
+				.findOneAndUpdate({ _id: memberId, memberStatus: MemberStatus.ACTIVE }, { $set: input }, { new: true })
+				.exec();
+		} catch (err) {
+			if (isDuplicateKeyError(err)) throw new ConflictException(Message.USED_MEMBER_NICK_OR_PHONE); // B15
+			throw err;
+		}
 
 		if (!result) throw new UnauthorizedException(Message.NOT_AUTHENTICATED);
 
@@ -225,7 +233,13 @@ export class MemberService {
 	}
 
 	public async updateMemberByAdmin(input: MemberUpdateByAdmin): Promise<Member> {
-		const result = await this.memberModel.findOneAndUpdate({ _id: input._id }, { $set: input }, { new: true }).exec();
+		let result: HydratedDocument<Member> | null;
+		try {
+			result = await this.memberModel.findOneAndUpdate({ _id: input._id }, { $set: input }, { new: true }).exec();
+		} catch (err) {
+			if (isDuplicateKeyError(err)) throw new ConflictException(Message.USED_MEMBER_NICK_OR_PHONE); // B15
+			throw err;
+		}
 		if (!result) throw new NotFoundException(Message.UPDATE_FAILED);
 
 		const updateMember: Member = result.toObject();

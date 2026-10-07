@@ -28,6 +28,7 @@ export enum Message {
 	INVALID_PHONE = 'Phone number must be in international format, e.g. +998901234567 (8 to 15 digits)!',
 	INVALID_WHATSAPP = 'WhatsApp number must be in international format, e.g. +998901234567 (8 to 15 digits)!',
 
+	USED_PRODUCT_TITLE = 'A product with this title already exists for this creator!',
 	PRICE_REQUIRED = 'Price greater than 0 is required for ONE_TIME and SUBSCRIPTION pricing!',
 	PRICE_NOT_ALLOWED = 'Price is not allowed for FREE and CUSTOM pricing!',
 	INVALID_BUDGET = 'Budget must be greater than 0!',

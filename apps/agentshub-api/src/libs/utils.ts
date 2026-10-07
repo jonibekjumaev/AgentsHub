@@ -36,6 +36,11 @@ export const describeDbError = (err: unknown): string => {
 	return redactDuplicateKey(err instanceof Error ? err.message : 'Unknown error occurred');
 };
 
+/** True for a MongoDB duplicate-key error (E11000), without importing the driver's error classes (B15). */
+export const isDuplicateKeyError = (err: unknown): boolean => {
+	return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 11000;
+};
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
 
