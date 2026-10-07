@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { Follower, Followers, Following, Followings } from '../../libs/dto/follow/follow';
 import { Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
@@ -23,7 +23,7 @@ export class FollowService {
 
 	public async subscribe(followerId: ObjectId, followingId: ObjectId): Promise<Follower> {
 		if (followerId.toString() === followingId.toString()) {
-			throw new InternalServerErrorException(Message.SELF_SUBSCRIPTION_DENIED);
+			throw new BadRequestException(Message.SELF_SUBSCRIPTION_DENIED);
 		}
 
 		const targetMember = await this.memberService.getMember(null, followingId);
@@ -59,7 +59,7 @@ export class FollowService {
 				followerId: followerId,
 			})
 			.exec();
-		if (!result) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
+		if (!result) throw new NotFoundException(Message.NO_DATA_FOUND);
 
 		await this.memberService.memberStatsEditor({ _id: followerId, targetKey: 'memberFollowings', modifier: -1 });
 		await this.memberService.memberStatsEditor({ _id: followingId, targetKey: 'memberFollowers', modifier: -1 });
@@ -69,7 +69,7 @@ export class FollowService {
 
 	public async getMemberFollowings(memberId: ObjectId, input: FollowInquiry): Promise<Followings> {
 		const { page, limit, search } = input;
-		if (!search?.followerId) throw new InternalServerErrorException(Message.BAD_REQUEST);
+		if (!search?.followerId) throw new BadRequestException(Message.BAD_REQUEST);
 		const match: T = { followerId: search?.followerId };
 
 		const result = await this.followModel
@@ -100,7 +100,7 @@ export class FollowService {
 
 	public async getMemberFollowers(memberId: ObjectId, input: FollowInquiry): Promise<Followers> {
 		const { page, limit, search } = input;
-		if (!search?.followingId) throw new InternalServerErrorException(Message.BAD_REQUEST);
+		if (!search?.followingId) throw new BadRequestException(Message.BAD_REQUEST);
 
 		const match: T = { followingId: search?.followingId }; // followingId ni egasiga kimlar follow qilgan busa topib ularni followerId qilib chiqaradi
 

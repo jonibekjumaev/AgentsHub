@@ -13,6 +13,10 @@ import { unwrapResolverError } from '@apollo/server/errors';
 import { SocketModule } from './socket/socket.module';
 import { redactDuplicateKey, redactSensitiveText } from './libs/utils';
 
+// @nestjs/apollo gives only 400, 401, 403 and 422 their own code; any other HTTP status arrives as
+// INTERNAL_SERVER_ERROR plus extensions.status, so these get a stable code here (B15)
+const statusErrorCodes: Record<number, string> = { 404: 'NOT_FOUND', 409: 'CONFLICT' };
+
 @Module({
 	imports: [
 		ConfigModule.forRoot(), //.env ni uqish uchun
@@ -24,7 +28,7 @@ import { redactDuplicateKey, redactSensitiveText } from './libs/utils';
 			autoSchemaFile: true,
 			formatError: (formattedError: GraphQLFormattedError, error: unknown): GraphQLFormattedError => {
 				const extensions = formattedError.extensions as FormattedErrorExtensions | undefined;
-				const code = extensions?.code;
+				const code = (extensions?.status && statusErrorCodes[extensions.status]) || extensions?.code;
 				// a Nest exception's own message (an array for ValidationPipe errors) is in originalError (B14);
 				// formattedError.message is only "Bad Request Exception" then
 				const rawMessage = extensions?.originalError?.message || formattedError.message;

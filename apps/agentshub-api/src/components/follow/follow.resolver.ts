@@ -1,6 +1,6 @@
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { FollowService } from './follow.service';
-import { InternalServerErrorException, UseGuards } from '@nestjs/common';
+import { BadRequestException, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { AuthMember } from '../auth/decorators/authMember.decorator';
 import { Follower, Followers, Followings } from '../../libs/dto/follow/follow';
@@ -38,7 +38,7 @@ export class FollowResolver {
 	): Promise<Followings> {
 		console.log('Query: getMemberfollowings');
 		const { followerId } = input.search;
-		if (!followerId) throw new InternalServerErrorException(Message.BAD_REQUEST);
+		if (!followerId) throw new BadRequestException(Message.BAD_REQUEST);
 		input.search.followerId = shapeInToMongoObjectId(followerId);
 		return await this.followService.getMemberFollowings(memberId, input);
 	}
@@ -51,7 +51,7 @@ export class FollowResolver {
 	): Promise<Followers> {
 		console.log('Query: getMemberFollowers');
 		const { followingId } = input.search;
-		if (!followingId) throw new InternalServerErrorException(Message.BAD_REQUEST);
+		if (!followingId) throw new BadRequestException(Message.BAD_REQUEST);
 		input.search.followingId = shapeInToMongoObjectId(followingId);
 		return await this.followService.getMemberFollowers(memberId, input);
 	}

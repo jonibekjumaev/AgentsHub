@@ -1,4 +1,4 @@
-import { BadRequestException, CanActivate, ExecutionContext, Injectable, ForbiddenException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthService } from '../auth.service';
 import { Message } from '../../../libs/enums/common.enum';
@@ -23,7 +23,7 @@ export class RolesGuard implements CanActivate {
 			const request: Request = gqlContext.getContext<{ req: Request }>().req;
 
 			const bearerToken = request.headers.authorization;
-			if (!bearerToken) throw new BadRequestException(Message.TOKEN_NOT_EXIST);
+			if (!bearerToken) throw new UnauthorizedException(Message.TOKEN_NOT_EXIST);
 
 			const token = bearerToken.split(' ')[1];
 			const authMember = await this.authService.verifyToken(token);

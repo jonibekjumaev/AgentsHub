@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import {
@@ -57,7 +57,7 @@ export class ProductService {
 		};
 
 		const targetProduct = await this.productModel.findOne(search).lean().exec();
-		if (!targetProduct) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
+		if (!targetProduct) throw new NotFoundException(Message.NO_DATA_FOUND);
 
 		if (memberId) {
 			// own product views don't count (D-22)
@@ -91,7 +91,7 @@ export class ProductService {
 		if (productStatus === ProductStatus.DELETE) input.deletedAt = moment().toDate();
 
 		const result = await this.productModel.findOneAndUpdate(search, input, { new: true }).exec();
-		if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+		if (!result) throw new NotFoundException(Message.UPDATE_FAILED);
 
 		if (input.deletedAt) {
 			await this.memberService.memberStatsEditor({
@@ -154,7 +154,7 @@ export class ProductService {
 
 	public async getCreatorProducts(memberId: ObjectId, input: CreatorProductsInquiry): Promise<Products> {
 		const { productStatus } = input.search;
-		if (productStatus === ProductStatus.DELETE) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
+		if (productStatus === ProductStatus.DELETE) throw new BadRequestException(Message.NO_DATA_FOUND);
 
 		const match = {
 			memberId,
@@ -186,7 +186,7 @@ export class ProductService {
 
 	public async likeTargetProduct(memberId: ObjectId, likeRefId: ObjectId): Promise<Product> {
 		const target = await this.productModel.findOne({ _id: likeRefId, productStatus: ProductStatus.ACTIVE }).exec();
-		if (!target) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
+		if (!target) throw new NotFoundException(Message.NO_DATA_FOUND);
 		if (memberId.equals(target.memberId)) throw new BadRequestException(Message.NOT_ALLOWED_REQUEST); // D-22
 
 		const input: LikeInput = {
@@ -242,7 +242,7 @@ export class ProductService {
 		if (productStatus === ProductStatus.DELETE) input.deletedAt = moment().toDate();
 
 		const result = await this.productModel.findOneAndUpdate(search, input, { new: true }).exec();
-		if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+		if (!result) throw new NotFoundException(Message.UPDATE_FAILED);
 
 		if (input.deletedAt) {
 			await this.memberService.memberStatsEditor({
@@ -262,7 +262,7 @@ export class ProductService {
 		};
 
 		const result = await this.productModel.findOneAndDelete(search).exec();
-		if (!result) throw new InternalServerErrorException(Message.REMOVE_FAILED);
+		if (!result) throw new NotFoundException(Message.REMOVE_FAILED);
 		return result;
 	}
 

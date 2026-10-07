@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { BoardArticle, BoardArticles } from '../../libs/dto/board-article/board-article';
 import { Model } from 'mongoose';
@@ -55,7 +55,7 @@ export class BoardArticleService {
 		};
 
 		const targetBoardArticle = await this.boardArticleModel.findOne(search).lean().exec();
-		if (!targetBoardArticle) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
+		if (!targetBoardArticle) throw new NotFoundException(Message.NO_DATA_FOUND);
 
 		if (memberId) {
 			const viewInput: ViewInput = { memberId: memberId, viewRefId: articleId, viewGroup: ViewGroup.ARTICLE };
@@ -81,7 +81,7 @@ export class BoardArticleService {
 		};
 
 		const result = await this.boardArticleModel.findOneAndUpdate(search, input, { new: true }).exec();
-		if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+		if (!result) throw new NotFoundException(Message.UPDATE_FAILED);
 
 		if (result?.articleStatus === BoardArticleStatus.DELETE) {
 			await this.memberService.memberStatsEditor({
@@ -134,7 +134,7 @@ export class BoardArticleService {
 		const target = await this.boardArticleModel
 			.findOne({ _id: likeRefId, articleStatus: BoardArticleStatus.ACTIVE })
 			.exec();
-		if (!target) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
+		if (!target) throw new NotFoundException(Message.NO_DATA_FOUND);
 
 		const input: LikeInput = {
 			memberId: memberId,
@@ -188,7 +188,7 @@ export class BoardArticleService {
 				new: true,
 			})
 			.exec();
-		if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+		if (!result) throw new NotFoundException(Message.UPDATE_FAILED);
 		if (articleStatus === BoardArticleStatus.DELETE) {
 			await this.memberService.memberStatsEditor({
 				_id: result.memberId,
@@ -206,7 +206,7 @@ export class BoardArticleService {
 		};
 
 		const result = await this.boardArticleModel.findOneAndDelete(search).exec();
-		if (!result) throw new InternalServerErrorException(Message.REMOVE_FAILED);
+		if (!result) throw new NotFoundException(Message.REMOVE_FAILED);
 
 		return result;
 	}

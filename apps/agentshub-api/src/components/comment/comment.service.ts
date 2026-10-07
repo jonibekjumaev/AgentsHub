@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { MemberService } from '../member/member.service';
 import { isValidObjectId, Model } from 'mongoose';
@@ -71,7 +71,7 @@ export class CommentService {
 
 	private async checkCommentTarget(input: CommentInput): Promise<void> {
 		const { commentGroup, commentRefId } = input;
-		if (!isValidObjectId(commentRefId)) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
+		if (!isValidObjectId(commentRefId)) throw new BadRequestException(Message.NO_DATA_FOUND);
 
 		let exist: T | null = null;
 		switch (commentGroup) {
@@ -87,7 +87,7 @@ export class CommentService {
 				exist = await this.memberModel.exists({ _id: commentRefId, memberStatus: MemberStatus.ACTIVE }).exec();
 				break;
 		}
-		if (!exist) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
+		if (!exist) throw new NotFoundException(Message.NO_DATA_FOUND);
 	}
 
 	public async updateComment(memberId: ObjectId, input: CommentUpdate): Promise<Comment> {
@@ -105,7 +105,7 @@ export class CommentService {
 				},
 			)
 			.exec();
-		if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+		if (!result) throw new NotFoundException(Message.UPDATE_FAILED);
 		return result;
 	}
 
@@ -138,7 +138,7 @@ export class CommentService {
 
 	public async removeCommentByAdmin(input: ObjectId): Promise<Comment> {
 		const result = await this.commentModel.findByIdAndDelete(input).exec();
-		if (!result) throw new InternalServerErrorException(Message.REMOVE_FAILED);
+		if (!result) throw new NotFoundException(Message.REMOVE_FAILED);
 		return result;
 	}
 }

@@ -467,6 +467,12 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **Login messages:** with the proposed classes, `NO_MEMBER_NICK` vs `WRONG_PASSWORD` still tells anyone whether a nick exists (user enumeration). One generic message for both is a separate decision; record it before changing the messages.
   - **Duplicate keys in updates (added in B13):** update methods without a catch (`updateMember`, `updateMemberByAdmin`, `updateProduct`, `updateProductByAdmin`) return the raw E11000 message to the client. Map duplicate-key errors to `USED_MEMBER_NICK_OR_PHONE` / a product title message. Since B13 the log redacts the value, but the client message still contains it.
   - **Side note:** `removeBoardArticleByAdmin` (`board-article/board-article.service.ts:203–210`) hard-deletes an article that is still `ACTIVE`, while `removeProductByAdmin` only removes items already set to `DELETE` (Step 6 part 1). Decide which rule is intended before changing either.
+  - **Split into 4 parts, one commit each:** 1. exception classes and status codes; 2. duplicate keys → `CONFLICT`; 3. login enumeration (D-27); 4. `removeBoardArticleByAdmin` rule (D-28).
+  - **Part 1 done:**
+    - Every case in the table above now throws the proposed class, with its message unchanged. The one exception is `updateMember` for a caller who isn't `ACTIVE`: it now throws `UnauthorizedException(NOT_AUTHENTICATED)` instead of `UPDATE_FAILED`. The login throws are left for Part 3; the "keep as 500" list is unchanged.
+    - `formatError` turns `extensions.status` 404 into `NOT_FOUND` and 409 into `CONFLICT`. Other statuses are unchanged.
+    - Guards: a missing token (`TOKEN_NOT_EXIST`) in `auth.guard.ts` and `roles.guard.ts` now throws 401 (`UNAUTHENTICATED`) instead of 400. The message is unchanged.
+    - The client-visible codes are in the Step 12 table.
   - **Verify (after the fix):** each listed case returns the proposed code (`BAD_REQUEST`, `UNAUTHENTICATED`, `FORBIDDEN` or `NOT_FOUND`) with its message, and real server faults still return `INTERNAL_SERVER_ERROR`.
 
 ---
@@ -1050,6 +1056,7 @@ The field-level check covers all of them automatically. Keep the list as the ver
   | `imagesUploader(target: "property")` | `target: "product"` |
   | — | new `Brief` queries and mutations (Step 7) |
   | `getComments(search: { commentRefId })` | `search: { commentRefId, commentGroup }`. `commentGroup` is required; a paused or missing product returns `NO_DATA_FOUND` (D-16) |
+  | Error codes: almost every business error returned `extensions.code: INTERNAL_SERVER_ERROR` | Since B15 part 1, messages unchanged unless stated:<br>• **`NOT_FOUND`**: `getProduct`, `getBoardArticle` and `getMember` when the item is missing or hidden; `likeTargetProduct`, `likeTargetBoardArticle` and `likeTargetMember` when the target is missing; `createComment` when the target is missing or not `ACTIVE`; `unsubscribe` when not following; the owner updates `updateProduct`, `updateBoardArticle` and `updateComment` (missing, not yours, or not `ACTIVE`); `updateProductByAdmin`, `updateBoardArticleByAdmin` and `updateMemberByAdmin`; `removeProductByAdmin`, `removeBoardArticleByAdmin` and `removeCommentByAdmin`.<br>• **`BAD_REQUEST`**: `subscribe` to yourself; `getMemberFollowings` / `getMemberFollowers` without a member id; `createComment` with a malformed `commentRefId`; `getCreatorProducts` asking for `DELETE`.<br>• **`UNAUTHENTICATED`**: `updateMember` by a blocked or deleted member, with the message changed from `UPDATE_FAILED` to `NOT_AUTHENTICATED`; any guarded operation without a token (`TOKEN_NOT_EXIST`, before: `BAD_REQUEST`).<br>Real server faults still return `INTERNAL_SERVER_ERROR` |
 
 - [ ] In the frontend repo, remove the real-estate pages and filters (location, beds, rooms, square, barter/rent, sold state) in the same step (D-10).
 - [ ] Contact info must come from the API's null-for-guests behaviour, not only from hiding it in the UI (D-07).
