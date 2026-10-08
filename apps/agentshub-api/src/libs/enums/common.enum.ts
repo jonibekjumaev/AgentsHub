@@ -35,7 +35,7 @@ export enum Message {
 	INVALID_PRODUCT_STATUS_CHANGE = 'Product status can only change between ACTIVE and PAUSED, or to DELETE!',
 	INVALID_BUDGET = 'Budget must be greater than 0!',
 	DEADLINE_IN_PAST = 'Deadline must be in the future!',
-	BRIEF_ALREADY_CLOSED = 'This brief is already closed!',
+	INVALID_BRIEF_STATUS_CHANGE = 'Brief status can only change between OPEN and CLOSED, or to DELETE!',
 }
 
 export enum Direction {

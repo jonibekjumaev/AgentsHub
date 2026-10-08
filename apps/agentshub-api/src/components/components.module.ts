@@ -7,12 +7,14 @@ import { LikeModule } from './like/like.module';
 import { ViewModule } from './view/view.module';
 import { FollowModule } from './follow/follow.module';
 import { BoardArticleModule } from './board-article/board-article.module';
+import { BriefModule } from './brief/brief.module';
 
 @Module({
 	imports: [
 		MemberModule,
 		AuthModule,
 		ProductModule,
+		BriefModule,
 		BoardArticleModule,
 		CommentModule,
 		LikeModule,

@@ -48,6 +48,13 @@ export const productTagMaxLength = 30;
 // the pricings that have a price (D-03): the price rule and the price range filter use this list
 export const paidProductPricings: ProductPricing[] = [ProductPricing.ONE_TIME, ProductPricing.SUBSCRIPTION];
 
+/**  BRIEF CONFIGURATION  **/
+
+export const briefTitleMinLength = 3;
+export const briefTitleMaxLength = 100;
+export const briefContentMinLength = 20;
+export const briefContentMaxLength = 3000;
+
 /**  PASSWORD CONFIGURATION (D-26)  **/
 
 // new passwords only (signup, changePassword.newPassword); login checks only non-empty

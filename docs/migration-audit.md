@@ -527,6 +527,16 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - The client-visible changes are in the Step 12 table.
   - **Follow-up, socket gateway (not changed):** the chat already checks `memberStatus: ACTIVE` in the DB when a client connects (`retrieveAuth`, D-19 condition 7), so blocked members connect as guests. But the check runs only on connect: a member blocked while connected can keep sending messages until they reconnect. Fix: re-check `memberStatus` in `handleMessage` before accepting a message and treat the sender as a guest if they're no longer `ACTIVE` (one read per message, at most 1/s because of the rate limit), or close the member's sockets when an admin blocks them.
 
+- [ ] **B18 — A malformed id argument returns `INTERNAL_SERVER_ERROR`**
+  - **When:** found in Step 7 part 2.
+  - **Problem:** `getProduct(productId)` and `getBrief(briefId)` return `INTERNAL_SERVER_ERROR` for a malformed id, because `shapeInToMongoObjectId` throws (`new Types.ObjectId('abc')` → `BSONError`). B16 fixed this only for ids inside `search` inputs.
+  - **Where (same pattern, found by grep):**
+    - plain `String` id args passed to `shapeInToMongoObjectId`: `getProduct`, `likeTargetProduct`, `removeProductByAdmin` (`productId`); `getBrief` (`briefId`); `getBoardArticle`, `likeTargetBoardArticle`, `removeBoardArticleByAdmin` (`articleId`); `removeCommentByAdmin` (`commentId`); `getMember`, `likeTargetMember` (`memberId`); `subscribe`, `unsubscribe` (`input`);
+    - `_id` of the update inputs without `@IsMongoId()`, passed to `shapeInToMongoObjectId` by the resolver: `ProductUpdate` (`updateProduct`, `updateProductByAdmin`), `BoardArticleUpdate` (`updateBoardArticle`, `updateBoardArticleByAdmin`), `CommentUpdate` (`updateComment`). `BriefUpdate` already has it since Step 7 part 2.
+    - `MemberUpdateByAdmin._id` has no `@IsMongoId()` either; it goes into `findOneAndUpdate` as a string, so a malformed id fails as a Mongoose `CastError` (the resulting error code was not checked).
+  - **Fix:** validate string id args before they reach `shapeInToMongoObjectId` (e.g. a `ParseObjectIdPipe` used as `@Args('productId', ParseObjectIdPipe)`, or one shared check) and return `BAD_REQUEST`. Add `@IsMongoId()` to the four update `_id` fields above.
+  - **Verify:** a malformed id (`'abc'`, `''`) in each operation above → `BAD_REQUEST`; valid ids still work. Add the client-visible change to the Step 12 table.
+
 ---
 
 ## Step 3 — Config (package names, DB name, env, app names)
@@ -915,29 +925,46 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 
 ## Step 7 — Brief (new module)
 
-- [ ] `api/schemas/Brief.model.ts`:
+- [x] `api/schemas/Brief.model.ts`:
   - fields as in the ER doc, with `collection: 'briefs'` and `briefStatus` default `OPEN`
   - indexes `{ memberId: 1, briefStatus: 1 }` and `{ briefCategory: 1, briefStatus: 1, createdAt: -1 }`
-- [ ] `api/libs/dto/brief/brief.ts`: `Brief` and `Briefs { list, metaCounter }`, plus `memberData` from aggregation.
+
+  **Done in Step 7 part 2.** No unique title index (the ER doc suggests none). D-04/D-05 are not in the schema; comments point to `BriefService`.
+- [x] `api/libs/dto/brief/brief.ts`: `Brief` and `Briefs { list, metaCounter }`, plus `memberData` from aggregation.
+  - **Done in Step 7 part 2.** `briefBudget`, `briefDeadline`, `closedAt` and `deletedAt` are nullable; no `meLiked`.
 - [ ] `api/libs/dto/brief/brief.input.ts`:
   - `BriefInput`: `briefBudget` optional with `@Min` > 0 (D-04); `briefDeadline` optional (D-05, checked in the service)
   - `BriefsInquiry`: category, status and text search; the budget sort must put empty budgets last (D-04)
   - `MyBriefsInquiry`
   - `AllBriefsInquiry`
-- [ ] `api/libs/dto/brief/brief.update.ts`: `BriefUpdate`, which requires `_id`.
+
+  **Done in Step 7 part 2:** `BriefInput`. Title 3–100 and content 20–3000 characters (`briefTitle*Length` / `briefContent*Length` in `config.ts`). `briefBudget` is `@IsPositive` with the `INVALID_BUDGET` message (instead of `@Min`, which allows 0). `briefDeadline` is `@IsDate`; the future check is in the service. **Still open:** the three inquiries (part 3, part 4).
+- [x] `api/libs/dto/brief/brief.update.ts`: `BriefUpdate`, which requires `_id`.
+  - **Done in Step 7 part 2.** `_id` is `@IsMongoId` (B16). Category, status, title and content use `@ValidateIf` and reject `null` (B11). `briefBudget` and `briefDeadline` keep `@IsOptional`: `null` clears them.
 - [ ] `api/components/brief/brief.service.ts`:
   - create: D-04/D-05 checks; `memberBriefs` +1
   - get: `ViewGroup.BRIEF` view counting with the `briefViews` counter
   - update: D-05 check on update; `CLOSED` sets `closedAt`; `DELETE` sets `deletedAt` and `memberBriefs` −1
   - `getBriefs`, `getMyBriefs`, `briefStatsEditor`
   - admin: `getAllBriefsByAdmin`, `updateBriefByAdmin`, `removeBriefByAdmin`
+
+  **Done in Step 7 part 2:** `createBrief`, `getBrief`, `updateBrief`, `briefStatsEditor` and `isBriefVisible`.
+  - `getBrief` follows D-30: `OPEN` and `CLOSED` are visible to everyone; a `DELETE` or missing brief → `NOT_FOUND` / `NO_DATA_FOUND`. A view is recorded only on an `OPEN` brief by a logged-in non-owner.
+  - `updateBrief` uses the shared `applyBriefUpdate`: it loads with `≠ DELETE`, checks the D-30 transition table in `checkStatusChange` (`INVALID_BRIEF_STATUS_CHANGE`), runs the D-31 deadline check (when sent, and on reopen against the final deadline), and does a compare-and-set write. `CLOSED` sets `closedAt`, reopen unsets it, `DELETE` sets `deletedAt` and `memberBriefs` −1. A `null` budget or deadline is `$unset`.
+  - `BRIEF_ALREADY_CLOSED` was removed (D-30: the same status is no change).
+
+  **Still open:** `getBriefs`, `getMyBriefs` (part 3) and admin (part 4).
 - [ ] `api/components/brief/brief.resolver.ts`:
   - `@Roles(MemberType.USER)` on create/update/close/delete (ER rule 2)
   - `WithoutGuard` on reads
   - admin section
-- [ ] `api/components/brief/brief.module.ts`: import Auth, Member and View, then register it in `api/components/components.module.ts`.
+
+  **Done in Step 7 part 2:** `createBrief` and `updateBrief` (`@Roles(USER)`), `getBrief` (`WithoutGuard`). **Still open:** lists and the admin section.
+- [x] `api/components/brief/brief.module.ts`: import Auth, Member and View, then register it in `api/components/components.module.ts`.
+  - **Done in Step 7 part 2.**
 - [ ] `api/libs/config.ts`: add `aviableBriefSorts` (`createdAt`, `updatedAt`, `briefViews`, `briefBudget`, `briefDeadline`).
-- [ ] Briefs have no likes (no `briefLikes`, and `LikeGroup` has no `BRIEF`), so there is no `likeTargetBrief` and no `meLiked`.
+- [x] Briefs have no likes (no `briefLikes`, and `LikeGroup` has no `BRIEF`), so there is no `likeTargetBrief` and no `meLiked`.
+  - **Done in Step 7 part 2.**
 - [ ] Seed (`scripts/seed/`): add briefs by the seed users through `BriefService` (`OPEN`, `CLOSED` and `DELETE`, with and without budget/deadline). Add `briefs` to the seed cleanup, plus brief views and comments, which use `briefViews` / `briefComments`, to its counter fix-ups.
 
 ---
@@ -974,15 +1001,15 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - `case CommentGroup.PROPERTY` → `propertyStatsEditor('propertyComments')` (36–42) becomes `PRODUCT` → `productStatsEditor('productComments')`
   - add `case CommentGroup.BRIEF` → `briefStatsEditor('briefComments')`
 
-  **Done in Step 6 part 7:** the `PropertyService` and `PRODUCT` / `productStatsEditor('productComments')` renames. **Still open:** the `BRIEF` case (Step 7).
+  **Done in Step 6 part 7:** the `PropertyService` and `PRODUCT` / `productStatsEditor('productComments')` renames. **Still open:** the `BRIEF` case (Step 8; `briefStatsEditor` exists since Step 7 part 2).
 - [ ] `api/components/comment/comment.module.ts:10,24`: `PropertyModule` → `ProductModule`, and add `BriefModule`.
   - **Done in Step 6 part 7:** `ProductModule` and the `'Product'` model. **Still open:** `BriefModule`.
 - `MEMBER` comment counter on the author: fixed in Step 2.5 (B6).
 - [ ] `createComment` target check (added in Step 2.5, B7 for `PROPERTY`/`ARTICLE`/`MEMBER`):
   - rename the `PROPERTY` case to `PRODUCT`; the target must be `ACTIVE`, so comments on `PAUSED` products are rejected (D-16)
-  - add `BRIEF` (target must exist and not be `DELETE`)
+  - add `BRIEF` (the target must be `OPEN`: no new comments on `CLOSED` briefs, D-30)
 
-  **Done in Step 6 part 7:** the `PRODUCT` case (still `ACTIVE` only). **Still open:** `BRIEF`.
+  **Done in Step 6 part 7:** the `PRODUCT` case (still `ACTIVE` only). **Still open:** `BRIEF` (Step 8).
 - [x] `getComments` (D-16, child records inherit the parent's visibility): for a `PRODUCT` target, load the product first.
   - `ACTIVE` → return comments to everyone
   - `PAUSED` → return comments only if the caller is the owner or an `ADMIN`
@@ -993,7 +1020,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - `comment.resolver.ts:41–50`: pass the caller's `memberType` (or the whole `authMember`) to the service, not only `_id`
 
   **Done in Step 6 part 14:** `CISearch.commentGroup` (required). For `PRODUCT`, `getComments` loads the product and uses `isProductVisible`; a missing, deleted or hidden product → `NOT_FOUND` / `NO_DATA_FOUND`. The `$match` also filters by `commentGroup`. `BRIEF` → `BAD_REQUEST` until Step 7. The resolver passes `('memberType')`.
-- [ ] Make the `getComments` target checks consistent for `ARTICLE` and `MEMBER` (decided in Step 6 part 14 to leave them for now): today a missing or deleted article or member still returns an empty list, while `PRODUCT` returns `NO_DATA_FOUND`. Add the `BRIEF` check with Step 7.
+- [ ] Make the `getComments` target checks consistent for `ARTICLE` and `MEMBER` (decided in Step 6 part 14 to leave them for now): today a missing or deleted article or member still returns an empty list, while `PRODUCT` returns `NO_DATA_FOUND`. Add the `BRIEF` check in Step 8: `isBriefVisible` (D-30) replaces the "until Step 7" `BAD_REQUEST`, so comments of `OPEN` and `CLOSED` briefs are readable, and a `DELETE` or missing brief → `NO_DATA_FOUND`.
 
 ### Notification (schema only; no module yet)
 - [ ] `api/schemas/Notification.model.ts`:
@@ -1135,8 +1162,8 @@ The field-level check covers all of them automatically. Keep the list as the ver
   | `PropertyStatus` enum; `PropertyStatus.SOLD`, `soldAt`, `constructedAt`, barter/rent | `ProductStatus`; SOLD and the dates removed. Since Step 6 part 15 (D-16, D-29): `updateProduct` and `updateProductByAdmin` accept `PAUSED`. Both owner and admin can pause, resume, and delete from `ACTIVE` or `PAUSED`, and can edit a paused product's other fields. Sending the current status again is no change. A status change outside these rules → `BAD_REQUEST` `INVALID_PRODUCT_STATUS_CHANGE`. A deleted product (`DELETE` is final), or one whose status changed concurrently (e.g. a second `DELETE`), → `NOT_FOUND` `UPDATE_FAILED`. `memberProducts` counts `ACTIVE` + `PAUSED`: it drops only on delete, never on pause or resume |
   | `LikeGroup` / `ViewGroup` / `CommentGroup` `PROPERTY` | `PRODUCT` (+ `BRIEF` for view/comment). Since Step 6 part 9, `CommentGroup.PROPERTY` no longer exists: `createComment` with `commentGroup: PROPERTY` fails GraphQL validation (`GRAPHQL_VALIDATION_FAILED`). The other group enums are not in the GraphQL schema |
   | `imagesUploader(target: "property")` | `target: "product"` |
-  | — | new `Brief` queries and mutations (Step 7) |
-  | `getComments(search: { commentRefId })` | Since Step 6 part 14 (D-16): `search: { commentRefId, commentGroup }`, `commentGroup` required (without it: `GRAPHQL_VALIDATION_FAILED`). Only comments of that group are returned. For `PRODUCT`: a missing, deleted, or paused product (unless the caller is the owner or an admin) → `NOT_FOUND` / `NO_DATA_FOUND` (before: an empty list or the comments). `BRIEF` → `BAD_REQUEST` until briefs exist (Step 7). `ARTICLE` / `MEMBER` targets are not checked yet: a missing target still gives an empty list |
+  | — | Since Step 7 part 2 (D-04, D-05, D-30, D-31): new type `Brief` (`briefCategory: AgentCategory!`, `briefStatus: BriefStatus!` (`OPEN` / `CLOSED` / `DELETE`), `briefTitle`, `briefContent`, nullable `briefBudget: Float` (USD; `null` = "open to offers"), nullable `briefDeadline`, `briefViews`, `briefComments`, nullable `closedAt` / `deletedAt`, `memberData` with contact fields `null` for guests). New operations:<br>• `createBrief(input: BriefInput!)`, USER only (a CREATOR or ADMIN gets `FORBIDDEN` `ONLY_SPECIFIC_ROLES_ALLOWED`). `briefTitle` 3–100 and `briefContent` 20–3000 characters; `briefBudget`, if sent, > 0 (`BAD_REQUEST` "Budget must be greater than 0!"); `briefDeadline`, if sent, in the future (`BAD_REQUEST` `DEADLINE_IN_PAST`).<br>• `getBrief(briefId)`, public: `OPEN` and `CLOSED` briefs for everyone, guests included; a deleted or missing brief → `NOT_FOUND` / `NO_DATA_FOUND`. A view is counted only on an `OPEN` brief, once per logged-in member, never for the owner.<br>• `updateBrief(input: BriefUpdate!)`, USER and owner only (someone else's, missing or deleted brief → `NOT_FOUND` `UPDATE_FAILED`). Status changes: close (`OPEN → CLOSED`), reopen (`CLOSED → OPEN`), delete from either; `DELETE` is final; sending the current status is no change; anything else → `BAD_REQUEST` `INVALID_BRIEF_STATUS_CHANGE`. A closed brief's fields can be edited. Leave a field out to keep it; `null` is rejected for category, status, title and content, and clears `briefBudget` / `briefDeadline`. A sent deadline must be in the future; reopening needs the final deadline empty or in the future, so a brief whose deadline has passed is reopened with a new deadline or `null` in the same call (`DEADLINE_IN_PAST`). A concurrent change (e.g. a second `DELETE`) → `NOT_FOUND` `UPDATE_FAILED`. `memberBriefs` counts `OPEN` + `CLOSED`.<br>• A malformed `BriefUpdate._id` → `BAD_REQUEST`.<br>Lists and admin operations follow in Step 7 parts 3–4. **Frontend:** "closed" badge, close / reopen / delete buttons for the owner, no comment box on closed briefs (Step 8) |
+  | `getComments(search: { commentRefId })` | Since Step 6 part 14 (D-16): `search: { commentRefId, commentGroup }`, `commentGroup` required (without it: `GRAPHQL_VALIDATION_FAILED`). Only comments of that group are returned. For `PRODUCT`: a missing, deleted, or paused product (unless the caller is the owner or an admin) → `NOT_FOUND` / `NO_DATA_FOUND` (before: an empty list or the comments). `BRIEF` → `BAD_REQUEST` until brief comments are wired up (Step 8). `ARTICLE` / `MEMBER` targets are not checked yet: a missing target still gives an empty list |
   | `getProduct` returned only `ACTIVE` products, to everyone | Since Step 6 part 14 (D-16): the owner and admins also get their `PAUSED` product, and no view is recorded on it. Everyone else gets `NOT_FOUND` / `NO_DATA_FOUND` for paused, deleted and missing products alike; deleted products are hidden from admins too (use `getAllProductsByAdmin`). `PAUSED` can be set since Step 6 part 15 |
   | Nested `search` rules were never checked outside products: any `search.text` length, malformed ids reached the database (`INTERNAL_SERVER_ERROR`) | Since B16: `search.text` over 100 characters → `BAD_REQUEST` in `getBoardArticles`, `getCreators` and `getAllMembersByAdmin`. A malformed id → `BAD_REQUEST` (before: `INTERNAL_SERVER_ERROR`) for `getBoardArticles` `search.memberId`, `getComments` `search.commentRefId` (also `""`) and `getMemberFollowings` / `getMemberFollowers` `search.followerId` / `followingId`. `CreatorsInquiry.search` (`CRISearch`) no longer has `memberStatus` / `memberType`: sending them fails GraphQL validation (`GRAPHQL_VALIDATION_FAILED`); `getCreators` always returned only active creators anyway |
   | Guards trusted the JWT only: a blocked or deleted member's token kept working until it expired (30 days); an expired or invalid token in a logged-in operation gave `INTERNAL_SERVER_ERROR` (`jwt expired`, `invalid signature`) | Since B17, every guarded operation checks the member in the DB: a **blocked** member → `FORBIDDEN` `BLOCKED_USER` ("You have been blocked!"); a **deleted** or missing member, or an expired / invalid / malformed token → `UNAUTHENTICATED` `NOT_AUTHENTICATED`. Public operations (`getMember`, `getProduct`, `getProducts`, `getComments`, …) treat such a token as a **guest**: no `meLiked`, no view recorded, no access to their own paused product (contact fields were already `null` for them, D-23). **Frontend:** on `UNAUTHENTICATED`, or `FORBIDDEN` with `BLOCKED_USER`, clear the token and redirect to login |
