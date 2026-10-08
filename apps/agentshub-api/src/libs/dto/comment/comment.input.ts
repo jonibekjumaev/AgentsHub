@@ -31,7 +31,7 @@ class CISearch {
 	@Field(() => String)
 	commentRefId!: ObjectId;
 
-	// the target type: a PRODUCT target follows the product's visibility (D-16); BRIEF is rejected until Step 7
+	// the target type: comments follow the target's visibility (PRODUCT: D-16, BRIEF: D-30)
 	@IsNotEmpty()
 	@Field(() => CommentGroup)
 	commentGroup!: CommentGroup;
