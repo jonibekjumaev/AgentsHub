@@ -704,3 +704,64 @@
   - `memberProducts` of the owner is decremented only on a change to `DELETE` (D-16), whoever makes it.
   - The write is pinned to the status that was read, so a concurrent change (e.g. two `DELETE`s) makes the later call fail with `NOT_FOUND` `UPDATE_FAILED` and the counter is decremented once.
   - Admins have no separate "locked by admin" state: an owner can resume a product an admin paused. If that becomes a problem, add a moderation state as a new decision.
+
+## D-30 — Brief lifecycle and visibility
+
+**Status:** Accepted
+
+- **Context:** The ER doc defines `BriefStatus` (`OPEN`, `CLOSED`, `DELETE`) and `closedAt`, and ER rule 2 says only `USER` members create, update, close or delete briefs. Nothing defines who can see a `CLOSED` brief, whether it can be reopened, what an admin may change, or what `memberBriefs` counts. D-16 and D-29 answer these questions for products only. (Audit: Step 7.)
+- **Options:**
+  - **A. `CLOSED` is public and reversible.** A closed brief stays readable by link, drops out of the default public list, and the owner can reopen it.
+    - Pro: Shared links and creators' bookmarks keep working, and creators can see the need was filled. A user who closed a brief by mistake, or whose deal fell through, reopens it instead of re-posting.
+    - Con: Two visibility levels for non-deleted briefs (public list vs. direct link), and one more transition to check.
+  - **B. `CLOSED` is owner/admin-only and final**, like a `PAUSED` product that can't be resumed.
+    - Pro: The simplest rule: everyone else sees only `OPEN`.
+    - Con: Links to a closed brief break (`NO_DATA_FOUND`). Reopening means re-posting, which loses views and comments.
+- **Decision:** Option A, with these rules:
+  - **Visibility** (one `isBriefVisible()` check, used everywhere a brief or its child records are read; D-16 principle):
+    - `OPEN` and `CLOSED`: visible to everyone, guests included, through `getBrief`.
+    - `DELETE`: visible to nobody through `getBrief`, the owner and admins included. Admins see deleted briefs only in `getAllBriefsByAdmin`. A hidden brief answers exactly like a missing one (`NOT_FOUND` / `NO_DATA_FOUND`).
+    - `getBriefs` (public, also used for other members' profiles) returns only `OPEN` by default. An optional `search.briefStatus` accepts `OPEN` or `CLOSED`; `DELETE` is rejected (`BAD_REQUEST`).
+    - `getMyBriefs` (owner) returns `OPEN` and `CLOSED`; asking for `DELETE` → `BAD_REQUEST`, as in `getCreatorProducts`.
+    - `getAllBriefsByAdmin` returns every status.
+  - **Transitions** (the same table for `updateBrief` and `updateBriefByAdmin`, as in D-29):
+    - `OPEN → CLOSED` sets `closedAt`.
+    - `CLOSED → OPEN` (reopen) unsets `closedAt`. The deadline rule applies to reopening (D-31).
+    - `OPEN | CLOSED → DELETE` sets `deletedAt`.
+    - `DELETE` is final: updates match `briefStatus ≠ DELETE`, so a deleted brief → `NOT_FOUND` `UPDATE_FAILED`, like a missing one.
+    - Sending the current status again is no change, not an error (as in D-29). Any other transition → `BAD_REQUEST`.
+    - The write is pinned to the status that was read, so a concurrent change (e.g. two `DELETE`s) makes the later call fail with `NOT_FOUND` `UPDATE_FAILED`.
+  - **Editing:** the fields of a `CLOSED` brief can be edited, like a paused product's.
+  - **Counter:** `memberBriefs` counts `OPEN` + `CLOSED`. It changes only on create (+1) and on a change to `DELETE` (−1, from either status, whoever makes it), never on close or reopen.
+  - **Views:** a view is recorded only on an `OPEN` brief, only for a logged-in member who is not the owner (D-22), and it increments `briefViews` once per member (D-18 unique index). Opening a `CLOSED` brief records no view.
+  - **Admin remove:** `removeBriefByAdmin` hard-deletes only briefs already `DELETE`, with no counter change (D-28 principle).
+- **Reason:** Closing a brief means "this need is filled", not "this is private". Keeping it readable costs nothing and keeps links working, while the default list stays focused on open needs. The transition table, counter rule and compare-and-set write reuse the product rules (D-16, D-29), so there is one pattern for both modules.
+- **Consequence:**
+  - `Message.BRIEF_ALREADY_CLOSED` is no longer needed (same status = no change) and is removed if nothing uses it (Step 7 part 2). A new message covers an invalid brief status change.
+  - **Step 8:** comments on a brief follow `isBriefVisible()` for reads. New comments are allowed only on an `OPEN` brief; the comments of a `CLOSED` brief stay readable.
+  - **Frontend (Step 12 table):** show a "closed" badge and hide the comment box on closed briefs; the owner gets close / reopen / delete buttons; the admin UI removes a brief in two steps (soft delete, then remove).
+  - A brief is not closed automatically when its deadline passes (D-05).
+
+## D-31 — When `briefDeadline` is checked on update
+
+**Status:** Accepted
+
+- **Context:** D-05 says a deadline must be later than the current time "when the brief is created or updated". Read literally, every update re-checks the stored deadline, so once the deadline has passed the owner could not even fix a typo in the title or close the brief. D-30 also adds reopening, which can bring back a brief whose deadline has passed.
+- **Options:**
+  - **A. Check every update** against the final deadline (stored value merged with the input).
+    - Pro: No brief is ever saved with a past deadline.
+    - Con: A brief with a passed deadline can't be edited, closed or deleted without also changing the deadline. Closing and deleting must not depend on the deadline.
+  - **B. Check only when the input sets `briefDeadline`, and when reopening.**
+    - Pro: Ordinary edits, closing and deleting always work. A brief can't come back to `OPEN` with a past deadline.
+    - Con: An `OPEN` brief can still have a past deadline after time passes (already accepted by D-05, which has no auto-close).
+- **Decision:** Option B. This clarifies D-05; it does not supersede it.
+  - `createBrief`: `briefDeadline`, if given, must be in the future.
+  - Update with a `briefDeadline` value in the input: it must be in the future. `null` clears it and is always allowed.
+  - Update that reopens (`CLOSED → OPEN`): the **final** deadline (the input value if sent, otherwise the stored one) must be empty or in the future. A user reopening a brief whose deadline has passed sends a new deadline or `null` in the same call.
+  - Any other update doesn't look at the stored deadline.
+  - Error: `BAD_REQUEST` `DEADLINE_IN_PAST`. The check lives in one service method (`checkDeadlineRule`), used by create and by the shared owner/admin update path.
+- **Reason:** The rule exists to stop data errors at the moment a date is entered or a brief goes live again, not to lock old briefs.
+- **Consequence:**
+  - "Now" is the server time at the moment of the request; there is no grace period.
+  - The same rule applies to `updateBriefByAdmin`.
+  - **Frontend (Step 12 table):** when reopening a brief whose deadline has passed, ask for a new deadline (or none) and send it with the status change.
