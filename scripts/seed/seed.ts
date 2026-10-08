@@ -148,19 +148,13 @@ async function main(): Promise<void> {
 			}
 		}
 
-		// briefs: created OPEN, then closed or deleted through the owner update (D-30)
+		// briefs: created OPEN; closed or deleted after the comments (below), since comments need OPEN (D-30)
 		const briefIds: ObjectId[] = [];
 		for (const [index, brief] of seedBriefs.entries()) {
 			const input = briefInputs[index];
 			input.memberId = id(brief.owner);
 			const created = await briefService.createBrief(input);
 			briefIds.push(created._id);
-
-			if (brief.status) {
-				const update = await validated(BriefUpdate, { _id: String(created._id), briefStatus: brief.status });
-				update._id = created._id;
-				await briefService.updateBrief(id(brief.owner), update);
-			}
 		}
 
 		// board articles
@@ -202,6 +196,9 @@ async function main(): Promise<void> {
 			if (comment.product !== undefined) {
 				commentGroup = CommentGroup.PRODUCT;
 				refId = productIds[comment.product];
+			} else if (comment.brief !== undefined) {
+				commentGroup = CommentGroup.BRIEF;
+				refId = briefIds[comment.brief];
 			} else if (comment.article !== undefined) {
 				commentGroup = CommentGroup.ARTICLE;
 				refId = articleIds[comment.article];
@@ -215,6 +212,14 @@ async function main(): Promise<void> {
 			});
 			input.commentRefId = refId;
 			await commentService.createComment(id(comment.author), input);
+		}
+
+		// brief status changes through the owner update (D-30); closed briefs keep their comments readable
+		for (const [index, brief] of seedBriefs.entries()) {
+			if (!brief.status) continue;
+			const update = await validated(BriefUpdate, { _id: String(briefIds[index]), briefStatus: brief.status });
+			update._id = briefIds[index];
+			await briefService.updateBrief(id(brief.owner), update);
 		}
 
 		// blocked member: an admin update, as in production
@@ -331,6 +336,7 @@ async function removeSeedData(connection: Connection): Promise<Record<string, nu
 						{ authorId: { $in: memberIds } },
 						{ receiverId: { $in: memberIds } },
 						{ productId: { $in: productIds } },
+						{ briefId: { $in: briefIds } },
 						{ articleId: { $in: articleIds } },
 					],
 				},

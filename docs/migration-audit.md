@@ -987,6 +987,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - `removeSeedData` deletes seed briefs and every view or comment on them. A seed member's view or comment on a manual brief lowers that brief's `briefViews` / `briefComments`. `memberBriefs` needs no fix-up: seed briefs belong only to seed members, who are deleted.
     - The summary prints the briefs by status.
     - No brief comments are seeded yet: `createComment` has no `BRIEF` case until Step 8. Notifications are not cleaned up by `briefId` yet (see Step 8 → Notification).
+  - **Done in Step 8 part 4:** 6 brief comments through `createComment` (briefs 0, 2, 4 and 6), incl. two answers by the brief's owner (public Q&A). All briefs are created `OPEN`; the `CLOSED` / `DELETE` updates now run after the comments, so the `CLOSED` briefs 4 and 6 keep readable comments (D-30). `briefComments` comes from the service; the cleanup fix-up already handled `BRIEF`. Notifications are also deleted by `briefId`.
 
 ---
 
@@ -1051,7 +1052,8 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - add `briefId` with `ref: 'Brief'`
 
   **Done in Step 6 part 7:** `productId` (existing documents are renamed by the migration script). **Done in Step 8 part 3:** `briefId` (`ObjectId`, `ref: 'Brief'`, optional, as in the ER doc). No index (the ER doc suggests none) and no migration (a new optional field). No code writes notifications yet (there is no notification module), so nothing sets `briefId`; a future module must set it for `NotificationGroup.BRIEF` and follow `isBriefVisible` when reading (D-16 principle, D-30). Not in the GraphQL schema: no client-visible change.
-- [ ] Seed cleanup (`scripts/seed/seed.ts`, `removeSeedData`): once `briefId` exists, add `{ briefId: { $in: briefIds } }` to the notifications `$or`, next to `productId` and `articleId`. Until then, notifications are deleted only by author, receiver, product or article.
+- [x] Seed cleanup (`scripts/seed/seed.ts`, `removeSeedData`): once `briefId` exists, add `{ briefId: { $in: briefIds } }` to the notifications `$or`, next to `productId` and `articleId`. Until then, notifications are deleted only by author, receiver, product or article.
+  - **Done in Step 8 part 4.**
 - [x] `Notification.model.ts:29–31`: `notificationDesc` stays optional; the ER doc now matches (D-18). No code change.
 - [ ] `NotificationGroup` is covered in Step 4.
 

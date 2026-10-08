@@ -392,13 +392,29 @@ export const seedArticleLikes: [string, number][] = [
 	['seed_quill', 3],
 ];
 
-/** Comments: on a product (index), an article (index) or a member (nick). */
-export const seedComments: { author: string; product?: number; article?: number; member?: string; text: string }[] = [
+/**
+ * Comments: on a product (index), a brief (index into seedBriefs), an article (index) or a member (nick).
+ * Brief comments are created while every brief is still OPEN (D-30), so briefs 4 and 6 keep theirs after closing.
+ */
+export const seedComments: {
+	author: string;
+	product?: number;
+	brief?: number;
+	article?: number;
+	member?: string;
+	text: string;
+}[] = [
 	{ author: 'seed_ana', product: 0, text: 'Set it up in an afternoon, works well.' },
 	{ author: 'seed_ben', product: 0, text: 'Does it support German?' },
 	{ author: 'seed_nova', product: 0, text: 'Yes, German and French are supported.' },
 	{ author: 'seed_ben', product: 4, text: 'Can it read Google Sheets directly?' },
 	{ author: 'seed_cara', product: 6, text: 'The drafts need little editing.' },
+	{ author: 'seed_nova', brief: 0, text: 'Which helpdesk do you use today?' },
+	{ author: 'seed_ana', brief: 0, text: 'Gorgias, about 200 tickets a week.' },
+	{ author: 'seed_orbit', brief: 2, text: 'Is a daily summary enough, or do you need every update live?' },
+	{ author: 'seed_quill', brief: 4, text: 'Are the timesheets PDFs or photos?' },
+	{ author: 'seed_ben', brief: 4, text: 'Mostly photos. We found a solution, thanks!' },
+	{ author: 'seed_pixel', brief: 6, text: 'I built an A/B testing agent for this, happy to show it.' },
 	{ author: 'seed_ana', article: 2, text: 'Start with the problem, not the solution.' },
 	{ author: 'seed_quill', article: 3, text: 'Ha, this made my day.' },
 	{ author: 'seed_cara', member: 'seed_pixel', text: 'Great to work with.' },
