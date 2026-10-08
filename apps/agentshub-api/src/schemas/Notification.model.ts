@@ -47,6 +47,11 @@ const NotificationSchema = new Schema(
 			ref: 'Product',
 		},
 
+		briefId: {
+			type: Schema.Types.ObjectId,
+			ref: 'Brief',
+		},
+
 		articleId: {
 			type: Schema.Types.ObjectId,
 			ref: 'BoardArticle',

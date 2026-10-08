@@ -1046,11 +1046,11 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **Done in Step 8 part 2:** `ARTICLE` and `MEMBER`. New helpers `isBoardArticleVisible` (`BoardArticleService`, `ACTIVE` only, as `getBoardArticle`) and `isMemberVisible` (`MemberService`, `ACTIVE` or `BLOCK`, as `getMember`); the D-16 principle covers them, no new decision. `getComments` checks every group in one private `isCommentTargetVisible`; a missing or hidden target → `NOT_FOUND` / `NO_DATA_FOUND`. Comments of a blocked member stay readable. `getBoardArticle` and `getMember` keep their own status filter in the query (same rule, not refactored here).
 
 ### Notification (schema only; no module yet)
-- [ ] `api/schemas/Notification.model.ts`:
+- [x] `api/schemas/Notification.model.ts`:
   - `propertyId` with `ref: 'Property'` (45–48) → `productId` with `ref: 'Product'`
   - add `briefId` with `ref: 'Brief'`
 
-  **Done in Step 6 part 7:** `productId` (existing documents are renamed by the migration script). **Still open:** `briefId`.
+  **Done in Step 6 part 7:** `productId` (existing documents are renamed by the migration script). **Done in Step 8 part 3:** `briefId` (`ObjectId`, `ref: 'Brief'`, optional, as in the ER doc). No index (the ER doc suggests none) and no migration (a new optional field). No code writes notifications yet (there is no notification module), so nothing sets `briefId`; a future module must set it for `NotificationGroup.BRIEF` and follow `isBriefVisible` when reading (D-16 principle, D-30). Not in the GraphQL schema: no client-visible change.
 - [ ] Seed cleanup (`scripts/seed/seed.ts`, `removeSeedData`): once `briefId` exists, add `{ briefId: { $in: briefIds } }` to the notifications `$or`, next to `productId` and `articleId`. Until then, notifications are deleted only by author, receiver, product or article.
 - [x] `Notification.model.ts:29–31`: `notificationDesc` stays optional; the ER doc now matches (D-18). No code change.
 - [ ] `NotificationGroup` is covered in Step 4.
