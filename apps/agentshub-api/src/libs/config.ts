@@ -23,6 +23,9 @@ export const aviableProductSorts = [
 	'productPrice',
 ];
 
+// briefBudget / briefDeadline are optional: empty values sort last in both directions (D-04, BriefService)
+export const aviableBriefSorts = ['createdAt', 'updatedAt', 'briefViews', 'briefBudget', 'briefDeadline'];
+
 export const aviableBoardArticleSorts = ['createdAt', 'updatedAt', 'articleLikes', 'articleViews'];
 
 export const availableCommentSorts = ['createdAt', 'updatedAt'];

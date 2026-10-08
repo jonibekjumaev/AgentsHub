@@ -7,8 +7,8 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { AuthMember } from '../auth/decorators/authMember.decorator';
 import { MemberType } from '../../libs/enums/member.enum';
 import type { ObjectId } from '../../libs/types/common';
-import { Brief } from '../../libs/dto/brief/brief';
-import { BriefInput } from '../../libs/dto/brief/brief.input';
+import { Brief, Briefs } from '../../libs/dto/brief/brief';
+import { BriefInput, BriefsInquiry, MyBriefsInquiry } from '../../libs/dto/brief/brief.input';
 import { BriefUpdate } from '../../libs/dto/brief/brief.update';
 import { shapeInToMongoObjectId } from '../../libs/config';
 
@@ -31,6 +31,24 @@ export class BriefResolver {
 		console.log('Query: getBrief');
 		const briefId = shapeInToMongoObjectId(input);
 		return await this.briefService.getBrief(memberId, briefId);
+	}
+
+	@UseGuards(WithoutGuard)
+	@Query(() => Briefs)
+	public async getBriefs(@Args('input') input: BriefsInquiry): Promise<Briefs> {
+		console.log('Query: getBriefs');
+		return await this.briefService.getBriefs(input);
+	}
+
+	@Roles(MemberType.USER)
+	@UseGuards(RolesGuard)
+	@Query(() => Briefs)
+	public async getMyBriefs(
+		@Args('input') input: MyBriefsInquiry,
+		@AuthMember('_id') memberId: ObjectId,
+	): Promise<Briefs> {
+		console.log('Query: getMyBriefs');
+		return await this.briefService.getMyBriefs(memberId, input);
 	}
 
 	@Roles(MemberType.USER)
