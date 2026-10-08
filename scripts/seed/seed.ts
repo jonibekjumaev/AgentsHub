@@ -1,12 +1,16 @@
 import fs from 'fs';
 import path from 'path';
 import { ClientSession, Connection, Types } from 'mongoose';
+import moment from 'moment';
 import { BoardArticleService } from '../../apps/agentshub-api/src/components/board-article/board-article.service';
+import { BriefService } from '../../apps/agentshub-api/src/components/brief/brief.service';
 import { CommentService } from '../../apps/agentshub-api/src/components/comment/comment.service';
 import { FollowService } from '../../apps/agentshub-api/src/components/follow/follow.service';
 import { MemberService } from '../../apps/agentshub-api/src/components/member/member.service';
 import { ProductService } from '../../apps/agentshub-api/src/components/product/product.service';
 import { BoardArticleInput } from '../../apps/agentshub-api/src/libs/dto/board-article/board-article.input';
+import { BriefInput } from '../../apps/agentshub-api/src/libs/dto/brief/brief.input';
+import { BriefUpdate } from '../../apps/agentshub-api/src/libs/dto/brief/brief.update';
 import { CommentInput } from '../../apps/agentshub-api/src/libs/dto/comment/comment.input';
 import { MemberInput } from '../../apps/agentshub-api/src/libs/dto/member/member.input';
 import { MemberUpdate, MemberUpdateByAdmin } from '../../apps/agentshub-api/src/libs/dto/member/member.update';
@@ -19,6 +23,8 @@ import { createScriptContext, isProduction, requireEnv, runScript, ScriptError, 
 import {
 	seedArticleLikes,
 	seedArticles,
+	seedBriefs,
+	seedBriefViews,
 	seedComments,
 	seedFollows,
 	seedImages,
@@ -72,6 +78,19 @@ async function main(): Promise<void> {
 		),
 	);
 
+	const briefInputs = await Promise.all(
+		seedBriefs.map((brief) =>
+			validated(BriefInput, {
+				briefCategory: brief.category,
+				briefTitle: brief.title,
+				briefContent: brief.content,
+				briefBudget: brief.budget,
+				briefDeadline:
+					brief.deadlineInDays === undefined ? undefined : moment().add(brief.deadlineInDays, 'days').toDate(),
+			}),
+		),
+	);
+
 	const { app, connection } = await createScriptContext();
 	try {
 		console.log(`seed: database "${connection.db?.databaseName}"`);
@@ -86,6 +105,7 @@ async function main(): Promise<void> {
 
 		const memberService = app.get(MemberService);
 		const productService = app.get(ProductService);
+		const briefService = app.get(BriefService);
 		const boardArticleService = app.get(BoardArticleService);
 		const commentService = app.get(CommentService);
 		const followService = app.get(FollowService);
@@ -128,6 +148,21 @@ async function main(): Promise<void> {
 			}
 		}
 
+		// briefs: created OPEN, then closed or deleted through the owner update (D-30)
+		const briefIds: ObjectId[] = [];
+		for (const [index, brief] of seedBriefs.entries()) {
+			const input = briefInputs[index];
+			input.memberId = id(brief.owner);
+			const created = await briefService.createBrief(input);
+			briefIds.push(created._id);
+
+			if (brief.status) {
+				const update = await validated(BriefUpdate, { _id: String(created._id), briefStatus: brief.status });
+				update._id = created._id;
+				await briefService.updateBrief(id(brief.owner), update);
+			}
+		}
+
 		// board articles
 		const articleIds: ObjectId[] = [];
 		for (const article of seedArticles) {
@@ -145,6 +180,9 @@ async function main(): Promise<void> {
 
 		for (const [nick, indexes] of seedProductViews) {
 			for (const index of indexes) await productService.getProduct(id(nick), typeOf(nick), productIds[index]);
+		}
+		for (const [nick, indexes] of seedBriefViews) {
+			for (const index of indexes) await briefService.getBrief(id(nick), briefIds[index]);
 		}
 		for (const [nick, indexes] of seedProductLikes) {
 			for (const index of indexes) await productService.likeTargetProduct(id(nick), productIds[index]);
@@ -189,15 +227,15 @@ async function main(): Promise<void> {
 			await memberService.updateMemberByAdmin(input);
 		}
 
-		await printSummary(connection, [...ids.values()], productIds, articleIds);
+		await printSummary(connection, [...ids.values()], productIds, briefIds, articleIds);
 	} finally {
 		await app.close();
 	}
 }
 
 /**
- * Deletes every seed member (nick starts with seedNickPrefix, never an admin), their products and articles, and
- * every like, view, comment, follow and notification by them or pointing at them, in one transaction.
+ * Deletes every seed member (nick starts with seedNickPrefix, never an admin), their products, briefs and articles,
+ * and every like, view, comment, follow and notification by them or pointing at them, in one transaction.
  *
  * Manual records are never deleted, except likes, views, comments and follows that point at seed records.
  * Manual counters are kept right: when a seed member's like, view, comment or follow on a manual target is deleted,
@@ -222,11 +260,13 @@ async function removeSeedData(connection: Connection): Promise<Record<string, nu
 		return docs.map((doc) => doc._id);
 	};
 	const productIds = await idsOf('products');
+	const briefIds = await idsOf('briefs');
 	const articleIds = await idsOf('boardArticles');
-	const seedIds = [...memberIds, ...productIds, ...articleIds];
+	const seedIds = [...memberIds, ...productIds, ...briefIds, ...articleIds];
 
 	const counterOf: Record<string, [collection: string, prefix: string]> = {
 		PRODUCT: ['products', 'product'],
+		BRIEF: ['briefs', 'brief'],
 		ARTICLE: ['boardArticles', 'article'],
 		MEMBER: ['members', 'member'],
 	};
@@ -296,6 +336,7 @@ async function removeSeedData(connection: Connection): Promise<Record<string, nu
 				},
 			],
 			['products', { _id: { $in: productIds } }],
+			['briefs', { _id: { $in: briefIds } }],
 			['boardArticles', { _id: { $in: articleIds } }],
 			['members', { _id: { $in: memberIds } }],
 		];
@@ -319,22 +360,27 @@ async function printSummary(
 	connection: Connection,
 	memberIds: ObjectId[],
 	productIds: ObjectId[],
+	briefIds: ObjectId[],
 	articleIds: ObjectId[],
 ): Promise<void> {
 	const count = (collection: string, filter: object) => connection.collection(collection).countDocuments(filter);
-	const seedIds = [...memberIds, ...productIds, ...articleIds];
+	const seedIds = [...memberIds, ...productIds, ...briefIds, ...articleIds];
 
-	const productsByStatus = await connection
-		.collection('products')
-		.aggregate<{ _id: string; count: number }>([
-			{ $match: { _id: { $in: productIds } } },
-			{ $group: { _id: '$productStatus', count: { $sum: 1 } } },
-		])
-		.toArray();
+	const countByStatus = async (collection: string, ids: ObjectId[], statusField: string) => {
+		const rows = await connection
+			.collection(collection)
+			.aggregate<{ _id: string; count: number }>([
+				{ $match: { _id: { $in: ids } } },
+				{ $group: { _id: `$${statusField}`, count: { $sum: 1 } } },
+			])
+			.toArray();
+		return Object.fromEntries(rows.map((row) => [row._id, row.count]));
+	};
 
 	console.log('seed: created', {
 		members: memberIds.length,
-		products: Object.fromEntries(productsByStatus.map((row) => [row._id, row.count])),
+		products: await countByStatus('products', productIds, 'productStatus'),
+		briefs: await countByStatus('briefs', briefIds, 'briefStatus'),
 		boardArticles: articleIds.length,
 		comments: await count('comments', { commentRefId: { $in: seedIds } }),
 		likes: await count('likes', { likeRefId: { $in: seedIds } }),

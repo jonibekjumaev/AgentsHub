@@ -1,5 +1,6 @@
 import { AgentCategory } from '../../apps/agentshub-api/src/libs/enums/agent-category.enum';
 import { BoardArticleCategory } from '../../apps/agentshub-api/src/libs/enums/board-article.enum';
+import { BriefStatus } from '../../apps/agentshub-api/src/libs/enums/brief.enum';
 import { MemberType } from '../../apps/agentshub-api/src/libs/enums/member.enum';
 import { ProductPricing, ProductStatus } from '../../apps/agentshub-api/src/libs/enums/product.enum';
 
@@ -222,6 +223,88 @@ export const seedProducts: SeedProduct[] = [
 		tags: ['productivity', 'meetings'],
 		images: [0],
 	},
+];
+
+export interface SeedBrief {
+	owner: string; // a seed user's nick (ER rule 2: only USER members own briefs)
+	category: AgentCategory;
+	title: string;
+	content: string;
+	budget?: number; // leave out for "open to offers" (D-04)
+	deadlineInDays?: number; // days after the seed run, so the deadline is always in the future (D-05)
+	status?: BriefStatus.CLOSED | BriefStatus.DELETE; // set through updateBrief after create (D-30)
+}
+
+export const seedBriefs: SeedBrief[] = [
+	{
+		owner: 'seed_ana',
+		category: AgentCategory.CUSTOMER_SUPPORT,
+		title: 'Support agent for a Shopify store',
+		content:
+			'We get about 200 order and shipping questions a day. Looking for an agent that answers them from our FAQ.',
+		budget: 500,
+		deadlineInDays: 30,
+	},
+	{
+		owner: 'seed_ana',
+		category: AgentCategory.SALES,
+		title: 'Abandoned cart follow-ups',
+		content: 'An agent that writes a personal follow-up email for each abandoned cart. Open to offers on price.',
+	},
+	{
+		owner: 'seed_ben',
+		category: AgentCategory.AUTOMATION,
+		title: 'Shipment status updates in Slack',
+		content: 'Pull shipment events from our carrier APIs and post short status updates to the right Slack channel.',
+		budget: 1200,
+	},
+	{
+		owner: 'seed_ben',
+		category: AgentCategory.DATA_ANALYSIS,
+		title: 'Delivery delay analysis',
+		content: 'A weekly report on late deliveries by route and carrier, with a short explanation of the main causes.',
+		deadlineInDays: 14,
+	},
+	{
+		owner: 'seed_ben',
+		category: AgentCategory.AUTOMATION,
+		title: 'Driver timesheet parser',
+		content: 'Read scanned driver timesheets and fill our payroll sheet. We already found a creator for this one.',
+		budget: 300,
+		deadlineInDays: 45,
+		status: BriefStatus.CLOSED,
+	},
+	{
+		owner: 'seed_cara',
+		category: AgentCategory.CONTENT,
+		title: 'Product description writer',
+		content: 'Write on-brand descriptions for about 400 products from a spreadsheet of specs and photos.',
+		budget: 250.5,
+		deadlineInDays: 21,
+	},
+	{
+		owner: 'seed_cara',
+		category: AgentCategory.MARKETING,
+		title: 'Newsletter subject line tester',
+		content: 'Suggest and score subject lines for our weekly newsletter based on past open rates.',
+		status: BriefStatus.CLOSED,
+	},
+	{
+		owner: 'seed_cara',
+		category: AgentCategory.EDUCATION,
+		title: 'Onboarding quiz for new hires',
+		content: 'Turn our marketing handbook into short quizzes for new team members. No longer needed.',
+		budget: 150,
+		status: BriefStatus.DELETE,
+	},
+];
+
+/** Brief views by seed creators, as indexes into seedBriefs (only briefs that stay OPEN: views need OPEN, D-30). */
+export const seedBriefViews: [string, number[]][] = [
+	['seed_nova', [0, 1]],
+	['seed_orbit', [2, 3, 5]],
+	['seed_pixel', [5]],
+	['seed_quill', [0]],
 ];
 
 export interface SeedArticle {

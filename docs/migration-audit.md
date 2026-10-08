@@ -561,10 +561,11 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
 ### Database and environment — `.env` (gitignored)
 - [x] `MONGODB_DEV` and `MONGODB_PROD` both point to the database **`Nestar`**. Point `MONGODB_DEV` to a new, empty database **`agentsHub`**, so the original Nestar data stays untouched (D-01, D-13).
 - [x] `MONGODB_PROD`: the production database name is decided at deploy time (D-13). Until then, it must not point to `Nestar`.
-- [ ] No Nestar data is migrated (D-13, Accepted). Write a seed script (creators, users, products, briefs) for development.
-  - **Done except briefs:** `npm run seed` (`scripts/seed/`) creates, through the API's services and after checking the API's DTOs:
+- [x] No Nestar data is migrated (D-13, Accepted). Write a seed script (creators, users, products, briefs) for development.
+  - **Done:** `npm run seed` (`scripts/seed/`) creates, through the API's services and after checking the API's DTOs:
     - 4 creators and 4 users, one of them `BLOCK`
     - 12 products covering every category and pricing, with one `PAUSED` and one `DELETE`
+    - 8 briefs by the seed users, with two `CLOSED` and one `DELETE` (Step 7 part 5)
     - 4 board articles
     - follows, likes, views and comments
     - Seed members' nicks start with `seed_`, and all of them use `SEED_PASSWORD`.
@@ -574,7 +575,6 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - A re-run deletes the seed members and everything by or pointing at them in one transaction, then recreates them. A replica set is needed; Atlas is one.
     - Manual records are never deleted, except likes, views, comments and follows pointing at seed records. Manual counters are corrected for those deletes.
     - The first admin is created only if missing (D-14, `npm run create-admin`).
-  - **Still open:** briefs. Add them in Step 7 through `BriefService`.
 - [x] No `.env.example` exists. Add one listing `PORT_API`, `PORT_BATCH`, `MONGODB_DEV`, `MONGODB_PROD` and `SECRET_TOKEN`.
 - [x] Both `api/database/database.module.ts` and `batch/database/database.module.ts` (line 9) pick the URI by `NODE_ENV`. No change needed; keep them in sync.
 
@@ -968,7 +968,13 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **Done in Step 7 part 3.**
 - [x] Briefs have no likes (no `briefLikes`, and `LikeGroup` has no `BRIEF`), so there is no `likeTargetBrief` and no `meLiked`.
   - **Done in Step 7 part 2.**
-- [ ] Seed (`scripts/seed/`): add briefs by the seed users through `BriefService` (`OPEN`, `CLOSED` and `DELETE`, with and without budget/deadline). Add `briefs` to the seed cleanup, plus brief views and comments, which use `briefViews` / `briefComments`, to its counter fix-ups.
+- [x] Seed (`scripts/seed/`): add briefs by the seed users through `BriefService` (`OPEN`, `CLOSED` and `DELETE`, with and without budget/deadline). Add `briefs` to the seed cleanup, plus brief views and comments, which use `briefViews` / `briefComments`, to its counter fix-ups.
+  - **Done in Step 7 part 5:**
+    - 8 briefs by `seed_ana`, `seed_ben` and `seed_cara` in 7 categories, created with `createBrief` (after checking `BriefInput`): 5 `OPEN`, 2 `CLOSED` and 1 `DELETE`, the last two set through the owner's `updateBrief` (D-30). They cover all four budget/deadline combinations; deadlines are days after the seed run, so they are always in the future (D-05).
+    - The seed creators view `OPEN` briefs through `getBrief`, so `briefViews` and the `views` rows come from the service.
+    - `removeSeedData` deletes seed briefs and every view or comment on them. A seed member's view or comment on a manual brief lowers that brief's `briefViews` / `briefComments`. `memberBriefs` needs no fix-up: seed briefs belong only to seed members, who are deleted.
+    - The summary prints the briefs by status.
+    - No brief comments are seeded yet: `createComment` has no `BRIEF` case until Step 8. Notifications are not cleaned up by `briefId` yet (see Step 8 → Notification).
 
 ---
 
@@ -1031,6 +1037,7 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - add `briefId` with `ref: 'Brief'`
 
   **Done in Step 6 part 7:** `productId` (existing documents are renamed by the migration script). **Still open:** `briefId`.
+- [ ] Seed cleanup (`scripts/seed/seed.ts`, `removeSeedData`): once `briefId` exists, add `{ briefId: { $in: briefIds } }` to the notifications `$or`, next to `productId` and `articleId`. Until then, notifications are deleted only by author, receiver, product or article.
 - [x] `Notification.model.ts:29–31`: `notificationDesc` stays optional; the ER doc now matches (D-18). No code change.
 - [ ] `NotificationGroup` is covered in Step 4.
 
