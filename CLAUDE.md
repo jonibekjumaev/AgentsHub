@@ -145,6 +145,7 @@ Images are uploaded through `imageUploader` / `imagesUploader` in `member.resolv
 
 ## Working rules for the conversion
 
+- Before editing, post a short plan (files, rules with S/B/D numbers, open questions, verification) and wait for approval.
 - Read the relevant section of `docs/agentshub-er.md`, and any linked decision, before you touch a schema, DTO or enum.
 - Rename across all layers **in one step**, so both apps keep compiling and no Nestar leftovers remain (D-01, D-10). That means:
   - schema, DTOs and enums
