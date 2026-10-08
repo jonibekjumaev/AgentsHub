@@ -47,38 +47,70 @@ export class CommentService {
 			throw new InternalServerErrorException(Message.CREATE_FAILED);
 		}
 
-		switch (input.commentGroup) {
+		await this.targetCommentsEditor(input.commentGroup, input.commentRefId, 1);
+		return result;
+	}
+
+	/** The target's *Comments counter, only through its stats editor (ER rule 5). */
+	private async targetCommentsEditor(
+		commentGroup: CommentGroup,
+		commentRefId: ObjectId,
+		modifier: number,
+	): Promise<void> {
+		switch (commentGroup) {
 			case CommentGroup.PRODUCT:
 				await this.productService.productStatsEditor({
-					_id: input.commentRefId,
+					_id: commentRefId,
 					targetKey: 'productComments',
-					modifier: 1,
+					modifier: modifier,
 				});
 				break;
 			case CommentGroup.BRIEF:
 				await this.briefService.briefStatsEditor({
-					_id: input.commentRefId,
+					_id: commentRefId,
 					targetKey: 'briefComments',
-					modifier: 1,
+					modifier: modifier,
 				});
 				break;
 			case CommentGroup.ARTICLE:
 				await this.boardArticleService.boardArticleStatsEditor({
-					_id: input.commentRefId,
+					_id: commentRefId,
 					targetKey: 'articleComments',
-					modifier: 1,
+					modifier: modifier,
 				});
 				break;
 			case CommentGroup.MEMBER:
 				await this.memberService.memberStatsEditor({
-					_id: input.commentRefId,
+					_id: commentRefId,
 					targetKey: 'memberComments',
-					modifier: 1,
+					modifier: modifier,
 				});
 				break;
 		}
+	}
 
-		return result;
+	/**
+	 * B19: called once per comment that leaves ACTIVE (owner DELETE or admin remove), so the counter drops exactly once.
+	 * A target already hard-deleted by an admin has no counter left to fix.
+	 */
+	private async onCommentDeleted(comment: Pick<Comment, 'commentGroup' | 'commentRefId'>): Promise<void> {
+		const { commentGroup, commentRefId } = comment;
+		let exist: T | null = null;
+		switch (commentGroup) {
+			case CommentGroup.PRODUCT:
+				exist = await this.productModel.exists({ _id: commentRefId }).exec();
+				break;
+			case CommentGroup.BRIEF:
+				exist = await this.briefModel.exists({ _id: commentRefId }).exec();
+				break;
+			case CommentGroup.ARTICLE:
+				exist = await this.boardArticleModel.exists({ _id: commentRefId }).exec();
+				break;
+			case CommentGroup.MEMBER:
+				exist = await this.memberModel.exists({ _id: commentRefId }).exec();
+				break;
+		}
+		if (exist) await this.targetCommentsEditor(commentGroup, commentRefId, -1);
 	}
 
 	private async checkCommentTarget(input: CommentInput): Promise<void> {
@@ -108,6 +140,7 @@ export class CommentService {
 
 	public async updateComment(memberId: ObjectId, input: CommentUpdate): Promise<Comment> {
 		const { _id } = input;
+		// compare-and-set (D-29 pattern): only an ACTIVE comment matches, so a concurrent second DELETE finds nothing
 		const result = await this.commentModel
 			.findOneAndUpdate(
 				{
@@ -122,6 +155,9 @@ export class CommentService {
 			)
 			.exec();
 		if (!result) throw new NotFoundException(Message.UPDATE_FAILED);
+
+		// this write moved the comment from ACTIVE to DELETE (B19)
+		if (result.commentStatus === CommentStatus.DELETE) await this.onCommentDeleted(result);
 		return result;
 	}
 
@@ -192,8 +228,11 @@ export class CommentService {
 	}
 
 	public async removeCommentByAdmin(input: ObjectId): Promise<Comment> {
-		const result = await this.commentModel.findByIdAndDelete(input).exec();
+		const result = await this.commentModel.findOneAndDelete({ _id: input }).exec();
 		if (!result) throw new NotFoundException(Message.REMOVE_FAILED);
+
+		// an ACTIVE comment still counts on its target; a DELETE one was already subtracted (B19)
+		if (result.commentStatus === CommentStatus.ACTIVE) await this.onCommentDeleted(result);
 		return result;
 	}
 }
