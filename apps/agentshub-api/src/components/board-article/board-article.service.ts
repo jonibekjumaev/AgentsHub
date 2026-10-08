@@ -222,4 +222,12 @@ export class BoardArticleService {
 		if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
 		return result;
 	}
+
+	/**
+	 * Visibility of one board article, the same rule as getBoardArticle: ACTIVE for everyone, DELETE for nobody
+	 * (admins see deleted articles only in getAllBoardArticlesByAdmin). Child records (e.g. comments) follow it (D-16 principle).
+	 */
+	public isBoardArticleVisible(article: Pick<BoardArticle, 'articleStatus'>): boolean {
+		return article.articleStatus === BoardArticleStatus.ACTIVE;
+	}
 }

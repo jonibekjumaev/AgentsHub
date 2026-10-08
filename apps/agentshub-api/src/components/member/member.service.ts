@@ -256,4 +256,12 @@ export class MemberService {
 		if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
 		return result;
 	}
+
+	/**
+	 * Visibility of one member profile, the same rule as getMember: ACTIVE and BLOCK for everyone, DELETE for nobody.
+	 * Child records (e.g. comments on the member) follow the same rule (D-16 principle).
+	 */
+	public isMemberVisible(member: Pick<Member, 'memberStatus'>): boolean {
+		return member.memberStatus === MemberStatus.ACTIVE || member.memberStatus === MemberStatus.BLOCK;
+	}
 }

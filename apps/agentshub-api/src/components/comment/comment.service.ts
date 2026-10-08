@@ -131,19 +131,8 @@ export class CommentService {
 		input: CommentsInquiry,
 	): Promise<Comments> {
 		const { commentRefId, commentGroup } = input.search;
-		// comments follow the product's visibility; a hidden product answers like a missing one (D-16)
-		if (commentGroup === CommentGroup.PRODUCT) {
-			const product = await this.productModel.findById(commentRefId).select('productStatus memberId').lean().exec();
-			if (!product || !this.productService.isProductVisible(product, memberId, memberType)) {
-				throw new NotFoundException(Message.NO_DATA_FOUND);
-			}
-		}
-
-		// comments follow the brief's visibility: OPEN and CLOSED for everyone, DELETE like missing (D-30)
-		if (commentGroup === CommentGroup.BRIEF) {
-			const brief = await this.briefModel.findById(commentRefId).select('briefStatus').lean().exec();
-			if (!brief || !this.briefService.isBriefVisible(brief)) throw new NotFoundException(Message.NO_DATA_FOUND);
-		}
+		const isVisible = await this.isCommentTargetVisible(commentGroup, commentRefId, memberId, memberType);
+		if (!isVisible) throw new NotFoundException(Message.NO_DATA_FOUND);
 
 		const match = { commentRefId: commentRefId, commentGroup: commentGroup, commentStatus: CommentStatus.ACTIVE };
 		const sort: T = { [input?.sort ?? 'createdAt']: input?.direction ?? Direction.DESC };
@@ -168,6 +157,38 @@ export class CommentService {
 			.exec();
 		if (!result) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
 		return result[0] as Comments;
+	}
+
+	/**
+	 * Comments follow their target's visibility (D-16 principle): a missing or hidden target answers the same way.
+	 * PRODUCT: D-16, BRIEF: D-30, ARTICLE: as getBoardArticle, MEMBER: as getMember (a BLOCK member stays readable).
+	 */
+	private async isCommentTargetVisible(
+		commentGroup: CommentGroup,
+		commentRefId: ObjectId,
+		memberId: ObjectId | null,
+		memberType: MemberType | null,
+	): Promise<boolean> {
+		switch (commentGroup) {
+			case CommentGroup.PRODUCT: {
+				const product = await this.productModel.findById(commentRefId).select('productStatus memberId').lean().exec();
+				return !!product && this.productService.isProductVisible(product, memberId, memberType);
+			}
+			case CommentGroup.BRIEF: {
+				const brief = await this.briefModel.findById(commentRefId).select('briefStatus').lean().exec();
+				return !!brief && this.briefService.isBriefVisible(brief);
+			}
+			case CommentGroup.ARTICLE: {
+				const article = await this.boardArticleModel.findById(commentRefId).select('articleStatus').lean().exec();
+				return !!article && this.boardArticleService.isBoardArticleVisible(article);
+			}
+			case CommentGroup.MEMBER: {
+				const member = await this.memberModel.findById(commentRefId).select('memberStatus').lean().exec();
+				return !!member && this.memberService.isMemberVisible(member);
+			}
+			default:
+				return false;
+		}
 	}
 
 	public async removeCommentByAdmin(input: ObjectId): Promise<Comment> {
