@@ -8,7 +8,7 @@ import { AuthMember } from '../auth/decorators/authMember.decorator';
 import { MemberType } from '../../libs/enums/member.enum';
 import type { ObjectId } from '../../libs/types/common';
 import { Brief, Briefs } from '../../libs/dto/brief/brief';
-import { BriefInput, BriefsInquiry, MyBriefsInquiry } from '../../libs/dto/brief/brief.input';
+import { AllBriefsInquiry, BriefInput, BriefsInquiry, MyBriefsInquiry } from '../../libs/dto/brief/brief.input';
 import { BriefUpdate } from '../../libs/dto/brief/brief.update';
 import { shapeInToMongoObjectId } from '../../libs/config';
 
@@ -58,5 +58,33 @@ export class BriefResolver {
 		console.log('Mutation: updateBrief');
 		input._id = shapeInToMongoObjectId(input._id);
 		return await this.briefService.updateBrief(memberId, input);
+	}
+
+	/** ADMIN */
+
+	@Roles(MemberType.ADMIN)
+	@UseGuards(RolesGuard)
+	@Query(() => Briefs)
+	public async getAllBriefsByAdmin(@Args('input') input: AllBriefsInquiry): Promise<Briefs> {
+		console.log('Query: getAllBriefsByAdmin');
+		return await this.briefService.getAllBriefsByAdmin(input);
+	}
+
+	@Roles(MemberType.ADMIN)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Brief)
+	public async updateBriefByAdmin(@Args('input') input: BriefUpdate): Promise<Brief> {
+		console.log('Mutation: updateBriefByAdmin');
+		input._id = shapeInToMongoObjectId(input._id);
+		return await this.briefService.updateBriefByAdmin(input);
+	}
+
+	@Roles(MemberType.ADMIN)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Brief)
+	public async removeBriefByAdmin(@Args('briefId') input: string): Promise<Brief> {
+		console.log('Mutation: removeBriefByAdmin');
+		const briefId = shapeInToMongoObjectId(input);
+		return await this.briefService.removeBriefByAdmin(briefId);
 	}
 }

@@ -159,3 +159,45 @@ export class MyBriefsInquiry {
 	@Field(() => MBISearch)
 	search!: MBISearch;
 }
+
+// the admin list: every status, DELETE included (D-30)
+@InputType()
+class ALBISearch extends BriefFilters {
+	@IsOptional()
+	@IsEnum(BriefStatus)
+	@Field(() => BriefStatus, { nullable: true })
+	briefStatus?: BriefStatus;
+
+	@IsOptional()
+	@IsMongoId()
+	@Field(() => String, { nullable: true })
+	memberId?: ObjectId;
+}
+
+@InputType()
+export class AllBriefsInquiry {
+	@IsNotEmpty()
+	@Min(1)
+	@Field(() => Int)
+	page!: number;
+
+	@IsNotEmpty()
+	@Min(1)
+	@Field(() => Int)
+	limit!: number;
+
+	@IsOptional()
+	@IsIn(aviableBriefSorts)
+	@Field(() => String, { nullable: true })
+	sort?: string;
+
+	@IsOptional()
+	@Field(() => Direction, { nullable: true })
+	direction?: Direction;
+
+	@IsNotEmpty()
+	@ValidateNested()
+	@Type(() => ALBISearch)
+	@Field(() => ALBISearch)
+	search!: ALBISearch;
+}

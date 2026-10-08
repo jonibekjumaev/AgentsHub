@@ -3,7 +3,13 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, PipelineStage, UpdateQuery } from 'mongoose';
 import moment from 'moment';
 import { Brief, Briefs } from '../../libs/dto/brief/brief';
-import { BriefFilters, BriefInput, BriefsInquiry, MyBriefsInquiry } from '../../libs/dto/brief/brief.input';
+import {
+	AllBriefsInquiry,
+	BriefFilters,
+	BriefInput,
+	BriefsInquiry,
+	MyBriefsInquiry,
+} from '../../libs/dto/brief/brief.input';
 import { BriefUpdate } from '../../libs/dto/brief/brief.update';
 import { BriefStatus } from '../../libs/enums/brief.enum';
 import { Direction, Message } from '../../libs/enums/common.enum';
@@ -85,6 +91,31 @@ export class BriefService {
 		const match: T = { memberId, briefStatus: briefStatus ?? { $ne: BriefStatus.DELETE } };
 		this.shapeMatchQuery(match, input.search);
 		return await this.aggregateBriefs(match, input);
+	}
+
+	/** D-30: the admin list shows every status, DELETE included, or one status on request. */
+	public async getAllBriefsByAdmin(input: AllBriefsInquiry): Promise<Briefs> {
+		const { briefStatus } = input.search;
+		const match: T = {};
+
+		if (briefStatus) match.briefStatus = briefStatus;
+		this.shapeMatchQuery(match, input.search);
+		return await this.aggregateBriefs(match, input);
+	}
+
+	public async updateBriefByAdmin(input: BriefUpdate): Promise<Brief> {
+		// admins may make the same changes as the owner, with the same transition table and deadline rule (D-30, D-31)
+		return await this.applyBriefUpdate({ _id: input._id }, input);
+	}
+
+	/**
+	 * Hard delete, only for briefs already DELETE (D-30, D-28 principle). No counter change: memberBriefs was already
+	 * decremented when the brief was set to DELETE.
+	 */
+	public async removeBriefByAdmin(briefId: ObjectId): Promise<Brief> {
+		const result = await this.briefModel.findOneAndDelete({ _id: briefId, briefStatus: BriefStatus.DELETE }).exec();
+		if (!result) throw new NotFoundException(Message.REMOVE_FAILED);
+		return result;
 	}
 
 	public async briefStatsEditor(input: StatisticModifier): Promise<Brief> {
@@ -182,7 +213,7 @@ export class BriefService {
 	}
 
 	/**
-	 * The update shared by the owner (search has the owner's memberId) and, from Step 7 part 4, the admin (D-30). A
+	 * The update shared by updateBrief (search has the owner's memberId) and updateBriefByAdmin (D-30). A
 	 * deleted brief is not matched, so it answers like a missing one. The write is pinned to the status that was read
 	 * and checked, so a concurrent change (e.g. a second DELETE) matches nothing: memberBriefs is decremented once.
 	 */
