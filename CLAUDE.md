@@ -97,7 +97,7 @@ apps/
     libs/types/common.ts  T, ObjectId, StatisticModifier
     socket/               raw `ws` gateway: public broadcast chat, last 5 messages kept in memory
                           (note: D-08 says no in-platform chat in the MVP)
-  agentshub-batch/src/    @nestjs/schedule cron ranking: rollback 01:00:00, products 01:00:20, agents 01:00:40
+  agentshub-batch/src/    @nestjs/schedule: one nightly cron at 01:00:00 runs rollback → products → creators in sequence
                           AgentsHubBatchModule; imports schemas, DTOs and enums directly from ../../agentshub-api/src/...
 uploads/{member,product,article}/    local image storage (gitignored); the folders must exist on each machine,
                                      uploads into a missing folder fail

@@ -61,7 +61,7 @@ async function main(): Promise<void> {
 			console.log(`batch:run: ranked ${await batchService.batchProducts()} products`);
 		}
 		if (job === 'creators' || job === 'all') {
-			console.log(`batch:run: ranked ${await batchService.batchAgents()} creators`);
+			console.log(`batch:run: ranked ${await batchService.batchCreators()} creators`);
 		}
 
 		await printTop(connection);

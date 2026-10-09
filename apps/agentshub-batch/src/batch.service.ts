@@ -45,8 +45,8 @@ export class BatchService {
 	}
 
 	/** Returns how many creators were ranked. */
-	public async batchAgents(): Promise<number> {
-		const agents: Member[] = await this.memberModel
+	public async batchCreators(): Promise<number> {
+		const creators: Member[] = await this.memberModel
 			.find({
 				memberType: MemberType.CREATOR,
 				memberStatus: MemberStatus.ACTIVE,
@@ -54,14 +54,15 @@ export class BatchService {
 			})
 			.exec();
 
-		const promisedList = agents.map(async (ele: Member) => {
-			const { _id, memberProducts, memberLikes, memberArticles, memberViews } = ele;
-			const rank = memberProducts * 5 + memberArticles * 3 + memberLikes * 2 + memberViews * 1;
+		const promisedList = creators.map(async (ele: Member) => {
+			// only engagement received from other members; the creator's own post counts are not a signal (D-22)
+			const { _id, memberLikes, memberViews } = ele;
+			const rank = memberLikes * 2 + memberViews * 1;
 			return await this.memberModel.findByIdAndUpdate(_id, { memberRank: rank }).exec();
 		});
 
 		await Promise.all(promisedList);
-		return agents.length;
+		return creators.length;
 	}
 
 	getHello(): string {

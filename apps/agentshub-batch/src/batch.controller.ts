@@ -1,56 +1,42 @@
 import { Controller, Get, Logger } from '@nestjs/common';
 import { BatchService } from './batch.service';
-import { Cron, Interval, Timeout } from '@nestjs/schedule';
-import { BATCH_ROLLBACK, BATCH_TOP_AGENTS, BATCH_TOP_PRODUCTS } from './libs/config';
+import { Cron, Timeout } from '@nestjs/schedule';
+import { BATCH_NIGHTLY_JOB, BATCH_ROLLBACK, BATCH_TOP_CREATORS, BATCH_TOP_PRODUCTS } from './libs/config';
 
 @Controller()
 export class BatchController {
-	private logger: Logger = new Logger('BatchController.name');
+	private logger: Logger = new Logger(BatchController.name);
 
 	constructor(private readonly batchService: BatchService) {}
-
-	/* 
-	@Interval(1000)
-	handleInterval() {
-		this.logger.debug('Interval Test');
-	}
-	*/
 
 	@Timeout(1000)
 	handleTimeout() {
 		this.logger.debug('BATCH SERVER READY!');
 	}
 
-	@Cron('00 00 01  * * *', { name: BATCH_ROLLBACK })
-	public async batchRollback() {
+	/** Hammasini bittada yozish xatolikni oldini olish uchun!
+	 * One job runs the steps in order, each after the previous one has finished: the ranking steps only rank
+	 * documents whose rank is 0, so they must never start before the rollback is done. A failed step stops the rest.
+	 */
+	@Cron('00 00 01 * * *', { name: BATCH_NIGHTLY_JOB })
+	public async batchNightly() {
 		try {
-			this.logger['context'] = 'BATCH_ROLLBACK';
-			this.logger.debug('EXECUTED');
-			await this.batchService.batchRollback();
-		} catch (err) {
-			this.logger.error(err);
+			await this.runStep(BATCH_ROLLBACK, () => this.batchService.batchRollback());
+			await this.runStep(BATCH_TOP_PRODUCTS, () => this.batchService.batchProducts());
+			await this.runStep(BATCH_TOP_CREATORS, () => this.batchService.batchCreators());
+		} catch {
+			this.logger.error('STOPPED: a step failed, the next steps were skipped', BATCH_NIGHTLY_JOB);
 		}
 	}
 
-	@Cron('20 00 01 * * *', { name: BATCH_TOP_PRODUCTS })
-	public async batchTopProducts() {
+	/** Logs the step under its own context; a failure is logged there too and stops the nightly job. */
+	private async runStep(context: string, step: () => Promise<unknown>): Promise<void> {
+		this.logger.debug('EXECUTED', context);
 		try {
-			this.logger['context'] = 'BATCH_TOP_PRODUCTS';
-			this.logger.debug('EXECUTED');
-			await this.batchService.batchProducts();
+			await step();
 		} catch (err) {
-			this.logger.error(err);
-		}
-	}
-
-	@Cron('40 00 01 * * *', { name: BATCH_TOP_AGENTS })
-	public async batchTopAgents() {
-		try {
-			this.logger['context'] = 'BATCH_TOP_AGENTS';
-			this.logger.debug('EXECUTED');
-			await this.batchService.batchAgents();
-		} catch (err) {
-			this.logger.error(err);
+			this.logger.error(err, context);
+			throw err;
 		}
 	}
 
@@ -58,17 +44,4 @@ export class BatchController {
 	getHello(): string {
 		return this.batchService.getHello();
 	}
-
-	/** Hammasini bittada yozish xatolikni oldini olish uchun!
-	 @Cron('00 00 01 * * *', { name: BATCH_NIGHTLY_JOB })
-public async runNightlyBatch() {
-    try {
-        await this.batchService.batchRollback();
-        await this.batchService.batchProducts();
-        await this.batchService.batchAgents();
-    } catch (err) {
-        this.logger.error(err);
-    }
-}
-	 */
 }
