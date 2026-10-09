@@ -40,5 +40,7 @@ npm run start:dev         # API in watch mode, GraphQL at /graphql
 npm run start:dev:batch   # batch (ranking cron jobs) in watch mode
 npm run build             # build both apps into dist/
 npm run lint              # ESLint with --fix
-npm test                  # Jest
+npm test                  # unit tests (no database needed)
+npm run test:e2e          # API e2e smoke suite on a throwaway in-memory MongoDB (D-32)
+npm run test:e2e:batch    # batch e2e spec, same in-memory MongoDB
 ```

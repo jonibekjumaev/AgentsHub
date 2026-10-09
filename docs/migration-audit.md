@@ -1192,8 +1192,55 @@ The field-level check covers all of them automatically. Keep the list as the ver
   - **Done in Step 6 part 7:** `BATCH_TOP_PRODUCTS`. **Still open:** `BATCH_TOP_CREATORS`. **Done in Step 10 part 3:** `BATCH_TOP_CREATORS`, plus the new `BATCH_NIGHTLY_JOB`.
 - [x] `batch/batch.service.ts:74`: hello string (see Step 3). Already `'Hello to AgentsHub BATCH server!'` (checked in Step 10 part 1).
 - [x] `apps/nestar-batch/test/app.e2e-spec.ts:4,11` (bug, fix in its own commit; it stays here because steps 3 and 10 change both the module class name and the hello string it asserts): imports `NestarBatchModule`, which doesn't exist (the class is `BatchModule`). Under D-21 the class may become `AgentsHubBatchModule`; either way, the spec must import the class's actual name. It also expects `'Hello World!'` (19). The spec can't compile.
-  **Done in Step 10 part 4:** the import was already `AgentsHubBatchModule` (Step 3). Also fixed: the assertion now expects `'Hello to AgentsHub BATCH server!'`; `import request from 'supertest'` (the namespace import is not callable under `esModuleInterop`, TS2349); `afterEach` closes the app so Jest exits; and `jest-util` is a devDependency, because ts-jest 29.4 requires it but lists it only as an optional peer, so no Jest run could start (`Cannot find module 'jest-util'`). The lock file change only hoists existing packages; no version changed. The spec boots the real module, so it needs `.env` and the dev MongoDB.
+  **Done in Step 10 part 4:** the import was already `AgentsHubBatchModule` (Step 3). Also fixed: the assertion now expects `'Hello to AgentsHub BATCH server!'`; `import request from 'supertest'` (the namespace import is not callable under `esModuleInterop`, TS2349); `afterEach` closes the app so Jest exits; and `jest-util` is a devDependency, because ts-jest 29.4 requires it but lists it only as an optional peer, so no Jest run could start (`Cannot find module 'jest-util'`). The lock file change only hoists existing packages; no version changed. The spec boots the real module, so it needs `.env` and the dev MongoDB. **Since Step 11 part 6:** it runs on the in-memory MongoDB of the e2e setup (D-32), with a check that the connection is local; no `.env` or dev database needed.
 - [x] Ranking rollback only resets members with `memberStatus: ACTIVE`. Blocked or deleted creators keep a stale `memberRank`. (minor) **Done in Step 10 part 2:** the rollback resets every `CREATOR`, whatever its status; ranking still covers only `ACTIVE` creators.
+
+---
+
+## Step 11 — Automated tests
+
+**Goal:** protect the business rules settled in Steps 2.5–10, not 100% coverage. Every spec names the rule it protects (`D-xx`, `Bxx`, `Sxx`).
+
+### Setup
+
+- **Unit tests** (`npm test`): Jest config in the `jest` key of `package.json` (`rootDir: apps`, `*.spec.ts`, ts-jest). Specs sit next to the code. No database and no `.env`: services get fake models from `apps/agentshub-api/test/utils/mock-model.ts`; DTOs are validated like the global `ValidationPipe` (`test/utils/validate-dto.ts`); `test/utils/http-error.ts` checks exception class and message.
+  - `uuid` 14 ships only ES modules, which Jest's CommonJS runtime can't load. Both Jest configs map `uuid` to `test/utils/uuid.ts` (`crypto.randomUUID()`); the code only uses `v4()` for upload file names.
+- **E2E tests** (`npm run test:e2e`, `npm run test:e2e:batch`): a throwaway in-memory MongoDB per run, with two localhost checks (D-32). The app is built with `configureApp(app)` (`api/app.setup.ts`), the same pipeline as `main.ts`.
+
+### Parts and commits
+
+| Part | Commit | Tests | Content |
+|---|---|---|---|
+| 1 | `3190a4b` | 33 | Jest setup, `mock-model`, specs for `libs/utils` (S12, S15, B13, B15), `libs/config` (S2, S8) and `ObjectIdPipe` (B18) |
+| 2 | `2e9176e` | +237 | DTO validation: D-14, D-25, D-26, B2, B11, B16, B18, product and brief field rules |
+| 3 | `39da8cc` | +85 | `ProductService`: D-03 (create and the final pricing/price combination on update), D-16 / D-29 transitions, compare-and-set, `memberProducts`, visibility, views and likes (D-22), lists, admin remove |
+| B20 | `3788666` | +4 | fix found in part 3 (see B20) |
+| 4 | `dd09a31` | +76 | `BriefService` with a frozen clock: D-04, D-05 / D-31, D-30 transitions, compare-and-set, `memberBriefs`, visibility, views, lists, admin remove |
+| 5 | `a14d64f` | +99 | `CommentService` (B6, B7, B19, read visibility with the real visibility methods), `AuthService` (S9, B17), the three guards, `MemberService` (D-27, D-24, S14, B10, B9), batch ranking (D-16, D-17, D-22) |
+| B21 | `d9b15f5` | +3 | fix found in part 5 (see B21), plus a scan of every resolver for `RolesGuard` without `@Roles` |
+| — | `30c5a57` | — | refactor: `configureApp(app)` out of `main.ts`; boot check before/after showed identical logs |
+| 6 | `8fadb50` | 28 + 1 | E2E: in-memory MongoDB (D-32), API smoke suite, batch e2e moved off the dev database |
+| 7 | (this commit) | — | docs: D-32, `CLAUDE.md`, `README.md`, this section |
+
+Totals: **537 unit tests** in 17 suites (about 15 s), **28 API e2e tests** (about 10 s), **1 batch e2e test**.
+
+### How the tests were checked
+
+- Every part broke its rules on purpose (e.g. dropping a compare-and-set pin, allowing price `0`, counting the owner's views, skipping the reopen deadline check, removing a `BLOCK` check) and confirmed that tests failed, then restored the code.
+- The B20 and B21 tests were run against the old code first: they failed there and pass with the fix.
+- The e2e safety check was tested with a non-local Atlas-style URI: the suite refused before importing the app and ran 0 tests.
+
+### Found while testing
+
+- **Bugs, fixed in their own commits:** B20 (counter failure after a create reported as `CREATE_FAILED`), B21 (`RolesGuard` failed open without `@Roles`).
+- **Added to Step 13:** the 42 existing lint problems; `@IsEnum` on the create inputs' enum fields; tag length checked before trimming; an outdated `memberEmail` comment; chat gateway specs (out of Step 11 by owner decision).
+
+### Not covered (on purpose, for now)
+
+- The chat gateway (Step 13 item).
+- `LikeService`, `ViewService`, `FollowService` and `BoardArticleService` have no unit specs of their own; their rules are reached through the product, member and comment specs (B4 / B5 favorites and visited filters, B8 `meLiked` and follow counters are not tested yet).
+- Image uploads (S2 is covered only through `getUploadPath`), and `formatError` beyond the codes the e2e suite asserts.
+- `npm run seed`, `create-admin` and `batch:run` scripts.
 
 ---
 

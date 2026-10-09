@@ -10,7 +10,7 @@ This repo is a **copy of Nestar** (a real estate platform), and it is being conv
 - **USER** members publish **Briefs**, which describe a business need for a custom agent.
 - Contact happens off-platform: email/WhatsApp on the profile, shown to logged-in members only (D-07, D-08).
 
-**`docs/agentshub-er.md` is the source of truth** for every schema, DTO, enum and GraphQL type. `docs/decisions.md` records the reasons (D-01 … D-21). If code and the ER doc disagree, fix one of them on purpose and record why in `docs/decisions.md`. New decisions start as **Proposed**. Never delete a decision; mark it **Superseded by D-XX** instead.
+**`docs/agentshub-er.md` is the source of truth** for every schema, DTO, enum and GraphQL type. `docs/decisions.md` records the reasons (D-01 … D-32). If code and the ER doc disagree, fix one of them on purpose and record why in `docs/decisions.md`. New decisions start as **Proposed**. Never delete a decision; mark it **Superseded by D-XX** instead.
 
 The code is still almost entirely Nestar. Main conversions:
 
@@ -52,8 +52,9 @@ The code is still almost entirely Nestar. Main conversions:
 | `npm run build` | `nest build` (webpack) into `dist/`. Builds the default project (`agentshub-api`); use `npx nest build agentshub-batch` for the batch app |
 | `npm run lint` | ESLint with `--fix` |
 | `npm run format` | Prettier on `apps/**/*.ts` |
-| `npm test` | Jest. There are no unit specs yet |
-| `npm run test:e2e` / `test:e2e:batch` | Jest with `apps/agentshub-*/test/jest-e2e.json` |
+| `npm test` | Unit tests (`apps/**/*.spec.ts`, config in the `jest` key of `package.json`). No database and no `.env` needed; about 15 s. `npm run test:cov` adds coverage into `coverage/` |
+| `npm run test:e2e` | API e2e smoke suite (`apps/agentshub-api/test/app.e2e-spec.ts`) on a throwaway in-memory MongoDB (D-32), `--runInBand`. Never touches the dev database |
+| `npm run test:e2e:batch` | Batch e2e spec on the same in-memory MongoDB setup (D-32) |
 | `npm run seed` | Dev only (refuses `NODE_ENV=production`). Deletes and recreates the `seed_*` members and their data through the services; creates the admin if missing. Needs `SEED_PASSWORD` and the `ADMIN_*` keys |
 | `npm run create-admin` | Creates the `ADMIN_NICK` admin if missing, never changes an existing one (D-14). Allowed in production |
 | `npm run batch:run -- <job>` | Dev only (refuses `NODE_ENV=production`). Runs a batch job once without the scheduler: `rollback`, `products`, `creators` or `all` (default, nightly order). Prints the counts and the top 5 products and creators |
@@ -61,7 +62,8 @@ The code is still almost entirely Nestar. Main conversions:
 Known issues, so you don't trip over them:
 
 - `start:prod` uses `NODE_ENV=production node ...`, which only works in a POSIX shell (not cmd/PowerShell).
-- `apps/agentshub-api/test/` has no e2e spec, so `test:e2e` finds no tests.
+- The first `npm install` on a machine downloads a `mongod` binary for the e2e tests (about 650 MB on Windows, D-32).
+- `npm run lint` (with `--fix`) still reports 42 existing problems in source files (Step 13 list), and its `--fix` rewrites `apps/agentshub-api/src/schemas/Notice.model.ts`. Revert that file before committing until the Step 13 item is done.
 
 Environment variables (see `.env.example` for the key list):
 
@@ -78,8 +80,8 @@ This is a NestJS 10 monorepo (`nest-cli.json`, `monorepo: true`) with Apollo Gra
 ```
 apps/
   agentshub-api/src/
-    main.ts               global ValidationPipe, LoggingInterceptor, graphql-upload (15MB, 10 files),
-                          static /uploads, WsAdapter
+    main.ts               configureApp(app), CORS, graphql-upload (15MB, 10 files), static /uploads, WsAdapter
+    app.setup.ts          configureApp(app): global ValidationPipe + LoggingInterceptor, shared with the e2e tests
     app.module.ts         GraphQLModule (custom formatError), ComponentsModule, DatabaseModule, SocketModule
     components/<name>/    <name>.module.ts, <name>.resolver.ts, <name>.service.ts
                           auth, member, product, board-article, comment, like, view, follow
@@ -97,6 +99,12 @@ apps/
     libs/types/common.ts  T, ObjectId, StatisticModifier
     socket/               raw `ws` gateway: public broadcast chat, last 5 messages kept in memory
                           (note: D-08 says no in-platform chat in the MVP)
+  agentshub-api/test/
+    utils/                mock-model.ts (fake Mongoose model), validate-dto.ts, http-error.ts,
+                          uuid.ts (Jest stand-in for the ESM-only uuid package)
+    e2e/                  global-setup/-teardown (in-memory mongod), e2e-env.ts (env + localhost check),
+                          e2e-app.ts (createE2eApp, gql helpers)
+    app.e2e-spec.ts       API smoke suite
   agentshub-batch/src/    @nestjs/schedule: one nightly cron at 01:00:00 runs rollback → products → creators in sequence
                           AgentsHubBatchModule; imports schemas, DTOs and enums directly from ../../agentshub-api/src/...
 uploads/{member,product,article}/    local image storage (gitignored); the folders must exist on each machine,
@@ -143,6 +151,16 @@ Images are uploaded through `imageUploader` / `imagesUploader` in `member.resolv
 
 - Prettier settings: tabs, single quotes, trailing commas, semicolons, `printWidth` 120.
 - Some existing comments are in Uzbek. Leave them as they are.
+
+**Tests** (Step 11; the goal is to protect the settled rules, not coverage):
+
+- Unit specs sit next to the code they test (`product.service.spec.ts`, `member.dto.spec.ts`). Name the rule they protect (`D-xx`, `Bxx`, `Sxx`) in the `describe` / `it` text.
+- Services: build them with `Test.createTestingModule` and `getModelToken('X')` → `createMockModel()`. Check the thrown exception class and `Message` with `expectHttpError`, and the filters and updates passed to the model (compare-and-set pins, counter calls).
+- DTOs: `invalidFields(Cls, plain)` validates like the global `ValidationPipe`; compare the exact list of failing fields.
+- Fix "now" with `jest.useFakeTimers({ now, doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })` for date rules (D-05, D-31).
+- A new rule gets a test. Before trusting a new test, break the rule on purpose, see the test fail, then restore it.
+- If a test finds a bug: stop, report it, fix it in its own `fix:` commit with an audit entry (`Bxx`), then continue.
+- E2E tests only ever run on the in-memory database (D-32); never point them at `MONGODB_DEV`.
 
 ## Working rules for the conversion
 

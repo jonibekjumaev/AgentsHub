@@ -765,3 +765,30 @@
   - "Now" is the server time at the moment of the request; there is no grace period.
   - The same rule applies to `updateBriefByAdmin`.
   - **Frontend (Step 12 table):** when reopening a brief whose deadline has passed, ask for a new deadline (or none) and send it with the status change.
+
+## D-32 — Which database the e2e tests use
+
+**Status:** Accepted
+
+- **Context:** Step 11 adds an API e2e smoke suite. It signs up members, creates products and briefs, and blocks a member, so it writes data. The only databases so far are the dev database `agentsHub` on Atlas (D-13), which holds the seed data and manual test data, and the production database. The batch e2e spec booted the real batch module against `MONGODB_DEV`, so it connected to the dev database too.
+- **Options:**
+  - **A. `mongodb-memory-server`:** a throwaway `mongod` per test run, on this machine.
+    - Pro: Never touches Atlas or the dev data. Every run starts empty, so tests don't depend on leftovers or clean up after themselves. Works offline after the first download.
+    - Con: A new devDependency. The first `npm install` on each machine downloads a `mongod` binary (about 650 MB on Windows). The binary's MongoDB version may differ from Atlas.
+  - **B. A separate test database on the Atlas cluster** (e.g. `agentsHubTest` through a `MONGODB_TEST` key), with a name check.
+    - Pro: The same MongoDB version as dev. No binary download.
+    - Con: Needs the network and credentials. Test data lives on the shared cluster, and a typo in the URI points the suite at real data. Runs need cleanup.
+  - **C. A local `mongod` or Docker container** started by hand.
+    - Pro: Real MongoDB, chosen version.
+    - Con: An extra manual step on every machine; the tests fail if it isn't running.
+- **Decision:** Option A. Both e2e suites (`npm run test:e2e`, `npm run test:e2e:batch`) run on `mongodb-memory-server`, with these rules:
+  - **One database per run:** a Jest `globalSetup` (`apps/agentshub-api/test/e2e/global-setup.ts`) starts the in-memory `mongod` on `127.0.0.1`; `globalTeardown` stops it. The batch config reuses the same files.
+  - **The test values win over `.env`:** a Jest `setupFiles` module (`test/e2e/e2e-env.ts`) runs before each test file's imports and sets `MONGODB_DEV` (and `MONGODB_PROD`) to the in-memory URI, `NODE_ENV=test` and a throwaway `SECRET_TOKEN`. The app still loads `.env` through `ConfigModule.forRoot()`, which never overrides a variable that is already set.
+  - **Refuse to run otherwise:** the setup throws before the app is imported unless the URI is `mongodb://` with only `127.0.0.1` / `localhost` hosts. After connecting, the app helper (`test/e2e/e2e-app.ts`) and the batch spec check the live connection's host again and close the app if it isn't local.
+  - **The same pipeline as production:** the e2e app is built with `configureApp(app)` (`apps/agentshub-api/src/app.setup.ts`), which `main.ts` also calls, so the `ValidationPipe` and `LoggingInterceptor` can't drift between the two.
+- **Reason:** The e2e suites write data, so they must never be able to reach the dev or production data. An in-memory database that is created and thrown away per run gives that by construction. The two host checks make a misconfiguration fail loudly instead of quietly writing to Atlas. The binary download is a one-time cost per machine.
+- **Consequence:**
+  - **MongoDB version:** the binary is the package default (MongoDB 8.2.6 with `mongodb-memory-server` 11.3.0), not pinned to the Atlas version. The code needs 5.0+ (`$lookup` with `localField` + `pipeline`, S16). Pin it with the package's version setting if a version difference ever matters.
+  - **First install:** `npm install` downloads the binary into `node_modules/.cache/mongodb-memory-server` (about 650 MB download, 74 MB unpacked on Windows). CI, if added later, should cache that folder.
+  - **The batch e2e spec no longer needs `.env` or the dev database.**
+  - **Unit tests (`npm test`) use no database at all:** services get mocked models (`apps/agentshub-api/test/utils/mock-model.ts`).
