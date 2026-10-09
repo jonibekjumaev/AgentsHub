@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+	BadRequestException,
+	ConflictException,
+	InternalServerErrorException,
+	NotFoundException,
+} from '@nestjs/common';
 import { getModelToken } from '@nestjs/mongoose';
 import { Test } from '@nestjs/testing';
 import { Types } from 'mongoose';
@@ -166,6 +171,17 @@ describe('ProductService', () => {
 			productModel.create.mockRejectedValue(new Error('connection lost'));
 
 			await expectHttpError(service.createProduct(productInput({})), BadRequestException, Message.CREATE_FAILED);
+		});
+
+		it('passes a memberProducts failure through as a server error, not CREATE_FAILED (B20)', async () => {
+			memberService.memberStatsEditor.mockRejectedValue(new InternalServerErrorException(Message.UPDATE_FAILED));
+
+			await expectHttpError(
+				service.createProduct(productInput({})),
+				InternalServerErrorException,
+				Message.UPDATE_FAILED,
+			);
+			expect(productModel.create).toHaveBeenCalledTimes(1);
 		});
 	});
 

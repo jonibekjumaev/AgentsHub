@@ -52,20 +52,22 @@ export class ProductService {
 		if (input.productTags) input.productTags = normalizeTags(input.productTags);
 		this.checkPricingRule(input.productPricing, input.productPrice);
 		if (input.productPrice === null) delete input.productPrice; // FREE / CUSTOM: no price is stored (D-03)
+		let result: HydratedDocument<Product>;
 		try {
-			const result = await this.productModel.create(input);
-			//Increase memberProducts+
-			await this.memberService.memberStatsEditor({
-				_id: result.memberId,
-				targetKey: 'memberProducts',
-				modifier: 1,
-			});
-			return result;
+			result = await this.productModel.create(input);
 		} catch (err) {
 			console.log('Error: Service.model', describeDbError(err));
 			if (isDuplicateKeyError(err)) throw new ConflictException(Message.USED_PRODUCT_TITLE);
 			throw new BadRequestException(Message.CREATE_FAILED);
 		}
+
+		// outside the catch: the product exists, so a counter failure is a server error, not CREATE_FAILED (B20)
+		await this.memberService.memberStatsEditor({
+			_id: result.memberId,
+			targetKey: 'memberProducts',
+			modifier: 1,
+		});
+		return result;
 	}
 
 	public async getProduct(

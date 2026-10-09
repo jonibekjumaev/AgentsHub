@@ -561,6 +561,19 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - Target already hard-deleted by an admin (`remove*ByAdmin`, only possible once it is `DELETE`): no counter left, so the counter step is skipped instead of failing with `UPDATE_FAILED` after the comment is gone.
     - Existing drift in the dev DB is not repaired: re-run `npm run seed`, which recreates the seed data. Manual data keeps its old counts.
 
+- [x] **B20 — A failed counter increment after a create is reported as `CREATE_FAILED`**
+  - **When:** found in Step 11 part 3, while writing the `ProductService` spec; fixed before part 4.
+  - **Where:** `api/components/product/product.service.ts` (`createProduct`) and `api/components/brief/brief.service.ts` (`createBrief`).
+  - **Problem:** the `try/catch` around `create` also covered the `memberProducts` / `memberBriefs` increment (`memberStatsEditor`). If the document was saved but the increment failed (e.g. the member no longer exists → `InternalServerErrorException(UPDATE_FAILED)`), the catch turned it into `BadRequestException(CREATE_FAILED)`:
+    - the client was told the create failed, although the product or brief exists, so a retry hits the unique title index (products) or creates a second brief;
+    - a server fault was reported as a client error (`BAD_REQUEST`), so monitoring didn't see it;
+    - the counter is one too low, with nothing in the logs pointing to it.
+  - **Fix:** the `try/catch` covers only the `create` call. Duplicate handling is unchanged (`createProduct`: E11000 → `ConflictException(USED_PRODUCT_TITLE)`, other errors → `CREATE_FAILED`; `createBrief`: any error → `CREATE_FAILED`). The increment runs after it, outside the catch, so its own error reaches the client unchanged (`INTERNAL_SERVER_ERROR` `UPDATE_FAILED`). This is the order `FollowService.subscribe` already uses.
+  - **Not changed:** the document is still kept when the increment fails, and the counter stays one too low. Rolling back the create would need a transaction or a compensating delete; out of scope for the MVP.
+  - **Same pattern elsewhere, not fixed:** `BoardArticleService.createBoardArticle` also wraps its `memberArticles` increment in the create `try/catch`. It already answers `InternalServerErrorException(CREATE_FAILED)`, so the error class is right and only the message is misleading. Fix it with the same change when board articles are next touched.
+  - **API:** only the error of a server fault changes (`BAD_REQUEST` `CREATE_FAILED` → `INTERNAL_SERVER_ERROR` `UPDATE_FAILED`); no normal request is affected, so there is no Step 12 row.
+  - **Verify:** `product.service.spec.ts` and `brief.service.spec.ts`: with `memberStatsEditor` rejecting, `createProduct` / `createBrief` reject with that `InternalServerErrorException(UPDATE_FAILED)`, not `CREATE_FAILED`. Both tests fail on the old code and pass with the fix; the existing create tests (duplicate title → `CONFLICT`, other errors → `CREATE_FAILED`, +1 on success) still pass.
+
 ---
 
 ## Step 3 — Config (package names, DB name, env, app names)

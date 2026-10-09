@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, PipelineStage, UpdateQuery } from 'mongoose';
+import { HydratedDocument, Model, PipelineStage, UpdateQuery } from 'mongoose';
 import moment from 'moment';
 import { Brief, Briefs } from '../../libs/dto/brief/brief';
 import {
@@ -35,18 +35,21 @@ export class BriefService {
 		// no budget / deadline is stored as a missing field, not null (D-04, D-05)
 		if (input.briefBudget === null) delete input.briefBudget;
 		if (input.briefDeadline === null) delete input.briefDeadline;
+		let result: HydratedDocument<Brief>;
 		try {
-			const result = await this.briefModel.create(input);
-			await this.memberService.memberStatsEditor({
-				_id: result.memberId,
-				targetKey: 'memberBriefs',
-				modifier: 1,
-			});
-			return result;
+			result = await this.briefModel.create(input);
 		} catch (err) {
 			console.log('Error: Service.model', describeDbError(err));
 			throw new BadRequestException(Message.CREATE_FAILED);
 		}
+
+		// outside the catch: the brief exists, so a counter failure is a server error, not CREATE_FAILED (B20)
+		await this.memberService.memberStatsEditor({
+			_id: result.memberId,
+			targetKey: 'memberBriefs',
+			modifier: 1,
+		});
+		return result;
 	}
 
 	public async getBrief(memberId: ObjectId | null, briefId: ObjectId): Promise<Brief> {
