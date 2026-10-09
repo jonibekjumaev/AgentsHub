@@ -1267,6 +1267,15 @@ The field-level check covers all of them automatically. Keep the list as the ver
     | `schemas/Notice.model.ts` | 1 warning (+ the prettier error above) | `mongoose` default import unused (line 1); the whitespace-only line 27. |
 
 - [ ] Unit specs for the chat gateway (`api/socket/socket.gateway.ts`), left out of Step 11 by owner decision: message validation (D-19 condition 3, S6), only authenticated members send (condition 2, S5), the per-member rate limit across sockets (condition 4, S7), public `memberData` fields only (condition 1, S3), and the member status check on connection (condition 7, S4). The gateway needs fake `ws` clients and a mocked `AuthService` / `Member` model.
+- [ ] Add `@IsEnum(...)` to the required enum fields of the create inputs, which have only `@IsNotEmpty()`. Found in Step 11 part 2.
+  - **Where:** `api/libs/dto/product/product.input.ts:39` (`ProductInput.productCategory`) and `:43` (`productPricing`); `api/libs/dto/brief/brief.input.ts:36` (`BriefInput.briefCategory`); `api/libs/dto/comment/comment.input.ts:13` (`CommentInput.commentGroup`) and `:37` (`CISearch.commentGroup`); `api/libs/dto/board-article/board-article.input.ts:14` (`BoardArticleInput.articleCategory`).
+  - **Why it's not a bug through the API:** GraphQL rejects an unknown enum value before the `ValidationPipe` runs.
+  - **Why fix it anyway:** `npm run seed` and `npm run create-admin` call the services directly and check their input with the same DTOs (`validated()` in `scripts/script-utils.ts`), so an unknown value in the seed data would pass and be stored. The update inputs already use `@IsEnum` (B11).
+- [ ] Check the tag length after trimming, not before. Found in Step 11 part 2.
+  - **Where:** `@Length(1, productTagMaxLength, { each: true })` on `ProductInput.productTags` (`product.input.ts:67`), `ProductFilters.tagList` (`:136`) and `ProductUpdate.productTags` (`product.update.ts:76`).
+  - **Problem:** the length is checked on the raw value, but the tag is saved after `normalizeTags` (trim, lowercase). A 30-character tag sent with spaces around it is rejected, although the stored tag would be 30 characters. The reverse can't happen, so nothing too long is stored.
+  - **Fix:** trim before validating (e.g. `@Transform` on the field, which the `ValidationPipe` applies through `plainToInstance`), or accept it and document that the limit counts the spaces. Decide which; either way it's a small, client-visible change (Step 12 table).
+- [ ] Remove the outdated "Write-only until D-07: not a field on the Member output type yet" comment above `memberEmail` in `MemberUpdate` and `MemberUpdateByAdmin` (`api/libs/dto/member/member.update.ts:43`, `:96`). Since Step 9, `memberEmail` / `memberWhatsapp` are fields of the `Member` output type, returned only to authenticated requests (D-07, D-23). Keep the "Send null to remove the contact" part.
 
 ---
 
