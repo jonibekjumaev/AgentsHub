@@ -1134,6 +1134,8 @@ The field-level check covers all of them automatically. Keep the list as the ver
 
 ## Step 10 — Batch (`apps/nestar-batch/`)
 
+- **Briefs are not ranked** (decided in Step 10 planning): no `briefRank`, no brief job; the ER doc has no rank field for briefs.
+- [x] **Manual run (Step 10 part 1):** `npm run batch:run -- rollback | products | creators | all` (`scripts/run-batch.ts`, dev only) runs a job once without the scheduler and prints the counts and the top 5 products and creators. The models and `BatchService` moved to `BatchJobsModule`, which `AgentsHubBatchModule` imports; the jobs now return their counts (the crons ignore them).
 - [x] `batch/batch.module.ts:9,16`: imports `PropertySchema` from `../../nestar-api/src/schemas/Property.model` and registers it as `'Property'` → `ProductSchema` / `'Product'`.
 - [x] `batch/batch.service.ts`:
   - imports `Property` / `PropertyStatus` (3, 6)
@@ -1165,7 +1167,7 @@ The field-level check covers all of them automatically. Keep the list as the ver
 - [ ] `batch/batch.controller.ts:8`: `new Logger('BatchController.name')` is a string literal, not `BatchController.name`. (cosmetic)
 - [ ] `batch/libs/config.ts:6–7`: `BATCH_TOP_PROPERTIES` → `BATCH_TOP_PRODUCTS` and `BATCH_TOP_AGENTS` → `BATCH_TOP_CREATORS`.
   - **Done in Step 6 part 7:** `BATCH_TOP_PRODUCTS`. **Still open:** `BATCH_TOP_CREATORS`.
-- [ ] `batch/batch.service.ts:74`: hello string (see Step 3).
+- [x] `batch/batch.service.ts:74`: hello string (see Step 3). Already `'Hello to AgentsHub BATCH server!'` (checked in Step 10 part 1).
 - [ ] `apps/nestar-batch/test/app.e2e-spec.ts:4,11` (bug, fix in its own commit; it stays here because steps 3 and 10 change both the module class name and the hello string it asserts): imports `NestarBatchModule`, which doesn't exist (the class is `BatchModule`). Under D-21 the class may become `AgentsHubBatchModule`; either way, the spec must import the class's actual name. It also expects `'Hello World!'` (19). The spec can't compile.
 - [ ] Ranking rollback only resets members with `memberStatus: ACTIVE`. Blocked or deleted creators keep a stale `memberRank`. (minor)
 

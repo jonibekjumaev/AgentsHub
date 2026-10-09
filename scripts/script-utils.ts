@@ -1,4 +1,4 @@
-import { INestApplicationContext } from '@nestjs/common';
+import { INestApplicationContext, Type } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { getConnectionToken } from '@nestjs/mongoose';
 import { ClassConstructor, plainToInstance } from 'class-transformer';
@@ -37,8 +37,11 @@ export async function validated<T extends object>(
 	return instance;
 }
 
-export async function createScriptContext(): Promise<{ app: INestApplicationContext; connection: Connection }> {
-	const app = await NestFactory.createApplicationContext(ScriptsModule, { logger: ['error', 'warn'] });
+/** `module` defaults to the API's services (ScriptsModule); `batch:run` passes the batch jobs instead. */
+export async function createScriptContext(
+	module: Type = ScriptsModule,
+): Promise<{ app: INestApplicationContext; connection: Connection }> {
+	const app = await NestFactory.createApplicationContext(module, { logger: ['error', 'warn'] });
 	const connection = app.get<Connection>(getConnectionToken());
 	return { app, connection };
 }

@@ -12,8 +12,9 @@ export class BatchService {
 		@InjectModel('Product') private readonly productModel: Model<Product>,
 		@InjectModel('Member') private readonly memberModel: Model<Member>,
 	) {}
-	public async batchRollback(): Promise<void> {
-		await this.productModel
+	/** Returns how many products and members were reset (for `npm run batch:run`; the crons ignore it). */
+	public async batchRollback(): Promise<{ products: number; members: number }> {
+		const products = await this.productModel
 			.updateMany(
 				{
 					productStatus: ProductStatus.ACTIVE,
@@ -22,7 +23,7 @@ export class BatchService {
 			)
 			.exec();
 
-		await this.memberModel
+		const members = await this.memberModel
 			.updateMany(
 				{
 					memberStatus: MemberStatus.ACTIVE,
@@ -33,9 +34,12 @@ export class BatchService {
 				},
 			)
 			.exec();
+
+		return { products: products.modifiedCount, members: members.modifiedCount };
 	}
 
-	public async batchProducts(): Promise<void> {
+	/** Returns how many products were ranked. */
+	public async batchProducts(): Promise<number> {
 		const products: Product[] = await this.productModel
 			.find({
 				productStatus: ProductStatus.ACTIVE,
@@ -50,9 +54,11 @@ export class BatchService {
 		});
 
 		await Promise.all(promisedList);
+		return products.length;
 	}
 
-	public async batchAgents(): Promise<void> {
+	/** Returns how many creators were ranked. */
+	public async batchAgents(): Promise<number> {
 		const agents: Member[] = await this.memberModel
 			.find({
 				memberType: MemberType.CREATOR,
@@ -68,6 +74,7 @@ export class BatchService {
 		});
 
 		await Promise.all(promisedList);
+		return agents.length;
 	}
 
 	getHello(): string {

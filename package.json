@@ -22,7 +22,8 @@
     "test:e2e": "jest --config ./apps/agentshub-api/test/jest-e2e.json",
     "test:e2e:batch": "jest --config ./apps/agentshub-batch/test/jest-e2e.json",
     "seed": "ts-node --transpile-only -P tsconfig.json scripts/seed/seed.ts",
-    "create-admin": "ts-node --transpile-only -P tsconfig.json scripts/create-admin.ts"
+    "create-admin": "ts-node --transpile-only -P tsconfig.json scripts/create-admin.ts",
+    "batch:run": "ts-node --transpile-only -P tsconfig.json scripts/run-batch.ts"
   },
   "dependencies": {
     "@apollo/server": "^4.9.5",
