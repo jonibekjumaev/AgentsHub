@@ -1142,12 +1142,12 @@ The field-level check covers all of them automatically. Keep the list as the ver
   - `@InjectModel('Property') propertyModel` (12) → `productModel`
 
   Done in Step 6 part 7 (both items above).
-- [ ] `batchRollback` (15–36):
+- [x] `batchRollback` (15–36):
   - `propertyStatus: ACTIVE` / `propertyRank` (19, 21) → `product*`
   - reset `productRank` for all non-deleted products (`productStatus ≠ DELETE`), not only `ACTIVE`, so a product that is reactivated doesn't keep a stale rank (D-16)
   - `memberType: MemberType.AGENT` (29) → `CREATOR`
 
-  **Done in Step 6 part 7:** the `product*` field rename (still `ACTIVE` only). `CREATOR` has been in place since Step 4. **Still open:** the `≠ DELETE` reset (D-16). Left for Step 10 (decided in Step 6 part 14): until then a reactivated product keeps its pre-pause `productRank` until the next rollback.
+  **Done in Step 6 part 7:** the `product*` field rename (still `ACTIVE` only). `CREATOR` has been in place since Step 4. **Still open:** the `≠ DELETE` reset (D-16). Left for Step 10 (decided in Step 6 part 14): until then a reactivated product keeps its pre-pause `productRank` until the next rollback. **Done in Step 10 part 2:** the reset matches `productStatus: { $ne: DELETE }`, so `PAUSED` products are reset too.
 - [ ] `batchProperties` (38–53) → `batchProducts`. The rank becomes `productLikes*2 + productViews*1` (line 48: rename the fields only; weights unchanged). Comments are never used (D-17).
   - keep ranking only `ACTIVE` products (41). Paused products get no rank (D-16).
 
@@ -1169,7 +1169,7 @@ The field-level check covers all of them automatically. Keep the list as the ver
   - **Done in Step 6 part 7:** `BATCH_TOP_PRODUCTS`. **Still open:** `BATCH_TOP_CREATORS`.
 - [x] `batch/batch.service.ts:74`: hello string (see Step 3). Already `'Hello to AgentsHub BATCH server!'` (checked in Step 10 part 1).
 - [ ] `apps/nestar-batch/test/app.e2e-spec.ts:4,11` (bug, fix in its own commit; it stays here because steps 3 and 10 change both the module class name and the hello string it asserts): imports `NestarBatchModule`, which doesn't exist (the class is `BatchModule`). Under D-21 the class may become `AgentsHubBatchModule`; either way, the spec must import the class's actual name. It also expects `'Hello World!'` (19). The spec can't compile.
-- [ ] Ranking rollback only resets members with `memberStatus: ACTIVE`. Blocked or deleted creators keep a stale `memberRank`. (minor)
+- [x] Ranking rollback only resets members with `memberStatus: ACTIVE`. Blocked or deleted creators keep a stale `memberRank`. (minor) **Done in Step 10 part 2:** the rollback resets every `CREATOR`, whatever its status; ranking still covers only `ACTIVE` creators.
 
 ---
 

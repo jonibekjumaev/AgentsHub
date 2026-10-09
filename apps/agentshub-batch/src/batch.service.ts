@@ -14,26 +14,13 @@ export class BatchService {
 	) {}
 	/** Returns how many products and members were reset (for `npm run batch:run`; the crons ignore it). */
 	public async batchRollback(): Promise<{ products: number; members: number }> {
+		// every non-deleted product, PAUSED included: a resumed product must not keep its pre-pause rank (D-16)
 		const products = await this.productModel
-			.updateMany(
-				{
-					productStatus: ProductStatus.ACTIVE,
-				},
-				{ productRank: 0 },
-			)
+			.updateMany({ productStatus: { $ne: ProductStatus.DELETE } }, { productRank: 0 })
 			.exec();
 
-		const members = await this.memberModel
-			.updateMany(
-				{
-					memberStatus: MemberStatus.ACTIVE,
-					memberType: MemberType.CREATOR,
-				},
-				{
-					memberRank: 0,
-				},
-			)
-			.exec();
+		// every creator whatever its status, so a blocked creator keeps no stale rank; ranking stays ACTIVE only
+		const members = await this.memberModel.updateMany({ memberType: MemberType.CREATOR }, { memberRank: 0 }).exec();
 
 		return { products: products.modifiedCount, members: members.modifiedCount };
 	}
