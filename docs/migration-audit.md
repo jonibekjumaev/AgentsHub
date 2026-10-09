@@ -1250,6 +1250,23 @@ The field-level check covers all of them automatically. Keep the list as the ver
 - [ ] `getBoardArticle` and `getMember` should use `isBoardArticleVisible` / `isMemberVisible`, so each visibility rule lives in one place.
   - Both helpers were added in Step 8 part 2 for `getComments`. The two single reads still filter by status in their own query (`articleStatus: ACTIVE`, `memberStatus: { $in: [ACTIVE, BLOCK] }`).
   - Load by `_id`, then check the helper, as `getProduct` / `getBrief` do. In `getMember`, the `memberViews` increment reuses the same `search`; keep its filter unchanged or move it to `memberStatsEditor`. No behaviour change.
+- [ ] Fix the existing lint problems, so `npm run lint` passes. Found in Step 11 part 1 (before that part, none in test files).
+  - `npm run lint` (with `--fix`) leaves **42 problems** (38 errors, 4 warnings), all in `api/`. Run without `--fix`, ESLint reports 43: the extra one is the `prettier/prettier` error in `Notice.model.ts:27` (a line with only tabs), which `--fix` rewrites. Until it's fixed, revert that `--fix` change before a commit.
+  - Each fix is a type or unused-code change with no behaviour change.
+
+    | File | Problems | Cause and fix |
+    |---|---|---|
+    | `components/like/like.service.ts:79–81` (`getFavoriteProducts`) | 7 errors: `no-unsafe-assignment` ×2, `no-unsafe-member-access` ×3, `no-unsafe-call`, `no-unsafe-return` | `aggregate()` returns `any[]`, so `data[0].metaCounter` and `data[0].list.map(…)` are untyped. Type the aggregate result (e.g. `aggregate<{ list: { favoriteProduct: Product }[]; metaCounter: … }>`). |
+    | `components/view/view.service.ts:63–64` (`getVisitedProducts`) | 7 errors: the same set as the like service | The same pattern with `visitedProduct`; the same fix. |
+    | `components/member/member.resolver.ts` | 4 errors | `checkAuth` (54) and `checkAuthRoles` (63) are `async` without `await` (`require-await`): drop `async` or return the string as it is. `imageUploader` (144) and `imagesUploader` (177) return `any` / `any[]` (`no-unsafe-return`): type the values they return. |
+    | `libs/dto/member/member.update.ts` | 7 errors (`no-unsafe-member-access`), lines 21, 27, 38, 69, 74, 80, 91 | The B11 / B2 / B12 `@ValidateIf((o) => o.<field> !== undefined)` callbacks have an untyped `o`. Type it as the class: `(o: MemberUpdate) => …` / `(o: MemberUpdateByAdmin) => …`. |
+    | `libs/dto/product/product.update.ts` | 7 errors (`no-unsafe-member-access`), lines 36, 42, 47, 52, 72, 81, 87 | The same `@ValidateIf` pattern: `(o: ProductUpdate) => …`. |
+    | `libs/dto/board-article/board-article.update.ts` | 3 errors (`no-unsafe-member-access`), lines 13, 18, 24 | The same: `(o: BoardArticleUpdate) => …`. |
+    | `libs/dto/comment/comment.update.ts` | 2 errors (`no-unsafe-member-access`), lines 13, 18 | The same: `(o: CommentUpdate) => …`. |
+    | `socket/socket.gateway.ts` | 1 error, 3 warnings | `retrieveAuth(req: any)` (79): `req.url` is untyped (`no-unsafe-member-access`, `no-unsafe-argument`); type `req` as `IncomingMessage` (`http`). Unused `server` parameter of `afterInit` (72) and unused `err` in its `catch` (92): remove them or prefix them with `_`. |
+    | `schemas/Notice.model.ts` | 1 warning (+ the prettier error above) | `mongoose` default import unused (line 1); the whitespace-only line 27. |
+
+- [ ] Unit specs for the chat gateway (`api/socket/socket.gateway.ts`), left out of Step 11 by owner decision: message validation (D-19 condition 3, S6), only authenticated members send (condition 2, S5), the per-member rate limit across sockets (condition 4, S7), public `memberData` fields only (condition 1, S3), and the member status check on connection (condition 7, S4). The gateway needs fake `ws` clients and a mocked `AuthService` / `Member` model.
 
 ---
 
