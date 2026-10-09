@@ -61,7 +61,7 @@ The code is still almost entirely Nestar. Main conversions:
 Known issues, so you don't trip over them:
 
 - `start:prod` uses `NODE_ENV=production node ...`, which only works in a POSIX shell (not cmd/PowerShell).
-- `apps/agentshub-api/test/` has no e2e spec, so `test:e2e` finds no tests. The batch e2e spec still expects `'Hello World!'` (fixed in Step 10).
+- `apps/agentshub-api/test/` has no e2e spec, so `test:e2e` finds no tests.
 
 Environment variables (see `.env.example` for the key list):
 
