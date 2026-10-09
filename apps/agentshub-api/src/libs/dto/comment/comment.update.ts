@@ -1,11 +1,12 @@
 import { Field, InputType } from '@nestjs/graphql';
-import { IsEnum, IsNotEmpty, IsString, Length, ValidateIf } from 'class-validator';
+import { IsEnum, IsMongoId, IsNotEmpty, IsString, Length, ValidateIf } from 'class-validator';
 import { CommentStatus } from '../../enums/comment.enum';
 import type { ObjectId } from '../../types/common';
 
 @InputType()
 export class CommentUpdate {
 	@IsNotEmpty()
+	@IsMongoId()
 	@Field(() => String)
 	_id!: ObjectId;
 

@@ -22,6 +22,7 @@ import {
 	validUploadTargets,
 	shapeInToMongoObjectId,
 } from '../../libs/config';
+import { ObjectIdPipe } from '../../libs/pipes/object-id.pipe';
 import { WithoutGuard } from '../auth/guards/without.guard';
 import type { AuthPayload, ObjectId } from '../../libs/types/common';
 import { GraphQLUpload } from 'graphql-upload';
@@ -86,7 +87,10 @@ export class MemberResolver {
 
 	@UseGuards(WithoutGuard)
 	@Query(() => Member)
-	public async getMember(@Args('memberId') input: string, @AuthMember('_id') memberId: ObjectId): Promise<Member> {
+	public async getMember(
+		@Args('memberId', ObjectIdPipe) input: string,
+		@AuthMember('_id') memberId: ObjectId,
+	): Promise<Member> {
 		console.log('Query: getMember');
 		console.log('memberId:', memberId);
 		const targetId = shapeInToMongoObjectId(input);
@@ -106,7 +110,7 @@ export class MemberResolver {
 	@UseGuards(AuthGuard)
 	@Mutation(() => Member)
 	public async likeTargetMember(
-		@Args('memberId') input: string,
+		@Args('memberId', ObjectIdPipe) input: string,
 		@AuthMember('_id') memberId: ObjectId,
 	): Promise<Member> {
 		console.log('Mutation: likeTargetMember');

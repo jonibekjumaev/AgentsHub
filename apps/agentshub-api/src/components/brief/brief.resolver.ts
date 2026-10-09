@@ -11,6 +11,7 @@ import { Brief, Briefs } from '../../libs/dto/brief/brief';
 import { AllBriefsInquiry, BriefInput, BriefsInquiry, MyBriefsInquiry } from '../../libs/dto/brief/brief.input';
 import { BriefUpdate } from '../../libs/dto/brief/brief.update';
 import { shapeInToMongoObjectId } from '../../libs/config';
+import { ObjectIdPipe } from '../../libs/pipes/object-id.pipe';
 
 @Resolver()
 export class BriefResolver {
@@ -27,7 +28,10 @@ export class BriefResolver {
 
 	@UseGuards(WithoutGuard)
 	@Query(() => Brief)
-	public async getBrief(@Args('briefId') input: string, @AuthMember('_id') memberId: ObjectId): Promise<Brief> {
+	public async getBrief(
+		@Args('briefId', ObjectIdPipe) input: string,
+		@AuthMember('_id') memberId: ObjectId,
+	): Promise<Brief> {
 		console.log('Query: getBrief');
 		const briefId = shapeInToMongoObjectId(input);
 		return await this.briefService.getBrief(memberId, briefId);
@@ -82,7 +86,7 @@ export class BriefResolver {
 	@Roles(MemberType.ADMIN)
 	@UseGuards(RolesGuard)
 	@Mutation(() => Brief)
-	public async removeBriefByAdmin(@Args('briefId') input: string): Promise<Brief> {
+	public async removeBriefByAdmin(@Args('briefId', ObjectIdPipe) input: string): Promise<Brief> {
 		console.log('Mutation: removeBriefByAdmin');
 		const briefId = shapeInToMongoObjectId(input);
 		return await this.briefService.removeBriefByAdmin(briefId);

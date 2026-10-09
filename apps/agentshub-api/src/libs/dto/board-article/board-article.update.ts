@@ -1,11 +1,12 @@
 import { Field, InputType } from '@nestjs/graphql';
-import { IsEnum, IsNotEmpty, IsOptional, IsString, Length, ValidateIf } from 'class-validator';
+import { IsEnum, IsMongoId, IsNotEmpty, IsOptional, IsString, Length, ValidateIf } from 'class-validator';
 import { BoardArticleStatus } from '../../enums/board-article.enum';
 import type { ObjectId } from '../../types/common';
 
 @InputType()
 export class BoardArticleUpdate {
 	@IsNotEmpty()
+	@IsMongoId()
 	@Field(() => String)
 	_id!: ObjectId;
 

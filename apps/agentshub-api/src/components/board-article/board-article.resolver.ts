@@ -12,6 +12,7 @@ import { AuthMember } from '../auth/decorators/authMember.decorator';
 import type { ObjectId } from '../../libs/types/common';
 import { WithoutGuard } from '../auth/guards/without.guard';
 import { shapeInToMongoObjectId } from '../../libs/config';
+import { ObjectIdPipe } from '../../libs/pipes/object-id.pipe';
 import { BoardArticleUpdate } from '../../libs/dto/board-article/board-article.update';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { MemberType } from '../../libs/enums/member.enum';
@@ -34,7 +35,7 @@ export class BoardArticleResolver {
 	@UseGuards(WithoutGuard)
 	@Query(() => BoardArticle)
 	public async getBoardArticle(
-		@Args('articleId') input: string,
+		@Args('articleId', ObjectIdPipe) input: string,
 		@AuthMember('_id') memberId: ObjectId,
 	): Promise<BoardArticle> {
 		console.log('Query: getBoardArticle');
@@ -66,7 +67,7 @@ export class BoardArticleResolver {
 	@UseGuards(AuthGuard)
 	@Mutation(() => BoardArticle)
 	public async likeTargetBoardArticle(
-		@Args('articleId') input: string,
+		@Args('articleId', ObjectIdPipe) input: string,
 		@AuthMember('_id') memberId: ObjectId,
 	): Promise<BoardArticle> {
 		console.log('Mutation: likeTargetBoardArticle');
@@ -96,7 +97,7 @@ export class BoardArticleResolver {
 	@Roles(MemberType.ADMIN)
 	@UseGuards(RolesGuard)
 	@Mutation(() => BoardArticle)
-	public async removeBoardArticleByAdmin(@Args('articleId') input: string): Promise<BoardArticle> {
+	public async removeBoardArticleByAdmin(@Args('articleId', ObjectIdPipe) input: string): Promise<BoardArticle> {
 		console.log('Mutation: updateBoardArticle');
 		const articleId = shapeInToMongoObjectId(input);
 		return await this.boardArticleService.removeBoardArticleByAdmin(articleId);

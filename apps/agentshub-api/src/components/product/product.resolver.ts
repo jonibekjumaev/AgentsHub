@@ -16,6 +16,7 @@ import {
 import { OrdinaryInquiry } from '../../libs/dto/common.input';
 import { WithoutGuard } from '../auth/guards/without.guard';
 import { shapeInToMongoObjectId } from '../../libs/config';
+import { ObjectIdPipe } from '../../libs/pipes/object-id.pipe';
 import { ProductUpdate } from '../../libs/dto/product/product.update';
 import { AuthGuard } from '../auth/guards/auth.guard';
 
@@ -38,7 +39,7 @@ export class ProductResolver {
 	@UseGuards(WithoutGuard)
 	@Query(() => Product)
 	public async getProduct(
-		@Args('productId') input: string,
+		@Args('productId', ObjectIdPipe) input: string,
 		@AuthMember('_id') memberId: ObjectId,
 		@AuthMember('memberType') memberType: MemberType,
 	): Promise<Product> {
@@ -103,7 +104,7 @@ export class ProductResolver {
 	@UseGuards(AuthGuard)
 	@Mutation(() => Product)
 	public async likeTargetProduct(
-		@Args('productId') input: string,
+		@Args('productId', ObjectIdPipe) input: string,
 		@AuthMember('_id') memberId: ObjectId,
 	): Promise<Product> {
 		console.log('Mutation: likeTargetProduct');
@@ -133,7 +134,7 @@ export class ProductResolver {
 	@Roles(MemberType.ADMIN)
 	@UseGuards(RolesGuard)
 	@Mutation(() => Product)
-	public async removeProductByAdmin(@Args('productId') input: string): Promise<Product> {
+	public async removeProductByAdmin(@Args('productId', ObjectIdPipe) input: string): Promise<Product> {
 		console.log('Mutation: removeProductByAdmin');
 		const productId = shapeInToMongoObjectId(input);
 		return await this.productService.removeProductByAdmin(productId);

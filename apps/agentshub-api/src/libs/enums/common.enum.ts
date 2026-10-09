@@ -8,6 +8,7 @@ export enum Message {
 	REMOVE_FAILED = 'Remove failed!',
 	UPLOAD_FAILED = 'Upload failed!',
 	BAD_REQUEST = 'Bad Request',
+	INVALID_MONGO_ID = 'must be a mongodb id', // prefixed with the argument name, like class-validator's @IsMongoId message (B18)
 
 	USED_MEMBER_NICK_OR_PHONE = 'Already used member nick or phone',
 	INVALID_CREDENTIALS = 'Wrong member nick or password!',

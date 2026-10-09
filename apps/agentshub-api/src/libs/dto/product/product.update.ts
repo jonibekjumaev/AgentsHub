@@ -4,6 +4,7 @@ import {
 	ArrayMinSize,
 	IsArray,
 	IsEnum,
+	IsMongoId,
 	IsNotEmpty,
 	IsNumber,
 	IsOptional,
@@ -28,6 +29,7 @@ import {
 @InputType()
 export class ProductUpdate {
 	@IsNotEmpty()
+	@IsMongoId()
 	@Field(() => String)
 	_id!: ObjectId;
 

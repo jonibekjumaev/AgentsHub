@@ -8,6 +8,7 @@ import { AuthMember } from '../auth/decorators/authMember.decorator';
 import type { ObjectId } from '../../libs/types/common';
 import { CommentUpdate } from '../../libs/dto/comment/comment.update';
 import { shapeInToMongoObjectId } from '../../libs/config';
+import { ObjectIdPipe } from '../../libs/pipes/object-id.pipe';
 import { WithoutGuard } from '../auth/guards/without.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { MemberType } from '../../libs/enums/member.enum';
@@ -54,7 +55,7 @@ export class CommentResolver {
 	@Roles(MemberType.ADMIN)
 	@UseGuards(RolesGuard)
 	@Mutation(() => Comment)
-	public async removeCommentByAdmin(@Args('commentId') input: string): Promise<Comment> {
+	public async removeCommentByAdmin(@Args('commentId', ObjectIdPipe) input: string): Promise<Comment> {
 		console.log('Mutation: removeCommentByAdmin');
 		const commentId = shapeInToMongoObjectId(input);
 		return await this.commentService.removeCommentByAdmin(commentId);

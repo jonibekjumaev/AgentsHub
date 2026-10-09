@@ -2,6 +2,7 @@ import { Field, InputType } from '@nestjs/graphql';
 import {
 	IsEmail,
 	IsEnum,
+	IsMongoId,
 	IsNotEmpty,
 	IsOptional,
 	IsString,
@@ -61,6 +62,7 @@ export class MemberUpdate {
 @InputType()
 export class MemberUpdateByAdmin {
 	@IsNotEmpty()
+	@IsMongoId()
 	@Field(() => String)
 	_id!: ObjectId;
 
