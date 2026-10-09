@@ -1,4 +1,10 @@
-import { CanActivate, ExecutionContext, Injectable, ForbiddenException } from '@nestjs/common';
+import {
+	CanActivate,
+	ExecutionContext,
+	Injectable,
+	ForbiddenException,
+	InternalServerErrorException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthService } from '../auth.service';
 import { Message } from '../../../libs/enums/common.enum';
@@ -13,8 +19,12 @@ export class RolesGuard implements CanActivate {
 	) {}
 
 	async canActivate(context: ExecutionContext): Promise<boolean> {
-		const roles = this.reflector.get<string[]>('roles', context.getHandler());
-		if (!roles) return true;
+		const roles = this.reflector.get<string[] | undefined>('roles', context.getHandler());
+		// fail closed (B21): RolesGuard without @Roles (or with an empty one) is a server misconfiguration, never open
+		if (!roles?.length) {
+			console.error(`RolesGuard without @Roles on ${context.getClass()?.name}.${context.getHandler()?.name}`);
+			throw new InternalServerErrorException(Message.SOMETHING_WENT_WRONG);
+		}
 
 		console.info(`--- @guard() Authentication [RolesGuard]: ${roles.join(', ')} ---`);
 

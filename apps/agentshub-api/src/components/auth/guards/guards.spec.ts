@@ -1,4 +1,12 @@
-import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { readdirSync } from 'fs';
+import { join } from 'path';
+import {
+	ExecutionContext,
+	ForbiddenException,
+	InternalServerErrorException,
+	UnauthorizedException,
+} from '@nestjs/common';
+import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { Reflector } from '@nestjs/core';
 import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
 import { Types } from 'mongoose';
@@ -94,9 +102,54 @@ describe('auth guards (B17)', () => {
 			);
 		});
 
-		it('a method without @Roles is not restricted, and needs no token', async () => {
-			await expect(guard().canActivate(graphqlContext(request()))).resolves.toBe(true);
-			expect(authService.authenticate).not.toHaveBeenCalled();
+		it.each([
+			['without @Roles', undefined],
+			['with an empty @Roles()', []],
+		])(
+			'fails closed for a method %s (B21): 500, even with a valid token, before any DB read',
+			async (_label, roles) => {
+				const req = request('Bearer token');
+
+				await expectHttpError(
+					guard().canActivate(graphqlContext(req, roles)),
+					InternalServerErrorException,
+					Message.SOMETHING_WENT_WRONG,
+				);
+				expect(authService.authenticate).not.toHaveBeenCalled();
+				expect(req.body.authMember).toBeUndefined();
+			},
+		);
+	});
+
+	describe('every resolver method guarded by RolesGuard has @Roles (B21)', () => {
+		// every *.resolver.ts under components/, so a new resolver is checked without editing this test
+		const resolverFiles = readdirSync(join(__dirname, '..', '..'), { recursive: true, encoding: 'utf8' })
+			.filter((file) => file.endsWith('.resolver.ts'))
+			.map((file) => join(__dirname, '..', '..', file));
+
+		const guardedMethods = resolverFiles.flatMap((file) => {
+			const exports = require(file) as Record<string, unknown>; // eslint-disable-line @typescript-eslint/no-require-imports
+			const classes = Object.values(exports).filter((value): value is new () => object => typeof value === 'function');
+			return classes.flatMap((cls) => {
+				const classGuards = (Reflect.getMetadata(GUARDS_METADATA, cls) ?? []) as unknown[];
+				return Object.getOwnPropertyNames(cls.prototype)
+					.filter((name) => name !== 'constructor')
+					.map((name) => {
+						const method = (cls.prototype as Record<string, unknown>)[name] as object;
+						const guards = [...classGuards, ...((Reflect.getMetadata(GUARDS_METADATA, method) ?? []) as unknown[])];
+						const roles = Reflect.getMetadata('roles', method) as string[] | undefined;
+						return { name: `${cls.name}.${name}`, guarded: guards.includes(RolesGuard), roles };
+					})
+					.filter((method) => method.guarded);
+			});
+		});
+
+		it('finds the RolesGuard methods (19 when B21 was fixed)', () => {
+			expect(guardedMethods.length).toBeGreaterThanOrEqual(19);
+		});
+
+		it('none of them is missing @Roles or has an empty one', () => {
+			expect(guardedMethods.filter((method) => !method.roles?.length).map((method) => method.name)).toEqual([]);
 		});
 	});
 

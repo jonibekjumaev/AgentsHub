@@ -574,6 +574,16 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **API:** only the error of a server fault changes (`BAD_REQUEST` `CREATE_FAILED` → `INTERNAL_SERVER_ERROR` `UPDATE_FAILED`); no normal request is affected, so there is no Step 12 row.
   - **Verify:** `product.service.spec.ts` and `brief.service.spec.ts`: with `memberStatsEditor` rejecting, `createProduct` / `createBrief` reject with that `InternalServerErrorException(UPDATE_FAILED)`, not `CREATE_FAILED`. Both tests fail on the old code and pass with the fix; the existing create tests (duplicate title → `CONFLICT`, other errors → `CREATE_FAILED`, +1 on success) still pass.
 
+- [x] **B21 — `RolesGuard` lets a method without `@Roles` through**
+  - **When:** found in Step 11 part 5, while writing the guards spec; fixed before part 6.
+  - **Where:** `api/components/auth/guards/roles.guard.ts`: `if (!roles) return true;`.
+  - **Problem:** the guard failed open. A resolver method with `@UseGuards(RolesGuard)` but no `@Roles(...)` (e.g. a forgotten decorator on a new `*ByAdmin` method) was open to everyone, guests included, with no token check and no `authMember`. Nothing was exposed yet: all 19 `RolesGuard` methods had `@Roles` (12 `ADMIN`, 3 `CREATOR`, 3 `USER`, 1 `USER` + `CREATOR`), none applied the guard at class level, and it isn't registered globally (`APP_GUARD` / `useGlobalGuards`).
+  - **Fix:** the guard fails closed. Missing or empty `@Roles` metadata (`@Roles()` allows no role) is a server misconfiguration: it logs `RolesGuard without @Roles on <Class>.<method>` with `console.error` and throws `InternalServerErrorException(SOMETHING_WENT_WRONG)` before `authenticate`, so no DB read happens and no `authMember` is set. The client gets a generic 500, not the method's internals. The rest of the guard is unchanged: `authenticate` first (401 / 403 `BLOCKED_USER`), then the role check (403 `ONLY_SPECIFIC_ROLES_ALLOWED`).
+  - **API:** no change for any existing operation, so there is no Step 12 row.
+  - **Verify:** `auth/guards/guards.spec.ts`:
+    - without `@Roles` and with an empty `@Roles()` → 500 `SOMETHING_WENT_WRONG`, even with a valid token; `authenticate` is not called and `authMember` stays unset. Both tests fail on the old guard and pass with the fix.
+    - a regression test loads every `*.resolver.ts` under `components/`, so new resolvers are covered without editing it, and lists each method guarded by `RolesGuard` (method or class level) without non-empty `@Roles`: none. It finds the 19 methods; with the `@Roles` of `removeCommentByAdmin` removed, it fails and names `CommentResolver.removeCommentByAdmin`.
+
 ---
 
 ## Step 3 — Config (package names, DB name, env, app names)
