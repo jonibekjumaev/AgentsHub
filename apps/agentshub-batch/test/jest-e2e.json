@@ -5,5 +5,12 @@
   "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
-  }
+  },
+  "moduleNameMapper": {
+    "^uuid$": "<rootDir>/../../agentshub-api/test/utils/uuid.ts"
+  },
+  "globalSetup": "<rootDir>/../../agentshub-api/test/e2e/global-setup.ts",
+  "globalTeardown": "<rootDir>/../../agentshub-api/test/e2e/global-teardown.ts",
+  "setupFiles": ["<rootDir>/../../agentshub-api/test/e2e/e2e-env.ts"],
+  "testTimeout": 30000
 }

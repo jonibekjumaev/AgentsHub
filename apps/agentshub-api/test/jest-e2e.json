@@ -5,5 +5,12 @@
   "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
-  }
+  },
+  "moduleNameMapper": {
+    "^uuid$": "<rootDir>/utils/uuid.ts"
+  },
+  "globalSetup": "<rootDir>/e2e/global-setup.ts",
+  "globalTeardown": "<rootDir>/e2e/global-teardown.ts",
+  "setupFiles": ["<rootDir>/e2e/e2e-env.ts"],
+  "testTimeout": 30000
 }
