@@ -32,7 +32,7 @@ export type MockQuery = Record<(typeof chainMethods)[number], jest.Mock<MockQuer
 };
 
 export type MockModel = Record<QueryMethod, jest.Mock<MockQuery, unknown[]>> & {
-	create: jest.Mock;
+	create: jest.Mock<Promise<unknown>, [unknown]>;
 	/** Queues the value that the next call of `method` resolves to (in call order). Unqueued calls resolve to null. */
 	resolve: (method: QueryMethod, value: unknown) => MockModel;
 	/** Queues an error that the next call of `method` rejects with (e.g. an Error with `code: 11000`). */
