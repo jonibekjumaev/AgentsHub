@@ -1346,6 +1346,14 @@ Totals: **537 unit tests** in 17 suites (about 15 s), **28 API e2e tests** (abou
   - **Problem:** the length is checked on the raw value, but the tag is saved after `normalizeTags` (trim, lowercase). A 30-character tag sent with spaces around it is rejected, although the stored tag would be 30 characters. The reverse can't happen, so nothing too long is stored.
   - **Fix:** trim before validating (e.g. `@Transform` on the field, which the `ValidationPipe` applies through `plainToInstance`), or accept it and document that the limit counts the spaces. Decide which; either way it's a small, client-visible change (Step 12 table).
 - [ ] Remove the outdated "Write-only until D-07: not a field on the Member output type yet" comment above `memberEmail` in `MemberUpdate` and `MemberUpdateByAdmin` (`api/libs/dto/member/member.update.ts:43`, `:96`). Since Step 9, `memberEmail` / `memberWhatsapp` are fields of the `Member` output type, returned only to authenticated requests (D-07, D-23). Keep the "Send null to remove the contact" part.
+- [ ] Remove or hide the Nestar test queries `sayHello`, `checkAuth` and `checkAuthRoles`. Found while writing `docs/FRONTEND_MIGRATION.md`.
+  - **Where:** `api/app.resolver.ts` (`sayHello`, public, returns `'GraphQL API Server'`, so `AppResolver` would become empty) and `api/components/member/member.resolver.ts:52–66` (`checkAuth`, `AuthGuard`; `checkAuthRoles`, `RolesGuard` with `@Roles(USER, CREATOR)`).
+  - **Problem:** they are part of the public schema, but no app feature, spec or script uses them. The frontend guide tells clients not to call them.
+  - **Fix:** delete them, or keep them out of production builds if they're still useful for manual guard checks. Deleting `checkAuth` / `checkAuthRoles` also clears their two `require-await` lint errors (see the lint table above). A schema change: record it in the Step 12 table and `docs/FRONTEND_MIGRATION.md`.
+- [ ] Decide what to do with `memberAuthType`. Found while writing `docs/FRONTEND_MIGRATION.md`; check the ER doc and decide there, not before.
+  - **Current state:** `MemberAuthType` (`PHONE`, `EMAIL`, `TELEGRAM`) is an optional `MemberInput.memberAuthType` at signup (`api/libs/dto/member/member.input.ts:52`), a non-null `Member.memberAuthType` in the output type, and a schema field with default `PHONE` (`api/schemas/Member.model.ts:18`). Nothing reads it: there is only nick + password login, and `auths` is out of scope for the MVP.
+  - **ER doc:** `docs/agentshub-er.md:35` lists it as "unchanged from Nestar" (NN), and line 237 keeps the enum as in Nestar. No decision covers it.
+  - **To decide:** keep it as is for a later auth method, drop it from the signup input only (the client can set a value that means nothing), or remove it everywhere. Record the choice as a new decision and update the ER doc, the Step 12 table and `docs/FRONTEND_MIGRATION.md` together.
 
 ---
 
