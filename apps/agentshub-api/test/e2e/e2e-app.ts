@@ -26,7 +26,10 @@ export const createE2eApp = async (): Promise<{ app: INestApplication; connectio
 	return { app, connection };
 };
 
-export type GqlError = { message: string; extensions?: { code?: string; validationErrors?: string[] } };
+export type GqlError = {
+	message: string;
+	extensions?: { code?: string; reason?: string; validationErrors?: string[] };
+};
 export type GqlResponse<T = Record<string, unknown>> = { data?: T | null; errors?: GqlError[] };
 
 /** POSTs one GraphQL operation; `token` is sent as a Bearer token. Returns the body, whatever the HTTP status. */

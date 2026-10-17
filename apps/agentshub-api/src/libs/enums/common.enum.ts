@@ -39,6 +39,14 @@ export enum Message {
 	INVALID_BRIEF_STATUS_CHANGE = 'Brief status can only change between OPEN and CLOSED, or to DELETE!',
 }
 
+/**
+ * Machine-readable error reasons, sent as `extensions.reason` next to the human `message` (D-33).
+ * Not a GraphQL enum: error extensions are not part of the schema.
+ */
+export enum ErrorReason {
+	MEMBER_BLOCKED = 'MEMBER_BLOCKED',
+}
+
 export enum Direction {
 	ASC = 1,
 	DESC = -1,

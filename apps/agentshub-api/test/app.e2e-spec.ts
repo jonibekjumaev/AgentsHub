@@ -1,6 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Connection } from 'mongoose';
-import { Message } from '../src/libs/enums/common.enum';
+import { ErrorReason, Message } from '../src/libs/enums/common.enum';
 import { createE2eApp, gql, onlyError } from './e2e/e2e-app';
 
 /**
@@ -41,6 +41,14 @@ describe('AgentsHub API (e2e smoke)', () => {
 			`query ($id: String!) { getMember(memberId: $id) { ${MEMBER} } }`,
 			{ id: memberId },
 			token,
+		);
+	const getMe = (token?: string) =>
+		gql<{ getMe: Record<string, unknown> }>(app, `query { getMe { ${MEMBER} } }`, {}, token);
+	const login = (memberNick: string) =>
+		gql<{ login: { accessToken: string } }>(
+			app,
+			`mutation ($input: LoginInput!) { login(input: $input) { accessToken } }`,
+			{ input: { memberNick, memberPassword: PASSWORD } },
 		);
 	const getProduct = (id: string, token?: string) =>
 		gql<{ getProduct: { _id: string; productStatus: string; memberData: Record<string, unknown> } }>(
@@ -223,6 +231,26 @@ describe('AgentsHub API (e2e smoke)', () => {
 		});
 	});
 
+	describe('getMe (D-33)', () => {
+		it('a guest → UNAUTHENTICATED', async () => {
+			expect(onlyError(await getMe())).toEqual({ code: 'UNAUTHENTICATED', message: Message.TOKEN_NOT_EXIST });
+		});
+
+		it('an active member gets their own profile, with their contacts (D-07, D-23)', async () => {
+			const response = await getMe(creator.token);
+
+			expect(response.data?.getMe).toMatchObject({
+				_id: creator._id,
+				memberNick: 'e2e_creator',
+				memberType: 'CREATOR',
+				memberStatus: 'ACTIVE',
+				memberEmail: 'creator@e2e.test',
+				memberWhatsapp: '+998900000002',
+				accessToken: null,
+			});
+		});
+	});
+
 	describe('a paused product (D-16)', () => {
 		const updateProduct = (input: Record<string, unknown>, token: string) =>
 			gql<{ updateProduct: { productStatus: string } }>(
@@ -338,6 +366,16 @@ describe('AgentsHub API (e2e smoke)', () => {
 			);
 
 			expect(onlyError(response)).toEqual({ code: 'FORBIDDEN', message: Message.BLOCKED_USER });
+		});
+
+		it.each([
+			['getMe', () => getMe(creator.token)],
+			['login with the right password', () => login('e2e_creator')],
+		])('%s → FORBIDDEN with extensions.reason MEMBER_BLOCKED (D-33)', async (_label, call) => {
+			const response = await call();
+
+			expect(onlyError(response)).toEqual({ code: 'FORBIDDEN', message: Message.BLOCKED_USER });
+			expect(response.errors![0].extensions).toEqual({ code: 'FORBIDDEN', reason: ErrorReason.MEMBER_BLOCKED });
 		});
 
 		it('is a guest on public reads: contact fields are null', async () => {

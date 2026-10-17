@@ -1,7 +1,6 @@
 import {
 	BadRequestException,
 	ConflictException,
-	ForbiddenException,
 	Injectable,
 	InternalServerErrorException,
 	NotFoundException,
@@ -31,6 +30,7 @@ import { LikeService } from '../like/like.service';
 import { Follower, Following, MeFollowed } from '../../libs/dto/follow/follow';
 import { dummyPasswordHash, escapeRegex, excludeMemberSecrets, lookupAuthMemberLiked } from '../../libs/config';
 import { describeDbError, isDuplicateKeyError } from '../../libs/utils';
+import { memberBlockedException } from '../../libs/errors';
 
 @Injectable()
 export class MemberService {
@@ -69,7 +69,7 @@ export class MemberService {
 		const storedHash = response && response.memberStatus !== MemberStatus.DELETE ? response.memberPassword : undefined;
 		const isMatch = await this.authService.comparePassword(memberPassword, storedHash || dummyPasswordHash);
 		if (!response || !storedHash || !isMatch) throw new UnauthorizedException(Message.INVALID_CREDENTIALS);
-		if (response.memberStatus === MemberStatus.BLOCK) throw new ForbiddenException(Message.BLOCKED_USER);
+		if (response.memberStatus === MemberStatus.BLOCK) throw memberBlockedException(); // D-33 reason
 
 		const result: Member = response.toObject();
 		delete result.memberPassword; // loaded only for the check above; the hash never leaves the service (S14)
@@ -116,6 +116,17 @@ export class MemberService {
 		if (!result.modifiedCount) throw new InternalServerErrorException(Message.UPDATE_FAILED);
 
 		return true;
+	}
+
+	/**
+	 * The caller's own member (D-33). AuthGuard already rejected blocked / deleted members (B17); the ACTIVE filter only
+	 * covers a status change between the guard and this read. No view, meLiked or meFollowed: those are for other
+	 * profiles. Contacts come from MemberContactResolver like everywhere else (D-23): the caller is ACTIVE, so they're set.
+	 */
+	public async getMe(memberId: ObjectId): Promise<Member> {
+		const member = await this.memberModel.findOne({ _id: memberId, memberStatus: MemberStatus.ACTIVE }).lean().exec();
+		if (!member) throw new UnauthorizedException(Message.NOT_AUTHENTICATED);
+		return member;
 	}
 
 	public async getMember(memberId: ObjectId | null, targetId: ObjectId): Promise<Member> {

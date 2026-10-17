@@ -41,21 +41,24 @@ These apply to every page. Build them once (API client, error handler, auth stor
 ### 1.1 Auth flow
 
 - **Token:** send `Authorization: Bearer <accessToken>` on every request when logged in. `signup` and `login` return the token in `Member.accessToken`. It expires after 30 days.
-- **The token only holds `_id`, `memberType` and `memberNick` (S9).** Don't decode it to fill the profile. Keep the `Member` returned by `login` / `signup` in your store, and after a page reload load it with `getMember(memberId)` using the token's `_id`.
+- **The token only holds `_id`, `memberType` and `memberNick` (S9).** Don't decode it to fill the profile. Keep the `Member` returned by `login` / `signup` in your store, and after a page reload load it with **`getMe`** (D-33).
+- **Current member** (`getMe: Member!`, logged in, D-33): returns the member of the token, **with their own `memberEmail` / `memberWhatsapp`**. Call it on app start or page reload when a token is stored. It never returns an `accessToken`; keep the stored one.
+  - no token, expired / invalid token, deleted member → `UNAUTHENTICATED`: clear the token
+  - blocked member → `FORBIDDEN` with `extensions.reason: "MEMBER_BLOCKED"`: clear the token, show the "blocked" screen
 - **Signup** (`signup(input: MemberInput!)`):
   - `memberType` is **required** and must be `USER` or `CREATOR` (D-14). `ADMIN` is rejected. The type can never change later, so a person who wants to both sell and post briefs needs two accounts (D-02). Make the choice explicit in the signup form ("I build AI agents" / "I need an AI agent").
   - `memberNick` 3–12 characters, `memberPhone` E.164 (see 3.1), `memberPassword` at least 8 characters (see 3.1).
   - Signup can't set email / WhatsApp; the member adds them later in the profile.
 - **Login** (`login(input: LoginInput!)`): one error for every failed login (D-27):
   - unknown nick, deleted member or wrong password → `UNAUTHENTICATED`, message `"Wrong member nick or password!"`. There is **no** "unknown nick" state any more (`NO_MEMBER_NICK` is gone). Show one generic message.
-  - a blocked member with the **correct** password → `FORBIDDEN`, `"You have been blocked!"`.
+  - a blocked member with the **correct** password → `FORBIDDEN`, `"You have been blocked!"`, `extensions.reason: "MEMBER_BLOCKED"` (D-33).
 - **Every logged-in operation checks the member in the database (B17):**
-  - blocked member → `FORBIDDEN` with message `"You have been blocked!"` (`BLOCKED_USER`)
+  - blocked member → `FORBIDDEN` with message `"You have been blocked!"` (`BLOCKED_USER`) and `extensions.reason: "MEMBER_BLOCKED"` (D-33)
   - deleted or missing member, expired / invalid / malformed token → `UNAUTHENTICATED` (`"You are not authenticated, please login first!"`)
   - no token at all → `UNAUTHENTICATED` (`"Bearer Token is not provided!"`)
-  - **Rule for the client:** on `UNAUTHENTICATED`, or on `FORBIDDEN` whose message is `"You have been blocked!"`, **clear the token and redirect to login**. Other `FORBIDDEN` errors (wrong role, see below) must **not** log the member out.
+  - **Rule for the client:** on `UNAUTHENTICATED`, or on `FORBIDDEN` with `extensions.reason === "MEMBER_BLOCKED"`, **clear the token and redirect to login**. Check the `reason`, not the message text. Other `FORBIDDEN` errors (wrong role, see below) must **not** log the member out.
 - **Wrong role** → `FORBIDDEN`, `"Allowed only for members with specific roles!"`. Hide the controls instead of relying on this error (e.g. no "Post a brief" button for creators).
-- **Public operations with a bad token** (`getMember`, `getProduct`, `getProducts`, `getBrief`, `getComments`, …) don't fail: the caller is treated as a **guest**. So an expired token shows up as missing `meLiked`, `null` contact fields, and no access to one's own paused product, not as an error. If you see that while you think you are logged in, re-check the session (e.g. call `getMember` for yourself on a guarded path or log out).
+- **Public operations with a bad token** (`getMember`, `getProduct`, `getProducts`, `getBrief`, `getComments`, …) don't fail: the caller is treated as a **guest**. So an expired token shows up as missing `meLiked`, `null` contact fields, and no access to one's own paused product, not as an error. If you see that while you think you are logged in, re-check the session with `getMe`.
 - **Password change doesn't log out other sessions:** existing tokens stay valid until they expire (D-24).
 - **No password recovery** in the MVP (D-24). Don't show a "Forgot password?" link, or link it to a support contact.
 
@@ -94,20 +97,32 @@ Every GraphQL error has this shape (B14, B15):
   | `FORBIDDEN` | Blocked member, or wrong role | Blocked: clear token, go to login. Role: show the message |
   | `INTERNAL_SERVER_ERROR` | Real server fault | Generic "something went wrong" |
 
+- `extensions.reason` (D-33) is a machine-readable reason, present only on some errors. When it is there, branch on it instead of the message. Today there is one value:
+
+  | `reason` | Code | Meaning | UI reaction |
+  |---|---|---|---|
+  | `MEMBER_BLOCKED` | `FORBIDDEN` | The member is blocked (any logged-in operation, `getMe`, or `login` with the correct password) | Clear token, show the "blocked" screen / go to login |
+
+  More values may be added later; treat an unknown `reason` like no reason.
+
+  ```json
+  { "message": "You have been blocked!", "extensions": { "code": "FORBIDDEN", "reason": "MEMBER_BLOCKED" } }
+  ```
+
 - `extensions.validationErrors` is present **only** for validation failures. It holds one message per failed rule:
   - Built-in rules start with the field name, e.g. `"memberNick must be longer than or equal to 3 characters"`, `"productId must be a mongodb id"`. Map them to fields by that first word.
   - Custom rules have their own text and don't start with the field name: password, phone, WhatsApp and email messages (see 3.1). Map them by the exact message.
-- Business errors (not validation) have **no** `validationErrors`, only `code` and `message`. The message is the important part: many errors share a code (e.g. `BAD_REQUEST`), so the UI tells them apart by message. Keep the messages from the appendix as constants in one place.
+- Business errors (not validation) have **no** `validationErrors`, only `code`, `message` and sometimes `reason`. The message is the important part: many errors share a code (e.g. `BAD_REQUEST`), so the UI tells them apart by message. Keep the messages from the appendix as constants in one place.
 - Sensitive values (passwords, tokens) are replaced with `***` in error messages (S15).
 
 A minimal handler:
 
 ```ts
-const BLOCKED = 'You have been blocked!';
+type GqlError = { message: string; extensions?: { code?: string; reason?: string; validationErrors?: string[] } };
 
-function handleGqlError(err: { message: string; extensions?: { code?: string; validationErrors?: string[] } }) {
-	const code = err.extensions?.code;
-	if (code === 'UNAUTHENTICATED' || (code === 'FORBIDDEN' && err.message === BLOCKED)) {
+function handleGqlError(err: GqlError) {
+	const { code, reason } = err.extensions ?? {};
+	if (code === 'UNAUTHENTICATED' || reason === 'MEMBER_BLOCKED') {
 		auth.clear();
 		router.push('/login');
 		return;
@@ -226,6 +241,7 @@ Suggested labels: `CUSTOMER_SUPPORT` "Customer support", `DATA_ANALYSIS` "Data a
 | `removePropertyByAdmin(propertyId)` | `removeProductByAdmin(productId)` | ADMIN |
 | `getAgents(input: AgentsInquiry)` | `getCreators(input: CreatorsInquiry)` | everyone |
 | `getFavorities`, `getVisited` | same names, now return `Products` | logged in |
+| — | `getMe: Member!` | logged in (D-33) |
 | — | `changePassword(input: ChangePasswordInput!): Boolean!` | logged in |
 | — | `createBrief`, `updateBrief`, `getMyBriefs` | USER |
 | — | `getBrief(briefId)`, `getBriefs` | everyone |
@@ -233,7 +249,7 @@ Suggested labels: `CUSTOMER_SUPPORT` "Customer support", `DATA_ANALYSIS` "Data a
 
 Everything else keeps its name: `signup`, `login`, `getMember`, `updateMember`, `likeTargetMember`, `getAllMembersByAdmin`, `updateMemberByAdmin`, `imageUploader`, `imagesUploader`, board article, comment and follow operations. Their rules changed in places; see the pages.
 
-`sayHello`, `checkAuth` and `checkAuthRoles` are server test queries; don't use them in the app.
+`sayHello`, `checkAuth` and `checkAuthRoles` are server test queries; don't use them in the app. Use `getMe` to check the session.
 
 ### 2.5 Sort values
 
@@ -261,6 +277,7 @@ Old values (`propertyLikes`, `propertyViews`, `propertyRank`, `propertyPrice`, `
 | `signup` | `signup` | `memberType` required, `USER` or `CREATOR` only (D-14) |
 | `login` | `login` | one error message (D-27), see 1.1 |
 | `getMember(memberId)` | same | public; contact fields only for logged-in members |
+| — | `getMe` | logged in; your own member with your contacts (D-33) |
 | `updateMember(input)` with `memberPassword` | `updateMember(input)` without it | sending `memberPassword` → `GRAPHQL_VALIDATION_FAILED` |
 | — | `changePassword(input: { currentPassword, newPassword })` | logged in (D-24) |
 | `likeTargetMember(memberId)` | same | logged in |
@@ -272,7 +289,7 @@ Old values (`propertyLikes`, `propertyViews`, `propertyRank`, `propertyPrice`, `
   - `memberBriefs` counts `OPEN` + `CLOSED` briefs (D-30).
 - **Contacts: `memberEmail`, `memberWhatsapp` (D-07, D-23).**
   - They are `null` for guests. They are also `null` for a token whose member is blocked or deleted.
-  - They are `null` in the `signup` and `login` responses, because those requests have no token yet. After login, load your own profile with `getMember` (with the new token) to get them.
+  - They are `null` in the `signup` and `login` responses, because those requests have no token yet. After login, load your own profile with `getMe` (with the new token) to get them.
   - `updateMember` returns them (the request has a token).
   - The API enforces this; don't rely on hiding them in the UI only.
   - **UI:** on a profile, product or brief page, if the viewer is a guest show "Log in to see contact details" instead of the contacts. For a logged-in viewer, `null` means the member hasn't added that contact. Show email as a `mailto:` link and WhatsApp as a `https://wa.me/<digits>` link (number without the `+`).
@@ -296,7 +313,8 @@ Old values (`propertyLikes`, `propertyViews`, `propertyRank`, `propertyPrice`, `
 | `signup`, `updateMember` | `BAD_REQUEST` | `Phone number must be in international format, …` | under phone |
 | `updateMember` | `BAD_REQUEST` | `WhatsApp number must be in international format, …` / `Please provide a valid email of at most 254 characters!` | under the field |
 | `login` | `UNAUTHENTICATED` | `Wrong member nick or password!` | one generic message |
-| `login` | `FORBIDDEN` | `You have been blocked!` | "Your account is blocked" screen |
+| `login`, `getMe` | `FORBIDDEN` | `You have been blocked!` (`reason: MEMBER_BLOCKED`) | "Your account is blocked" screen |
+| `getMe` | `UNAUTHENTICATED` | `Bearer Token is not provided!` / `You are not authenticated, please login first!` | log out |
 | `changePassword` | `BAD_REQUEST` | `Wrong password, try again!` | under "current password" |
 | `changePassword` | `BAD_REQUEST` | `New password must be different from the current password!` | under "new password" |
 | `updateMember`, `changePassword` | `UNAUTHENTICATED` | `You are not authenticated, please login first!` | blocked or deleted meanwhile: log out |
@@ -731,8 +749,9 @@ Calling remove on an active / open / closed / paused or missing item → `NOT_FO
 
 ### Global
 
-- [ ] API client sends `Authorization: Bearer <token>`; the profile is loaded from `login` / `getMember`, never decoded from the token (S9).
-- [ ] Error handler: `UNAUTHENTICATED`, or `FORBIDDEN` + `"You have been blocked!"` → clear token and redirect to login (not on the login form). Other `FORBIDDEN` → message only (B17).
+- [ ] API client sends `Authorization: Bearer <token>`; the profile is loaded from `login` / `getMe`, never decoded from the token (S9, D-33).
+- [ ] Error handler: `UNAUTHENTICATED`, or `extensions.reason === "MEMBER_BLOCKED"` → clear token and redirect to login (not on the login form). Other `FORBIDDEN` → message only (B17, D-33).
+- [ ] On app start with a stored token, call `getMe` to restore the session (D-33).
 - [ ] Field errors from `extensions.validationErrors`; business errors from `message`; message strings kept as constants (B14, B15).
 - [ ] Malformed id from a URL → "not found" page (B18).
 - [ ] Update forms send only changed fields; cleared optional fields as `null`; `memberImage` cleared with `''` (B11, D-15).
@@ -754,7 +773,7 @@ Calling remove on an active / open / closed / paused or missing item → `NOT_FO
 - [ ] Login shows one error for wrong nick / password; a blocked screen for `FORBIDDEN` (D-27).
 - [ ] Password rules: 8+ characters, ≤ 72 bytes on signup and new password; no length check on login (D-26).
 - [ ] Phone and WhatsApp inputs produce E.164 (D-25).
-- [ ] Contacts shown only to logged-in viewers, from the API's `null`; "Log in to see contacts" for guests; own contacts loaded with `getMember` after login (D-07, D-23).
+- [ ] Contacts shown only to logged-in viewers, from the API's `null`; "Log in to see contacts" for guests; own contacts loaded with `getMe` after login (D-07, D-23, D-33).
 - [ ] Separate "Change password" form using `changePassword`; `memberPassword` removed from profile edit; no "Forgot password" (D-24).
 - [ ] `memberProducts` / `memberBriefs` shown on profiles.
 
@@ -815,7 +834,7 @@ The `message` strings the UI may need to match. Codes are those the API returns 
 | `Already used member nick or phone` | `CONFLICT` | signup, member updates |
 | `A product with this title already exists for this creator!` | `CONFLICT` | product create / update |
 | `Wrong member nick or password!` | `UNAUTHENTICATED` | login |
-| `You have been blocked!` | `FORBIDDEN` | login, any logged-in operation |
+| `You have been blocked!` | `FORBIDDEN`, `reason: MEMBER_BLOCKED` | login, `getMe`, any logged-in operation |
 | `You are not authenticated, please login first!` | `UNAUTHENTICATED` | bad / expired token, deleted member; chat send as guest |
 | `Bearer Token is not provided!` | `UNAUTHENTICATED` | logged-in operation without a token |
 | `Allowed only for members with specific roles!` | `FORBIDDEN` | wrong role |
