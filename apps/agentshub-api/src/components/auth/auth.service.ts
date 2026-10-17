@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import bcrypt from 'bcryptjs';
 import { Member } from '../../libs/dto/member/member';
@@ -8,6 +8,7 @@ import { isValidObjectId, Model } from 'mongoose';
 import { shapeInToMongoObjectId } from '../../libs/config';
 import { Message } from '../../libs/enums/common.enum';
 import { MemberStatus } from '../../libs/enums/member.enum';
+import { memberBlockedException } from '../../libs/errors';
 
 @Injectable() //Step -1
 export class AuthService {
@@ -56,7 +57,7 @@ export class AuthService {
 	 * The one authentication check for guards and contact visibility (B17): the token must be valid AND the member
 	 * must be ACTIVE in the DB now. The returned claims come from the DB row, so a changed nick is current.
 	 * Missing header → TOKEN_NOT_EXIST; invalid/expired token, DELETE or missing member → NOT_AUTHENTICATED (401);
-	 * BLOCK → BLOCKED_USER (403). WithoutGuard catches these and treats the caller as a guest.
+	 * BLOCK → BLOCKED_USER (403, extensions.reason MEMBER_BLOCKED, D-33). WithoutGuard catches these and treats the caller as a guest.
 	 */
 	public async authenticate(authorization: string | undefined): Promise<AuthPayload> {
 		if (!authorization) throw new UnauthorizedException(Message.TOKEN_NOT_EXIST);
@@ -77,7 +78,7 @@ export class AuthService {
 		if (!member || member.memberStatus === MemberStatus.DELETE) {
 			throw new UnauthorizedException(Message.NOT_AUTHENTICATED);
 		}
-		if (member.memberStatus === MemberStatus.BLOCK) throw new ForbiddenException(Message.BLOCKED_USER);
+		if (member.memberStatus === MemberStatus.BLOCK) throw memberBlockedException();
 
 		return { _id: member._id, memberType: member.memberType, memberNick: member.memberNick };
 	}

@@ -10,7 +10,7 @@ This repo is a **copy of Nestar** (a real estate platform), and it is being conv
 - **USER** members publish **Briefs**, which describe a business need for a custom agent.
 - Contact happens off-platform: email/WhatsApp on the profile, shown to logged-in members only (D-07, D-08).
 
-**`docs/agentshub-er.md` is the source of truth** for every schema, DTO, enum and GraphQL type. `docs/decisions.md` records the reasons (D-01 … D-32). If code and the ER doc disagree, fix one of them on purpose and record why in `docs/decisions.md`. New decisions start as **Proposed**. Never delete a decision; mark it **Superseded by D-XX** instead.
+**`docs/agentshub-er.md` is the source of truth** for every schema, DTO, enum and GraphQL type. `docs/decisions.md` records the reasons (D-01 … D-33). If code and the ER doc disagree, fix one of them on purpose and record why in `docs/decisions.md`. New decisions start as **Proposed**. Never delete a decision; mark it **Superseded by D-XX** instead.
 
 The code is still almost entirely Nestar. Main conversions:
 

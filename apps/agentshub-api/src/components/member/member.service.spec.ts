@@ -14,7 +14,7 @@ import { createMockModel, MockModel } from '../../../test/utils/mock-model';
 import { dummyPasswordHash } from '../../libs/config';
 import { Member } from '../../libs/dto/member/member';
 import { MemberInput } from '../../libs/dto/member/member.input';
-import { Message } from '../../libs/enums/common.enum';
+import { ErrorReason, Message } from '../../libs/enums/common.enum';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { MemberStatus, MemberType } from '../../libs/enums/member.enum';
 import { ViewGroup } from '../../libs/enums/view.enum';
@@ -139,7 +139,11 @@ describe('MemberService', () => {
 		it('a BLOCK member is told so only after the correct password → 403 BLOCKED_USER', async () => {
 			memberModel.resolve('findOne', memberDocument({ memberStatus: MemberStatus.BLOCK }));
 
-			await expectHttpError(login('correct'), ForbiddenException, Message.BLOCKED_USER);
+			const error = await login('correct').catch((err: unknown) => err);
+
+			expect(error).toBeInstanceOf(ForbiddenException);
+			expect((error as ForbiddenException).message).toBe(Message.BLOCKED_USER);
+			expect((error as ForbiddenException).getResponse()).toMatchObject({ reason: ErrorReason.MEMBER_BLOCKED }); // D-33
 			expect(authService.createToken).not.toHaveBeenCalled();
 		});
 
@@ -223,6 +227,22 @@ describe('MemberService', () => {
 				ConflictException,
 				Message.USED_MEMBER_NICK_OR_PHONE,
 			);
+		});
+	});
+
+	describe('getMe (D-33)', () => {
+		it("returns the caller's own ACTIVE member, with no view, meLiked or meFollowed", async () => {
+			memberModel.resolve('findOne', memberDocument());
+			const result = await service.getMe(memberId);
+
+			expect(memberModel.findOne).toHaveBeenCalledWith({ _id: memberId, memberStatus: MemberStatus.ACTIVE });
+			expect(result).toMatchObject({ _id: memberId, memberNick: 'alice' });
+			expect(viewService.recordView).not.toHaveBeenCalled();
+			expect(likeService.checkLikeExistence).not.toHaveBeenCalled();
+		});
+
+		it('no ACTIVE member (blocked or deleted after the guard) → 401 NOT_AUTHENTICATED', async () => {
+			await expectHttpError(service.getMe(memberId), UnauthorizedException, Message.NOT_AUTHENTICATED);
 		});
 	});
 

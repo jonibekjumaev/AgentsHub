@@ -10,6 +10,7 @@ export interface FormattedErrorExtensions {
 		message?: string | string[]; // ValidationPipe errors: one message per failed rule
 		error?: string;
 		statusCode?: number;
+		reason?: unknown; // a machine-readable ErrorReason, passed to the client (D-33)
 	};
 }
 

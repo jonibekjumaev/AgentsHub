@@ -57,6 +57,14 @@ export class MemberResolver {
 		return `Hi ${memberNick}`;
 	}
 
+	/** The logged-in member with their own contacts (D-33), so the client never has to decode the token */
+	@UseGuards(AuthGuard)
+	@Query(() => Member)
+	public async getMe(@AuthMember('_id') memberId: ObjectId): Promise<Member> {
+		console.log('Query: getMe');
+		return await this.memberService.getMe(memberId);
+	}
+
 	@Roles(MemberType.USER, MemberType.CREATOR)
 	@UseGuards(RolesGuard)
 	@Query(() => String)

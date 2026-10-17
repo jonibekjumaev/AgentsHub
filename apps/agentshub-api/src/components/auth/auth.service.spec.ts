@@ -6,7 +6,7 @@ import { Types } from 'mongoose';
 import { expectHttpError } from '../../../test/utils/http-error';
 import { createMockModel, MockModel } from '../../../test/utils/mock-model';
 import { Member } from '../../libs/dto/member/member';
-import { Message } from '../../libs/enums/common.enum';
+import { ErrorReason, Message } from '../../libs/enums/common.enum';
 import { MemberStatus, MemberType } from '../../libs/enums/member.enum';
 import { AuthService } from './auth.service';
 
@@ -102,14 +102,13 @@ describe('AuthService', () => {
 			);
 		});
 
-		it('a BLOCK member → 403 BLOCKED_USER', async () => {
+		it('a BLOCK member → 403 BLOCKED_USER with reason MEMBER_BLOCKED (D-33)', async () => {
 			memberModel.resolve('findById', { _id: memberId, memberStatus: MemberStatus.BLOCK, ...claims });
+			const error = await service.authenticate(bearer(await jwtService.signAsync(claims))).catch((err: unknown) => err);
 
-			await expectHttpError(
-				service.authenticate(bearer(await jwtService.signAsync(claims))),
-				ForbiddenException,
-				Message.BLOCKED_USER,
-			);
+			expect(error).toBeInstanceOf(ForbiddenException);
+			expect((error as ForbiddenException).message).toBe(Message.BLOCKED_USER);
+			expect((error as ForbiddenException).getResponse()).toMatchObject({ reason: ErrorReason.MEMBER_BLOCKED });
 		});
 
 		it('an ACTIVE member → the claims from the DB row, so a changed nick is current', async () => {

@@ -792,3 +792,38 @@
   - **First install:** `npm install` downloads the binary into `node_modules/.cache/mongodb-memory-server` (about 650 MB download, 74 MB unpacked on Windows). CI, if added later, should cache that folder.
   - **The batch e2e spec no longer needs `.env` or the dev database.**
   - **Unit tests (`npm test`) use no database at all:** services get mocked models (`apps/agentshub-api/test/utils/mock-model.ts`).
+
+## D-33 — How the client learns who is logged in, and why a request was refused
+
+**Status:** Accepted
+
+- **Context:** The client needs the current member after a page reload. The token only holds `_id`, `memberType` and `memberNick` (S9), and `checkAuth` returns only a string (`Hi <nick>`). So the frontend guide told the client to take `_id` from the token and call `getMember` with it, which means decoding the JWT. `getMember` is the public profile path: it also returns `BLOCK` members, so a reload doesn't reveal that the member was blocked. Separately, a blocked member gets `FORBIDDEN` with the message `"You have been blocked!"` (B17, D-27), but a wrong role also gets `FORBIDDEN`. The client could only tell "log out" from "hide the button" by comparing the message text.
+- **Options:**
+  - **Current member:**
+    - **A. A guarded `getMe: Member` query.**
+      - Pro: No token decoding on the client. It goes through `AuthGuard`, so a blocked, deleted or expired session fails like every other logged-in call (B17).
+      - Con: One more query.
+    - **B. Keep `getMember(<token _id>)`.**
+      - Con: The client must decode the JWT, and a blocked member's own profile still loads.
+  - **Blocked reason:**
+    - **A. `extensions.reason = 'MEMBER_BLOCKED'`** next to the unchanged code and message.
+    - **B. A new error code** (e.g. `MEMBER_BLOCKED` instead of `FORBIDDEN`).
+      - Con: Breaks clients that already handle `FORBIDDEN`.
+    - **C. Keep matching the message.**
+      - Con: Breaks on any change of wording.
+- **Decision:** Option A for both.
+  - **`getMe: Member`:** guarded by `AuthGuard`. `MemberService.getMe` reads `{ _id, memberStatus: ACTIVE }` and throws `UNAUTHENTICATED` (`NOT_AUTHENTICATED`) if nothing matches. That only happens when the status changes between the guard and the read.
+    - No view, `meLiked` or `meFollowed`.
+    - No `accessToken`: tokens still come only from `signup`, `login` and `updateMember`.
+    - The member's own `memberEmail` / `memberWhatsapp` come from `MemberContactResolver` like everywhere else (D-23). The caller passed the guard as `ACTIVE`, so they are set. There is no special owner rule.
+    - Blocked and deleted members are handled by the guard only (B17). `getMe` has no logic of its own for them.
+  - **Blocked reason:**
+    - A blocked member is refused with `memberBlockedException()` (`libs/errors.ts`), the only place that builds this error. It is used by `AuthService.authenticate` (every guarded operation) and by `MemberService.login` (correct password only, D-27).
+    - The error keeps code `FORBIDDEN` and message `BLOCKED_USER`, and adds `extensions.reason = 'MEMBER_BLOCKED'` (`ErrorReason` in `common.enum.ts`). `ErrorReason` is a plain TS enum, not a GraphQL enum, because error extensions are not part of the schema.
+    - The exception body keeps Nest's default `statusCode` / `error` keys. `@nestjs/apollo` maps an exception to `FORBIDDEN` only when its body has `statusCode`; without it the client gets `INTERNAL_SERVER_ERROR`.
+  - **`formatError`** moves to `libs/format-error.ts` (`formatGraphqlError`) so it can be unit-tested. It passes `originalError.reason` to the client only when it is a string, and never passes any other key of the exception body (allow-list).
+- **Reason:** The client gets its own member, including its contacts, from one call that fails exactly when the session is no longer valid. A stable machine-readable reason lets the client log out a blocked member without depending on the message text, and nothing existing clients rely on changes.
+- **Consequence:**
+  - **Frontend:** after a reload, call `getMe`. Log out on `UNAUTHENTICATED`, or on `FORBIDDEN` with `reason === 'MEMBER_BLOCKED'`. The D-23 advice to load one's own contacts with `getMember` after login is replaced by `getMe`; D-23 itself is unchanged.
+  - **Only blocked members have a reason for now.** Other errors have no `reason`. New reasons are added to `ErrorReason` and need no change in `formatError`.
+  - **Not in this decision:** the WebSocket chat doesn't re-check blocked members on open connections. That stays on the Step 13 list.
