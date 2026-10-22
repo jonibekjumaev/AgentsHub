@@ -137,6 +137,11 @@ describe.each([
 		},
 	);
 
+	it('memberDesc is at most 500 characters (D-35)', async () => {
+		expect(await invalidFields(cls, { ...base, memberDesc: 'a'.repeat(500) })).toEqual([]);
+		expect(await invalidFields(cls, { ...base, memberDesc: 'a'.repeat(501) })).toEqual(['memberDesc']);
+	});
+
 	it("accepts '' for memberImage: no image (D-15)", async () => {
 		expect(await invalidFields(cls, { ...base, memberImage: '' })).toEqual([]);
 	});

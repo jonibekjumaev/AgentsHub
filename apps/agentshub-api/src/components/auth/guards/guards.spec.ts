@@ -144,8 +144,9 @@ describe('auth guards (B17)', () => {
 			});
 		});
 
-		it('finds the RolesGuard methods (19 when B21 was fixed)', () => {
-			expect(guardedMethods.length).toBeGreaterThanOrEqual(19);
+		// 19 when B21 was fixed; 18 since Step 13a removed the Nestar test query checkAuthRoles
+		it('finds the RolesGuard methods (18 since Step 13a)', () => {
+			expect(guardedMethods.length).toBeGreaterThanOrEqual(18);
 		});
 
 		it('none of them is missing @Roles or has an empty one', () => {

@@ -39,7 +39,7 @@ describe('BatchService', () => {
 			await expect(service.batchRollback()).resolves.toEqual({ products: 7, members: 2 });
 			expect(productModel.updateMany).toHaveBeenCalledWith(
 				{ productStatus: { $ne: ProductStatus.DELETE } },
-				{ productRank: 0 },
+				{ $set: { productRank: 0 }, $unset: { productRankPosition: '' } },
 			);
 		});
 
@@ -48,7 +48,10 @@ describe('BatchService', () => {
 			memberModel.resolve('updateMany', { modifiedCount: 0 });
 			await service.batchRollback();
 
-			expect(memberModel.updateMany).toHaveBeenCalledWith({ memberType: MemberType.CREATOR }, { memberRank: 0 });
+			expect(memberModel.updateMany).toHaveBeenCalledWith(
+				{ memberType: MemberType.CREATOR },
+				{ $set: { memberRank: 0 }, $unset: { memberRankPosition: '' } },
+			);
 		});
 	});
 
@@ -73,6 +76,47 @@ describe('BatchService', () => {
 				[String(a), 16],
 				[String(b), 16],
 			]);
+		});
+	});
+
+	describe('rank positions (Step 13a item 5): 1, 2, 3… of the ranked documents, in list order', () => {
+		const positions = (model: MockModel, key: string) =>
+			model.updateOne.mock.calls.map(([filter, update]) => [
+				String((filter as { _id: unknown })._id),
+				(update as { $set: Record<string, number> }).$set[key],
+			]);
+
+		it('products: reads ranked ACTIVE products by productRank DESC, _id DESC and numbers them from 1', async () => {
+			const [a, b, c] = [new Types.ObjectId(), new Types.ObjectId(), new Types.ObjectId()];
+			productModel.resolve('find', []).resolve('find', [{ _id: b }, { _id: a }, { _id: c }]);
+
+			await service.batchProducts();
+
+			expect(productModel.find).toHaveBeenLastCalledWith({
+				productStatus: ProductStatus.ACTIVE,
+				productRank: { $gt: 0 },
+			});
+			const query = productModel.find.mock.results[1].value as { sort: jest.Mock };
+			expect(query.sort).toHaveBeenCalledWith({ productRank: -1, _id: -1 });
+			expect(positions(productModel, 'productRankPosition')).toEqual([
+				[String(b), 1],
+				[String(a), 2],
+				[String(c), 3],
+			]);
+		});
+
+		it('creators: only ACTIVE creators with memberRank > 0 get a memberRankPosition', async () => {
+			const a = new Types.ObjectId();
+			memberModel.resolve('find', []).resolve('find', [{ _id: a }]);
+
+			await service.batchCreators();
+
+			expect(memberModel.find).toHaveBeenLastCalledWith({
+				memberType: MemberType.CREATOR,
+				memberStatus: MemberStatus.ACTIVE,
+				memberRank: { $gt: 0 },
+			});
+			expect(positions(memberModel, 'memberRankPosition')).toEqual([[String(a), 1]]);
 		});
 	});
 

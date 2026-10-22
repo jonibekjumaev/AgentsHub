@@ -4,13 +4,17 @@ import { configureApp } from './app.setup';
 import { graphqlUploadExpress } from 'graphql-upload';
 import * as express from 'express';
 import { WsAdapter } from '@nestjs/platform-ws';
+import { registerProcessHandlers } from './libs/process-handlers';
+import { uploadMaxFileSize, uploadMaxFiles } from './libs/config';
 
 async function bootstrap() {
+	// before anything async: an orphaned rejection is logged instead of exiting the API (B22)
+	registerProcessHandlers();
 	const app = await NestFactory.create(AppModule);
 	configureApp(app);
 	app.enableCors({ origin: true, credentials: true });
 
-	app.use(graphqlUploadExpress({ maxFileSize: 15000000, maxFiles: 10 }));
+	app.use(graphqlUploadExpress({ maxFileSize: uploadMaxFileSize, maxFiles: uploadMaxFiles }));
 	app.use('/uploads', express.static('./uploads'));
 
 	console.log('localhost:', process.env.PORT_API);

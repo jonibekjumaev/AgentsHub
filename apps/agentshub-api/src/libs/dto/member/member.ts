@@ -72,6 +72,10 @@ export class Member {
 	@Field(() => Int)
 	memberRank!: number;
 
+	/** The place among creators in the nightly ranking (1 = top); null when not ranked (Step 13a item 5) */
+	@Field(() => Int, { nullable: true })
+	memberRankPosition?: number;
+
 	@Field(() => Int)
 	memberWarnings!: number;
 

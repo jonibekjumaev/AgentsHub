@@ -1,7 +1,8 @@
+import type { ClassConstructor } from 'class-transformer';
 import { Types } from 'mongoose';
 import { invalidFields } from '../../../../test/utils/validate-dto';
-import { BoardArticleStatus } from '../../enums/board-article.enum';
-import { BoardArticlesInquiry } from './board-article.input';
+import { BoardArticleCategory, BoardArticleStatus } from '../../enums/board-article.enum';
+import { BoardArticleInput, BoardArticlesInquiry } from './board-article.input';
 import { BoardArticleUpdate } from './board-article.update';
 
 const update = { _id: new Types.ObjectId().toHexString() };
@@ -29,6 +30,27 @@ describe('BoardArticleUpdate', () => {
 			[],
 		);
 	});
+});
+
+describe('articleContent is 3–3000 characters, articleTitle stays 3–50 (D-35)', () => {
+	const article = { articleCategory: BoardArticleCategory.FREE, articleTitle: 'Hello', articleContent: 'abc' };
+
+	it.each<[string, ClassConstructor<object>, object]>([
+		['BoardArticleInput', BoardArticleInput, article],
+		['BoardArticleUpdate', BoardArticleUpdate, update],
+	])('%s', async (_name, cls, base) => {
+		expect(await invalidFields(cls, base)).toEqual([]);
+		expect(await invalidFields(cls, { ...base, articleContent: 'a'.repeat(3000) })).toEqual([]);
+		expect(await invalidFields(cls, { ...base, articleContent: 'a'.repeat(3001) })).toEqual(['articleContent']);
+		expect(await invalidFields(cls, { ...base, articleContent: 'ab' })).toEqual(['articleContent']);
+		expect(await invalidFields(cls, { ...base, articleTitle: 'a'.repeat(50) })).toEqual([]);
+		expect(await invalidFields(cls, { ...base, articleTitle: 'a'.repeat(51) })).toEqual(['articleTitle']);
+	});
+});
+
+it('BoardArticleInput rejects an unknown articleCategory (Step 13: @IsEnum)', async () => {
+	const article = { articleCategory: 'GOSSIP', articleTitle: 'Hello', articleContent: 'abc' };
+	expect(await invalidFields(BoardArticleInput, article)).toEqual(['articleCategory']);
 });
 
 describe('BoardArticlesInquiry validates its nested search (B16)', () => {

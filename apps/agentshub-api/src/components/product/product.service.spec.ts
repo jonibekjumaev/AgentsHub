@@ -49,7 +49,11 @@ const fullProduct = (fields: object = {}) => ({
 describe('ProductService', () => {
 	let service: ProductService;
 	let productModel: MockModel;
-	let memberService: { memberStatsEditor: jest.Mock<Promise<unknown>, [StatisticModifier]>; getMember: jest.Mock };
+	let memberService: {
+		memberStatsEditor: jest.Mock<Promise<unknown>, [StatisticModifier]>;
+		getMember: jest.Mock;
+		getAuthorData: jest.Mock;
+	};
 	let viewService: { recordView: jest.Mock };
 	let likeService: { checkLikeExistence: jest.Mock; toggleLike: jest.Mock };
 
@@ -58,6 +62,7 @@ describe('ProductService', () => {
 		memberService = {
 			memberStatsEditor: jest.fn<Promise<unknown>, [StatisticModifier]>().mockResolvedValue({}),
 			getMember: jest.fn().mockResolvedValue({ _id: ownerId, memberNick: 'owner' }),
+			getAuthorData: jest.fn().mockResolvedValue({ _id: ownerId, memberNick: 'owner' }),
 		};
 		viewService = { recordView: jest.fn().mockResolvedValue(null) };
 		likeService = { checkLikeExistence: jest.fn().mockResolvedValue([]), toggleLike: jest.fn().mockResolvedValue(1) };
@@ -429,6 +434,15 @@ describe('ProductService', () => {
 			expect(likeService.checkLikeExistence).not.toHaveBeenCalled();
 		});
 
+		it('D-38: the page of a product whose creator was deleted still opens, with memberData null', async () => {
+			productModel.resolve('findOne', fullProduct());
+			memberService.getAuthorData.mockResolvedValueOnce(null);
+			const result = await service.getProduct(null, null, productId);
+
+			expect(memberService.getAuthorData).toHaveBeenCalledWith(ownerId);
+			expect(result.memberData).toBeUndefined();
+		});
+
 		it("another member's first view is recorded and counted once", async () => {
 			productModel.resolve('findOne', fullProduct()).resolve('findByIdAndUpdate', fullProduct());
 			viewService.recordView.mockResolvedValue({ _id: new Types.ObjectId() });
@@ -503,7 +517,12 @@ describe('ProductService', () => {
 		it.each([1, -1])('another member toggles the like and productLikes changes by %p', async (modifier) => {
 			productModel.resolve('findOne', fullProduct()).resolve('findByIdAndUpdate', fullProduct());
 			likeService.toggleLike.mockResolvedValue(modifier);
-			await service.likeTargetProduct(otherId, productId);
+			const result = await service.likeTargetProduct(otherId, productId);
+
+			// Step 13a item 4: the response says whether the caller likes it now
+			expect(result.meLiked).toEqual(
+				modifier > 0 ? [{ memberId: otherId, likeRefId: productId, myFavorite: true }] : [],
+			);
 
 			expect(likeService.toggleLike).toHaveBeenCalledWith({
 				memberId: otherId,

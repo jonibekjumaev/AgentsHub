@@ -23,7 +23,11 @@
     "test:e2e:batch": "jest --config ./apps/agentshub-batch/test/jest-e2e.json --runInBand",
     "seed": "ts-node --transpile-only -P tsconfig.json scripts/seed/seed.ts",
     "create-admin": "ts-node --transpile-only -P tsconfig.json scripts/create-admin.ts",
-    "batch:run": "ts-node --transpile-only -P tsconfig.json scripts/run-batch.ts"
+    "batch:run": "ts-node --transpile-only -P tsconfig.json scripts/run-batch.ts",
+    "migrate:legacy": "ts-node --transpile-only -P tsconfig.json scripts/migrate-legacy.ts",
+    "clean:uploads": "ts-node --transpile-only -P tsconfig.json scripts/clean-uploads.ts",
+    "cleanup:follows": "ts-node --transpile-only -P tsconfig.json scripts/cleanup-follows.ts",
+    "optimize:uploads": "ts-node --transpile-only -P tsconfig.json scripts/optimize-uploads.ts"
   },
   "dependencies": {
     "@apollo/server": "^4.9.5",
@@ -49,6 +53,7 @@
     "mongoose": "^8.0.0",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.1",
+    "sharp": "^0.34.5",
     "uuid": "^14.0.2",
     "ws": "^8.14.2"
   },

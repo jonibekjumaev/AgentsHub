@@ -28,7 +28,6 @@ export class WithoutGuard implements CanActivate {
 			}
 
 			(request.body as Record<string, unknown>).authMember = authMember;
-			console.log('memberNick[without] =>', authMember?.memberNick ?? 'none');
 			return true;
 		}
 

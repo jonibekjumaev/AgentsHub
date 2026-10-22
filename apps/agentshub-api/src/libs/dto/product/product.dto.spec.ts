@@ -92,6 +92,12 @@ describe.each([
 		expect(await invalidFields(cls, { ...base, productImages: [] })).toEqual(['productImages']);
 	});
 
+	it('productImages has at most 10 images (Step 13a item 8)', async () => {
+		const images = (count: number) => Array.from({ length: count }, (_, i) => `uploads/product/${i}.png`);
+		expect(await invalidFields(cls, { ...base, productImages: images(10) })).toEqual([]);
+		expect(await invalidFields(cls, { ...base, productImages: images(11) })).toEqual(['productImages']);
+	});
+
 	it('productPrice must be a number when sent; the D-03 pricing rule itself is checked in ProductService', async () => {
 		expect(await invalidFields(cls, { ...base, productPrice: '49' })).toEqual(['productPrice']);
 		expect(await invalidFields(cls, { ...base, productPrice: null })).toEqual([]);
@@ -105,6 +111,11 @@ describe('ProductInput only', () => {
 			expect(await invalidFields(ProductInput, without(product, field))).toEqual([field]);
 		},
 	);
+
+	// GraphQL rejects unknown enum values first; this protects seed/create-admin, which validate with the DTO
+	it.each(['productCategory', 'productPricing'])('rejects an unknown %s value (Step 13: @IsEnum)', async (field) => {
+		expect(await invalidFields(ProductInput, { ...product, [field]: 'PROPERTY' })).toEqual([field]);
+	});
 
 	it('accepts a product without a price, demo link or tags (FREE / CUSTOM, D-03)', async () => {
 		const free = without(product, 'productPrice');

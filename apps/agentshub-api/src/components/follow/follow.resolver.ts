@@ -10,12 +10,17 @@ import { shapeInToMongoObjectId } from '../../libs/config';
 import { ObjectIdPipe } from '../../libs/pipes/object-id.pipe';
 import { WithoutGuard } from '../auth/guards/without.guard';
 import { Message } from '../../libs/enums/common.enum';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { MemberType } from '../../libs/enums/member.enum';
 
 @Resolver()
 export class FollowResolver {
 	constructor(private readonly followService: FollowService) {}
 
-	@UseGuards(AuthGuard)
+	// D-40: only USER and CREATOR members follow; an admin is not part of the social graph
+	@Roles(MemberType.USER, MemberType.CREATOR)
+	@UseGuards(RolesGuard)
 	@Mutation(() => Follower)
 	public async subscribe(
 		@Args('input', ObjectIdPipe) input: string,

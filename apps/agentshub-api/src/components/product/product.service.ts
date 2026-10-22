@@ -33,8 +33,9 @@ import {
 	lookupMember,
 	paidProductPricings,
 	shapeInToMongoObjectId,
+	unwindKeepingItem,
 } from '../../libs/config';
-import { LikeService } from '../like/like.service';
+import { LikeService, withMeLiked } from '../like/like.service';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { describeDbError, isDuplicateKeyError, normalizeTags } from '../../libs/utils';
@@ -97,7 +98,7 @@ export class ProductService {
 			targetProduct.meLiked = await this.likeService.checkLikeExistence(likeInput);
 		}
 
-		targetProduct.memberData = await this.memberService.getMember(null, targetProduct.memberId);
+		targetProduct.memberData = (await this.memberService.getAuthorData(targetProduct.memberId)) ?? undefined; // D-38
 		return targetProduct;
 	}
 
@@ -123,7 +124,7 @@ export class ProductService {
 							lookupAuthMemberLiked(memberId),
 
 							lookupMember,
-							{ $unwind: '$memberData' },
+							unwindKeepingItem('$memberData'),
 						],
 						metaCounter: [{ $count: 'total' }],
 					},
@@ -203,7 +204,7 @@ export class ProductService {
 							{ $skip: (input.page - 1) * input.limit },
 							{ $limit: input.limit },
 							lookupMember,
-							{ $unwind: '$memberData' },
+							unwindKeepingItem('$memberData'),
 						],
 						metaCounter: [{ $count: 'total' }],
 					},
@@ -231,7 +232,7 @@ export class ProductService {
 		const result = await this.productStatsEditor({ _id: likeRefId, targetKey: 'productLikes', modifier: modifier });
 
 		if (!result) throw new InternalServerErrorException(Message.SOMETHING_WENT_WRONG);
-		return result;
+		return withMeLiked(result, input, modifier);
 	}
 
 	public async getAllProductsByAdmin(input: AllProductsInquiry): Promise<Products> {
@@ -251,7 +252,7 @@ export class ProductService {
 							{ $skip: (input.page - 1) * input.limit },
 							{ $limit: input.limit },
 							lookupMember,
-							{ $unwind: '$memberData' },
+							unwindKeepingItem('$memberData'),
 						],
 						metaCounter: [{ $count: 'total' }],
 					},

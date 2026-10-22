@@ -114,6 +114,11 @@ const MemberSchema = new Schema(
 			default: 0,
 		},
 
+		// 1, 2, 3… among ranked ACTIVE creators, written by the nightly batch; missing = not ranked (Step 13a item 5)
+		memberRankPosition: {
+			type: Number,
+		},
+
 		memberWarnings: {
 			type: Number,
 			default: 0,

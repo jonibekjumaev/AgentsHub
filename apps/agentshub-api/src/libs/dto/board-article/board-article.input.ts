@@ -1,15 +1,31 @@
 import { Field, InputType, Int } from '@nestjs/graphql';
-import { IsIn, IsMongoId, IsNotEmpty, IsOptional, Length, MaxLength, Min, ValidateNested } from 'class-validator';
+import {
+	IsEnum,
+	IsIn,
+	IsMongoId,
+	IsNotEmpty,
+	IsOptional,
+	Length,
+	MaxLength,
+	Min,
+	ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 import { BoardArticleCategory, BoardArticleStatus } from '../../enums/board-article.enum';
 import { Direction } from '../../enums/common.enum';
 import type { ObjectId } from '../../types/common';
-import { aviableBoardArticleSorts, searchTextMaxLength } from '../../config';
+import {
+	articleContentMaxLength,
+	articleContentMinLength,
+	aviableBoardArticleSorts,
+	searchTextMaxLength,
+} from '../../config';
 
 @InputType()
 export class BoardArticleInput {
 	@IsNotEmpty()
+	@IsEnum(BoardArticleCategory)
 	@Field(() => BoardArticleCategory)
 	articleCategory!: BoardArticleCategory;
 
@@ -19,7 +35,7 @@ export class BoardArticleInput {
 	articleTitle!: string;
 
 	@IsNotEmpty()
-	@Length(3, 250)
+	@Length(articleContentMinLength, articleContentMaxLength) // D-35
 	@Field(() => String)
 	articleContent!: string;
 

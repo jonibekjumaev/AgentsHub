@@ -11,7 +11,7 @@ import { ProductService } from '../product/product.service';
 import { BriefService } from '../brief/brief.service';
 import { BoardArticleService } from '../board-article/board-article.service';
 import { CommentUpdate } from '../../libs/dto/comment/comment.update';
-import { lookupMember } from '../../libs/config';
+import { lookupMember, unwindKeepingItem } from '../../libs/config';
 import { describeDbError } from '../../libs/utils';
 import { Product } from '../../libs/dto/product/product';
 import { Brief } from '../../libs/dto/brief/brief';
@@ -182,9 +182,9 @@ export class CommentService {
 						list: [
 							{ $skip: (input.page - 1) * input.limit },
 							{ $limit: input.limit },
-							//meliked
+							// a deleted author gives memberData null, the comment stays (D-38)
 							lookupMember,
-							{ $unwind: '$memberData' },
+							unwindKeepingItem('$memberData'),
 						],
 						metaCounter: [{ $count: 'total' }],
 					},

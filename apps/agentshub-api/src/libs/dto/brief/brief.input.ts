@@ -32,6 +32,7 @@ import {
 @InputType()
 export class BriefInput {
 	@IsNotEmpty()
+	@IsEnum(AgentCategory)
 	@Field(() => AgentCategory)
 	briefCategory!: AgentCategory;
 

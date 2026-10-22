@@ -40,7 +40,7 @@ AgentsHub is a marketplace for AI agents.
 | memberImage | string | NN | | default '' — empty means no image, frontend shows a placeholder |
 | memberEmail | string | | | **new**. Contact, visible to logged-in members only |
 | memberWhatsapp | string | | | **new**. Contact, visible to logged-in members only |
-| memberDesc | string | | | bio |
+| memberDesc | string | | | bio, max 500 characters (D-35) |
 | memberProducts | int | NN | | **new** (was `memberProperties`), default 0 |
 | memberBriefs | int | NN | | **new**, default 0 |
 | memberArticles | int | NN | | default 0 |
@@ -51,6 +51,7 @@ AgentsHub is a marketplace for AI agents.
 | memberViews | int | NN | | default 0 |
 | memberComments | int | NN | | default 0 |
 | memberRank | int | NN | | default 0 |
+| memberRankPosition | int | | | place among ranked ACTIVE creators, 1 = top; set by the nightly batch, missing = not ranked (D-37) |
 | memberWarnings | int | NN | | default 0 |
 | memberBlocks | int | NN | | default 0 |
 | deletedAt | date | | | |
@@ -75,7 +76,8 @@ Removed from Nestar: `memberAddress`, `memberProperties`.
 | productLikes | int | NN | | default 0 |
 | productComments | int | NN | | default 0 |
 | productRank | int | NN | | default 0 |
-| productImages | string[] | NN | | at least 1 image |
+| productRankPosition | int | | | place among ranked ACTIVE products, 1 = top; set by the nightly batch, missing = not ranked (D-37) |
+| productImages | string[] | NN | | 1–10 images |
 | productDesc | string | NN | | required, 20–3000 characters: a listing needs a description, and semantic search will rely on it (D-18). Can't be cleared on update |
 | memberId | ObjectId | NN | FK → members | owner, must be a CREATOR |
 | deletedAt | date | | | |
@@ -132,6 +134,8 @@ Suggested indexes:
 | createdAt | date | NN | |
 | updatedAt | date | NN | |
 
+`articleTitle` 3–50 and `articleContent` 3–3000 characters (D-35; Nestar allowed 3–250).
+
 ### comments
 
 | Field | Type | NN | Key | Notes |
@@ -140,7 +144,7 @@ Suggested indexes:
 | commentStatus | enum | NN | | unchanged |
 | commentGroup | enum CommentGroup | NN | | `MEMBER`, `PRODUCT`, `BRIEF` or `ARTICLE` |
 | commentRefId | ObjectId | NN | FK (polymorphic) | |
-| commentContent | string | NN | | |
+| commentContent | string | NN | | 1–1000 characters (D-35) |
 | memberId | ObjectId | NN | FK → members | author |
 | createdAt | date | NN | | |
 | updatedAt | date | NN | | |

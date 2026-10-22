@@ -22,6 +22,7 @@ import {
 	productDemoUrlMaxLength,
 	productDescMaxLength,
 	productDescMinLength,
+	productImagesMaxCount,
 	productTagMaxLength,
 	productTagsMaxCount,
 } from '../../config';
@@ -33,23 +34,23 @@ export class ProductUpdate {
 	@Field(() => String)
 	_id!: ObjectId;
 
-	@ValidateIf((o) => o.productCategory !== undefined) // reject null: the field is required
+	@ValidateIf((o: ProductUpdate) => o.productCategory !== undefined) // reject null: the field is required
 	@IsEnum(AgentCategory)
 	@Field(() => AgentCategory, { nullable: true })
 	productCategory?: AgentCategory;
 
 	// reject null (B11). The allowed status changes are checked in ProductService (D-16, D-29)
-	@ValidateIf((o) => o.productStatus !== undefined)
+	@ValidateIf((o: ProductUpdate) => o.productStatus !== undefined)
 	@IsEnum(ProductStatus)
 	@Field(() => ProductStatus, { nullable: true })
 	productStatus?: ProductStatus;
 
-	@ValidateIf((o) => o.productPricing !== undefined) // reject null: the field is required
+	@ValidateIf((o: ProductUpdate) => o.productPricing !== undefined) // reject null: the field is required
 	@IsEnum(ProductPricing)
 	@Field(() => ProductPricing, { nullable: true })
 	productPricing?: ProductPricing;
 
-	@ValidateIf((o) => o.productTitle !== undefined) // reject null: the field is required
+	@ValidateIf((o: ProductUpdate) => o.productTitle !== undefined) // reject null: the field is required
 	@IsString()
 	@Length(3, 100)
 	@Field(() => String, { nullable: true })
@@ -69,7 +70,7 @@ export class ProductUpdate {
 	productDemoUrl?: string;
 
 	// reject null; send [] to remove all tags. Saved normalized (normalizeTags)
-	@ValidateIf((o) => o.productTags !== undefined)
+	@ValidateIf((o: ProductUpdate) => o.productTags !== undefined)
 	@IsArray()
 	@ArrayMaxSize(productTagsMaxCount)
 	@IsString({ each: true })
@@ -78,13 +79,14 @@ export class ProductUpdate {
 	@Field(() => [String], { nullable: true })
 	productTags?: string[];
 
-	@ValidateIf((o) => o.productImages !== undefined) // reject null and []: at least 1 image
+	@ValidateIf((o: ProductUpdate) => o.productImages !== undefined) // reject null and []: at least 1 image
 	@IsArray()
 	@ArrayMinSize(1)
+	@ArrayMaxSize(productImagesMaxCount)
 	@Field(() => [String], { nullable: true })
 	productImages?: string[];
 
-	@ValidateIf((o) => o.productDesc !== undefined) // reject null and '': the description can't be cleared (D-18)
+	@ValidateIf((o: ProductUpdate) => o.productDesc !== undefined) // reject null and '': the description can't be cleared (D-18)
 	@IsString()
 	@Length(productDescMinLength, productDescMaxLength)
 	@Field(() => String, { nullable: true })

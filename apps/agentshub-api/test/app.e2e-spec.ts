@@ -350,6 +350,61 @@ describe('AgentsHub API (e2e smoke)', () => {
 		});
 	});
 
+	describe('comments of a deleted member (D-38)', () => {
+		let commentId = '';
+		const memberComments = () =>
+			gql<{
+				getComments: { list: Array<{ _id: string; memberId: string; memberData: { memberNick: string } | null }> };
+			}>(
+				app,
+				`query ($input: CommentsInquiry!) { getComments(input: $input) { list { _id memberId memberData { memberNick } } } }`,
+				{ input: { page: 1, limit: 10, search: { commentRefId: creator._id, commentGroup: 'MEMBER' } } },
+			);
+
+		it('a member comments on a profile', async () => {
+			const response = await gql<{ createComment: { _id: string } }>(
+				app,
+				`mutation ($input: CommentInput!) { createComment(input: $input) { _id } }`,
+				{ input: { commentGroup: 'MEMBER', commentRefId: creator._id, commentContent: 'Great creator!' } },
+				user.token,
+			);
+
+			expect(response.errors).toBeUndefined();
+			commentId = response.data!.createComment._id;
+			const follow = await gql(
+				app,
+				`mutation ($id: String!) { subscribe(input: $id) { _id } }`,
+				{ id: creator._id },
+				user.token,
+			);
+			expect(follow.errors).toBeUndefined();
+			expect((await memberComments()).data?.getComments.list[0].memberData?.memberNick).toBe('e2e_user');
+		});
+
+		it('after the author is deleted, the comment stays with memberData null (no link to a 404 profile)', async () => {
+			await connection
+				.collection('members')
+				.updateOne({ memberNick: 'e2e_user' }, { $set: { memberStatus: 'DELETE' } });
+
+			const list = (await memberComments()).data?.getComments.list;
+			expect(list).toEqual([{ _id: commentId, memberId: user._id, memberData: null }]);
+			expect(onlyError(await getMember(user._id)).code).toBe('NOT_FOUND');
+		});
+
+		it('a follow left behind (a delete straight in the DB, not D-39) never breaks the list: followerData null', async () => {
+			const followers = await gql<{
+				getMemberFollowers: { list: Array<{ followerId: string; followerData: unknown }> };
+			}>(
+				app,
+				`query ($input: FollowInquiry!) { getMemberFollowers(input: $input) { list { followerId followerData { memberNick } } } }`,
+				{ input: { page: 1, limit: 10, search: { followingId: creator._id } } },
+			);
+
+			expect(followers.errors).toBeUndefined();
+			expect(followers.data?.getMemberFollowers.list).toEqual([{ followerId: user._id, followerData: null }]);
+		});
+	});
+
 	describe('a blocked member (B17)', () => {
 		beforeAll(async () => {
 			await connection

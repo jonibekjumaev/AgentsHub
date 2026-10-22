@@ -1,19 +1,20 @@
 import { Field, InputType, Int } from '@nestjs/graphql';
-import { IsIn, IsMongoId, IsNotEmpty, IsOptional, Length, Min, ValidateNested } from 'class-validator';
+import { IsEnum, IsIn, IsMongoId, IsNotEmpty, IsOptional, Length, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import type { ObjectId } from '../../types/common';
 import { CommentGroup } from '../../enums/comment.enum';
 import { Direction } from '../../enums/common.enum';
-import { availableCommentSorts } from '../../config';
+import { availableCommentSorts, commentContentMaxLength } from '../../config';
 
 @InputType()
 export class CommentInput {
 	@IsNotEmpty()
+	@IsEnum(CommentGroup)
 	@Field(() => CommentGroup)
 	commentGroup!: CommentGroup;
 
 	@IsNotEmpty()
-	@Length(1, 100)
+	@Length(1, commentContentMaxLength) // D-35
 	@Field(() => String)
 	commentContent!: string;
 
@@ -33,6 +34,7 @@ class CISearch {
 
 	// the target type: comments follow the target's visibility (PRODUCT: D-16, BRIEF: D-30)
 	@IsNotEmpty()
+	@IsEnum(CommentGroup)
 	@Field(() => CommentGroup)
 	commentGroup!: CommentGroup;
 }

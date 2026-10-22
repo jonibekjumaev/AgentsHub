@@ -7,6 +7,9 @@ export enum Message {
 	UPDATE_FAILED = 'Update failed!',
 	REMOVE_FAILED = 'Remove failed!',
 	UPLOAD_FAILED = 'Upload failed!',
+	FILE_TOO_LARGE = 'Image must be at most 10 MB!',
+	INVALID_IMAGE = 'The file is not a readable image!',
+	IMAGE_TOO_MANY_PIXELS = 'Image must be at most 50 megapixels!',
 	BAD_REQUEST = 'Bad Request',
 	INVALID_MONGO_ID = 'must be a mongodb id', // prefixed with the argument name, like class-validator's @IsMongoId message (B18)
 
@@ -23,7 +26,7 @@ export enum Message {
 	NOT_ALLOWED_REQUEST = 'Not Allowed Request!',
 	PROVIDE_ALLOWED_FORMAT = 'Please provide jpg, jpeg or png images!',
 	SELF_SUBSCRIPTION_DENIED = 'Self subscription is denied!',
-	INVALID_CHAT_MESSAGE = 'Message must be text of 1 to 500 characters!',
+	INVALID_CHAT_MESSAGE = 'Message must be text of 1 to 3000 characters!',
 	CHAT_RATE_LIMITED = 'You can send at most 1 message per second!',
 	INVALID_EMAIL = 'Please provide a valid email of at most 254 characters!',
 	INVALID_PHONE = 'Phone number must be in international format, e.g. +998901234567 (8 to 15 digits)!',

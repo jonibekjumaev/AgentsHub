@@ -4,6 +4,7 @@ import { Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 import { MemberService } from '../member/member.service';
 import { Direction, Message } from '../../libs/enums/common.enum';
+import { MemberType } from '../../libs/enums/member.enum';
 import type { ObjectId, T } from '../../libs/types/common';
 import { describeDbError } from '../../libs/utils';
 import { FollowInquiry } from '../../libs/dto/follow/follow.input';
@@ -12,6 +13,7 @@ import {
 	lookupAuthMemberLiked,
 	lookupFollowerData,
 	lookupFollowingData,
+	unwindKeepingItem,
 } from '../../libs/config';
 
 @Injectable()
@@ -28,6 +30,8 @@ export class FollowService {
 
 		const targetMember = await this.memberService.getMember(null, followingId);
 		if (!targetMember) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
+		// D-40: an admin has no public profile and can't be followed; answered like a missing member
+		if (targetMember.memberType === MemberType.ADMIN) throw new NotFoundException(Message.NO_DATA_FOUND);
 
 		const result = await this.registerSubscription(followerId, followingId);
 
@@ -86,7 +90,7 @@ export class FollowService {
 							// meFollowed
 							lookupAuthMemberFollowed({ followerId: memberId, followingId: '$followingId' }),
 							lookupFollowingData,
-							{ $unwind: '$followingData' },
+							unwindKeepingItem('$followingData'),
 						],
 						metaCounter: [{ $count: 'total' }],
 					},
@@ -118,7 +122,7 @@ export class FollowService {
 							// meFollowed
 							lookupAuthMemberFollowed({ followerId: memberId, followingId: '$followerId' }), // men bu odamlarga follow qilganmanmi
 							lookupFollowerData,
-							{ $unwind: '$followerData' },
+							unwindKeepingItem('$followerData'),
 						],
 						metaCounter: [{ $count: 'total' }],
 					},
