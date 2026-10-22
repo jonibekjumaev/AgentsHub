@@ -15,21 +15,12 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { MemberType } from '../../libs/enums/member.enum';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { MemberUpdate, MemberUpdateByAdmin } from '../../libs/dto/member/member.update';
-import {
-	getSerialForImage,
-	getUploadPath,
-	validMimeTypes,
-	validUploadTargets,
-	shapeInToMongoObjectId,
-} from '../../libs/config';
+import { validUploadTargets, shapeInToMongoObjectId } from '../../libs/config';
+import { removeUploads, saveUpload } from '../../libs/upload';
 import { ObjectIdPipe } from '../../libs/pipes/object-id.pipe';
 import { WithoutGuard } from '../auth/guards/without.guard';
-import type { AuthPayload, ObjectId } from '../../libs/types/common';
+import type { ObjectId } from '../../libs/types/common';
 import { GraphQLUpload } from 'graphql-upload';
-import { createWriteStream } from 'fs';
-import { mkdir, unlink } from 'fs/promises';
-import { dirname } from 'path';
-import { pipeline } from 'stream/promises';
 import { Message } from '../../libs/enums/common.enum';
 import type { FileUpload } from 'graphql-upload';
 
@@ -49,28 +40,12 @@ export class MemberResolver {
 		return await this.memberService.login(input);
 	}
 
-	@UseGuards(AuthGuard)
-	@Query(() => String)
-	public async checkAuth(@AuthMember('memberNick') memberNick: string): Promise<string> {
-		console.log('Query: checkAuth');
-		console.log('memberNick:', memberNick);
-		return `Hi ${memberNick}`;
-	}
-
 	/** The logged-in member with their own contacts (D-33), so the client never has to decode the token */
 	@UseGuards(AuthGuard)
 	@Query(() => Member)
 	public async getMe(@AuthMember('_id') memberId: ObjectId): Promise<Member> {
 		console.log('Query: getMe');
 		return await this.memberService.getMe(memberId);
-	}
-
-	@Roles(MemberType.USER, MemberType.CREATOR)
-	@UseGuards(RolesGuard)
-	@Query(() => String)
-	public async checkAuthRoles(@AuthMember() authMember: AuthPayload): Promise<string> {
-		console.log('Query: checkAuthRole');
-		return `Hi ${authMember.memberNick},  you are ${authMember.memberType} (memberId: ${authMember._id.toString()})`;
 	}
 
 	@UseGuards(AuthGuard)
@@ -100,7 +75,6 @@ export class MemberResolver {
 		@AuthMember('_id') memberId: ObjectId,
 	): Promise<Member> {
 		console.log('Query: getMember');
-		console.log('memberId:', memberId);
 		const targetId = shapeInToMongoObjectId(input);
 		return await this.memberService.getMember(memberId, targetId);
 	}
@@ -144,39 +118,18 @@ export class MemberResolver {
 		return await this.memberService.updateMemberByAdmin(input);
 	}
 
-	// IMAGE UPLOADER (member.resolver.ts)
+	// IMAGE UPLOADER (member.resolver.ts): the saving rules and error codes live in libs/upload.ts
 
 	@UseGuards(AuthGuard)
 	@Mutation(() => String)
 	public async imageUploader(
 		@Args({ name: 'file', type: () => GraphQLUpload })
-		{ createReadStream, filename, mimetype }: FileUpload,
+		file: FileUpload,
 		@Args('target') target: string,
 	): Promise<string> {
 		console.log('Mutation: imageUploader');
-
 		if (!validUploadTargets.includes(target)) throw new BadRequestException(Message.BAD_REQUEST);
-		if (!filename) throw new BadRequestException(Message.UPLOAD_FAILED);
-		const validMime = validMimeTypes.includes(mimetype);
-		if (!validMime) throw new BadRequestException(Message.PROVIDE_ALLOWED_FORMAT);
-
-		const imageName = getSerialForImage(filename);
-		const url = getUploadPath(target, imageName);
-		if (!url) throw new BadRequestException(Message.BAD_REQUEST);
-		// uploads/<target>/ is gitignored, so a fresh server may not have it
-		await mkdir(dirname(url), { recursive: true });
-
-		try {
-			// pipeline (unlike pipe) also fails on read-stream errors, e.g. a file over the size limit
-			await pipeline(createReadStream(), createWriteStream(url));
-		} catch (err) {
-			console.log('Error: imageUploader', err);
-			// remove the partly written file
-			await unlink(url).catch(() => console.log('Error: could not remove', url));
-			throw new InternalServerErrorException(Message.UPLOAD_FAILED);
-		}
-
-		return url;
+		return await saveUpload(file, target);
 	}
 
 	@UseGuards(AuthGuard)
@@ -187,41 +140,23 @@ export class MemberResolver {
 		@Args('target') target: string,
 	): Promise<string[]> {
 		console.log('Mutation: imagesUploader');
-
 		if (!validUploadTargets.includes(target)) throw new BadRequestException(Message.BAD_REQUEST);
 
-		// All-or-nothing: if any file fails, the files already written by this request are removed
+		// All-or-nothing: if any file fails, the files already saved by this request are removed
 		// and the request fails with the first failing file's error.
-		const writtenUrls: string[] = [];
 		const settled = await Promise.allSettled(
-			files.map(async (img: Promise<FileUpload>, index: number): Promise<string> => {
-				const { filename, mimetype, createReadStream } = await img;
-				const fileLabel = `(file ${index + 1}: ${filename})`;
-
-				if (!validMimeTypes.includes(mimetype))
-					throw new BadRequestException(`${Message.PROVIDE_ALLOWED_FORMAT} ${fileLabel}`);
-
-				const imageName = getSerialForImage(filename);
-				const url = getUploadPath(target, imageName);
-				if (!url) throw new BadRequestException(`${Message.BAD_REQUEST} ${fileLabel}`);
-				// uploads/<target>/ is gitignored, so a fresh server may not have it
-				await mkdir(dirname(url), { recursive: true });
-
-				writtenUrls.push(url); // before writing, so a partly written file is removed too
-				try {
-					// pipeline (unlike pipe) also fails on read-stream errors, e.g. a file over the size limit
-					await pipeline(createReadStream(), createWriteStream(url));
-				} catch {
-					throw new InternalServerErrorException(`${Message.UPLOAD_FAILED} ${fileLabel}`);
-				}
-				return url;
+			files.map(async (img, index) => {
+				const upload = await img;
+				return await saveUpload(upload, target, `(file ${index + 1}: ${upload.filename})`);
 			}),
 		);
 
 		const failed = settled.find((res): res is PromiseRejectedResult => res.status === 'rejected');
 		if (failed) {
-			console.log('Error: imagesUploader', failed.reason);
-			await Promise.all(writtenUrls.map((url) => unlink(url).catch(() => console.log('Error: could not remove', url))));
+			const saved = settled
+				.filter((res): res is PromiseFulfilledResult<string> => res.status === 'fulfilled')
+				.map((res) => res.value);
+			await removeUploads(saved);
 			if (failed.reason instanceof HttpException) throw failed.reason;
 			throw new InternalServerErrorException(Message.UPLOAD_FAILED);
 		}

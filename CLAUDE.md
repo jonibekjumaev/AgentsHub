@@ -10,7 +10,7 @@ This repo is a **copy of Nestar** (a real estate platform), and it is being conv
 - **USER** members publish **Briefs**, which describe a business need for a custom agent.
 - Contact happens off-platform: email/WhatsApp on the profile, shown to logged-in members only (D-07, D-08).
 
-**`docs/agentshub-er.md` is the source of truth** for every schema, DTO, enum and GraphQL type. `docs/decisions.md` records the reasons (D-01 … D-33). If code and the ER doc disagree, fix one of them on purpose and record why in `docs/decisions.md`. New decisions start as **Proposed**. Never delete a decision; mark it **Superseded by D-XX** instead.
+**`docs/agentshub-er.md` is the source of truth** for every schema, DTO, enum and GraphQL type. `docs/decisions.md` records the reasons (D-01 … D-37). If code and the ER doc disagree, fix one of them on purpose and record why in `docs/decisions.md`. New decisions start as **Proposed**. Never delete a decision; mark it **Superseded by D-XX** instead.
 
 The code is still almost entirely Nestar. Main conversions:
 
@@ -57,13 +57,15 @@ The code is still almost entirely Nestar. Main conversions:
 | `npm run test:e2e:batch` | Batch e2e spec on the same in-memory MongoDB setup (D-32) |
 | `npm run seed` | Dev only (refuses `NODE_ENV=production`). Deletes and recreates the `seed_*` members and their data through the services; creates the admin if missing. Needs `SEED_PASSWORD` and the `ADMIN_*` keys |
 | `npm run create-admin` | Creates the `ADMIN_NICK` admin if missing, never changes an existing one (D-14). Allowed in production |
+| `npm run migrate:legacy` | Dev only. Dry run of the Nestar → AgentsHub data fixes (D-34): prints the database, then per collection and rule how many documents would change, and problems to fix by hand. `-- --apply` writes; back up first |
+| `npm run clean:uploads` | Dry run: lists uploaded images no document references, older than 24 h (D-36). `-- --apply` deletes them. Run from the repo root on the machine that serves `uploads/` |
 | `npm run batch:run -- <job>` | Dev only (refuses `NODE_ENV=production`). Runs a batch job once without the scheduler: `rollback`, `products`, `creators` or `all` (default, nightly order). Prints the counts and the top 5 products and creators |
 
 Known issues, so you don't trip over them:
 
 - `start:prod` uses `NODE_ENV=production node ...`, which only works in a POSIX shell (not cmd/PowerShell).
 - The first `npm install` on a machine downloads a `mongod` binary for the e2e tests (about 650 MB on Windows, D-32).
-- `npm run lint` (with `--fix`) still reports 42 existing problems in source files (Step 13 list), and its `--fix` rewrites `apps/agentshub-api/src/schemas/Notice.model.ts`. Revert that file before committing until the Step 13 item is done.
+- `npm run lint` reports 0 problems since Step 13a; keep it that way.
 
 Environment variables (see `.env.example` for the key list):
 
@@ -97,6 +99,8 @@ apps/
                           shapeInToMongoObjectId, $lookup builders (lookupMember,
                           lookupAuthMemberLiked, lookupAuthMemberFollowed, lookupFavorite, lookupVisit, ...)
     libs/types/common.ts  T, ObjectId, StatisticModifier
+    libs/process-handlers.ts  logs unhandled promise rejections instead of exiting (B22, D-34); first call in both main.ts
+    libs/upload.ts        saveUpload / removeUploads: the image upload rules and error codes (D-36)
     socket/               raw `ws` gateway: public broadcast chat, last 5 messages kept in memory
                           (note: D-08 says no in-platform chat in the MVP)
   agentshub-api/test/
@@ -113,7 +117,7 @@ uploads/{member,product,article}/    local image storage (gitignored); the folde
 docs/                     agentshub-er.md (schema source of truth), decisions.md
 ```
 
-Images are uploaded through `imageUploader` / `imagesUploader` in `member.resolver.ts`, which write to `uploads/<target>/<uuid>.<ext>`.
+Images are uploaded through `imageUploader` / `imagesUploader` in `member.resolver.ts`, which call `saveUpload` (`libs/upload.ts`) and write to `uploads/<target>/<uuid>.<ext>`.
 
 ## Conventions
 

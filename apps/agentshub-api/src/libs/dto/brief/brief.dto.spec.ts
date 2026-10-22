@@ -23,6 +23,10 @@ describe.each([
 		expect(await invalidFields(cls, base)).toEqual([]);
 	});
 
+	it('rejects an unknown briefCategory (Step 13: @IsEnum)', async () => {
+		expect(await invalidFields(cls, { ...base, briefCategory: 'REAL_ESTATE' })).toEqual(['briefCategory']);
+	});
+
 	it.each([briefTitleMinLength, briefTitleMaxLength])('accepts a %p-character title', async (length) => {
 		expect(await invalidFields(cls, { ...base, briefTitle: 'a'.repeat(length) })).toEqual([]);
 	});

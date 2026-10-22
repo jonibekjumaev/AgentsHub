@@ -503,7 +503,12 @@ describe('ProductService', () => {
 		it.each([1, -1])('another member toggles the like and productLikes changes by %p', async (modifier) => {
 			productModel.resolve('findOne', fullProduct()).resolve('findByIdAndUpdate', fullProduct());
 			likeService.toggleLike.mockResolvedValue(modifier);
-			await service.likeTargetProduct(otherId, productId);
+			const result = await service.likeTargetProduct(otherId, productId);
+
+			// Step 13a item 4: the response says whether the caller likes it now
+			expect(result.meLiked).toEqual(
+				modifier > 0 ? [{ memberId: otherId, likeRefId: productId, myFavorite: true }] : [],
+			);
 
 			expect(likeService.toggleLike).toHaveBeenCalledWith({
 				memberId: otherId,

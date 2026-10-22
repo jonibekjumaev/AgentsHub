@@ -44,6 +44,10 @@ export class Product {
 	@Field(() => Int)
 	productRank!: number;
 
+	/** The place in the nightly ranking (1 = top); null when not ranked (Step 13a item 5) */
+	@Field(() => Int, { nullable: true })
+	productRankPosition?: number;
+
 	@Field(() => [String])
 	productImages!: string[];
 

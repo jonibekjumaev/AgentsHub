@@ -16,6 +16,8 @@ import { MemberStatus, MemberType } from '../libs/enums/member.enum';
 import { Message } from '../libs/enums/common.enum';
 import type { ObjectId } from '../libs/types/common';
 import * as url from 'url';
+import type { IncomingMessage } from 'http';
+import { chatMessageMaxLength } from '../libs/config';
 
 /** Only these member fields may reach chat clients (D-19, D-07). Guests get null. */
 interface PublicMember {
@@ -43,7 +45,6 @@ interface ErrorPayload {
 	message: string;
 }
 
-const MESSAGE_MAX_LENGTH = 500;
 const MESSAGE_RATE_LIMIT_MS = 1000;
 
 const toPublicMember = (member: PublicMember | null | undefined): PublicMember | null => {
@@ -69,14 +70,14 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 	@WebSocketServer()
 	server: Server;
 
-	public afterInit(server: Server) {
+	public afterInit() {
 		this.logger.verbose(`WebSocket Server Initialized & total: [${this.summaryClient}]`);
 	}
 
 	/** Verifies the token, then loads the member from the DB (D-19 condition 7). Missing or not ACTIVE → guest (null). */
-	private async retrieveAuth(req: any): Promise<PublicMember | null> {
+	private async retrieveAuth(req: IncomingMessage): Promise<PublicMember | null> {
 		try {
-			const parseUrl = url.parse(req.url, true);
+			const parseUrl = url.parse(req.url ?? '', true);
 			const { token } = parseUrl.query;
 
 			const { _id } = await this.authService.verifyToken(token as string);
@@ -89,12 +90,12 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 				.exec();
 
 			return toPublicMember(member);
-		} catch (err) {
+		} catch {
 			return null;
 		}
 	}
 
-	public async handleConnection(client: WebSocket, req: any) {
+	public async handleConnection(client: WebSocket, req: IncomingMessage) {
 		const authMember = await this.retrieveAuth(req);
 		this.summaryClient++;
 		this.clientsAuthMap.set(client, authMember);
@@ -133,7 +134,7 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 	}
 
 	@SubscribeMessage('message')
-	public handleMessage(client: WebSocket, payload: unknown): void {
+	public async handleMessage(client: WebSocket, payload: unknown): Promise<void> {
 		const authMember = this.clientsAuthMap.get(client);
 		// Guests can read but not send (D-19 condition 2)
 		if (!authMember) {
@@ -142,9 +143,9 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 			return;
 		}
 
-		// Only strings of 1–500 characters after trim (D-19 condition 3)
+		// Only strings of 1–3000 characters after trim (D-19 condition 3, D-35)
 		const text = typeof payload === 'string' ? payload.trim() : '';
-		if (text.length < 1 || text.length > MESSAGE_MAX_LENGTH) {
+		if (text.length < 1 || text.length > chatMessageMaxLength) {
 			this.logger.verbose(`REJECTED MESSAGE [${authMember.memberNick}] : invalid text`);
 			this.sendToClient(client, { event: 'error', message: Message.INVALID_CHAT_MESSAGE });
 			return;
@@ -162,6 +163,15 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 		this.pruneLastSentAt(now);
 		this.lastSentAtMap.set(memberId, now);
 
+		// A member blocked or deleted after connecting is a guest from now on (D-19 condition 7, Step 13a item 6).
+		// Checked after the rate limit, so a flood costs at most one read per second per member
+		if (!(await this.isStillActive(authMember._id))) {
+			this.clientsAuthMap.set(client, null);
+			this.logger.verbose(`REJECTED MESSAGE [${authMember.memberNick}] : no longer active`);
+			this.sendToClient(client, { event: 'error', message: Message.NOT_AUTHENTICATED });
+			return;
+		}
+
 		const newMessage: MessagePayload = { event: 'message', text, memberData: authMember };
 		this.logger.verbose(`NEW MESSAGE [${authMember.memberNick}] : [${text}]`);
 
@@ -169,6 +179,20 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 		if (this.messagesList.length > 5) this.messagesList.splice(0, this.messagesList.length - 5);
 
 		this.emitMessage(newMessage);
+	}
+
+	/** True while the member is ACTIVE; a database error counts as not active (the message is refused, not lost silently) */
+	private async isStillActive(memberId: ObjectId): Promise<boolean> {
+		try {
+			const member = await this.memberModel
+				.findOne({ _id: memberId, memberStatus: MemberStatus.ACTIVE })
+				.select('_id')
+				.lean()
+				.exec();
+			return Boolean(member);
+		} catch {
+			return false;
+		}
 	}
 
 	/** Drops entries older than the rate-limit window, so the map only holds members who sent in the last second */

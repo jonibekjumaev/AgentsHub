@@ -26,6 +26,7 @@ import {
 	productDemoUrlMaxLength,
 	productDescMaxLength,
 	productDescMinLength,
+	productImagesMaxCount,
 	productTagMaxLength,
 	productTagsMaxCount,
 	searchTextMaxLength,
@@ -35,10 +36,12 @@ import { Direction } from '../../enums/common.enum';
 @InputType()
 export class ProductInput {
 	@IsNotEmpty()
+	@IsEnum(AgentCategory)
 	@Field(() => AgentCategory)
 	productCategory!: AgentCategory;
 
 	@IsNotEmpty()
+	@IsEnum(ProductPricing)
 	@Field(() => ProductPricing)
 	productPricing!: ProductPricing;
 
@@ -71,6 +74,7 @@ export class ProductInput {
 
 	@IsNotEmpty()
 	@ArrayMinSize(1)
+	@ArrayMaxSize(productImagesMaxCount)
 	@Field(() => [String])
 	productImages!: string[];
 

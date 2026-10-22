@@ -306,7 +306,10 @@ describe('MemberService', () => {
 
 		it("another member's like changes the liked member's memberLikes", async () => {
 			memberModel.resolve('findOne', memberDocument()).resolve('findByIdAndUpdate', memberDocument());
-			await service.likeTargetMember(otherId, memberId);
+			const result = await service.likeTargetMember(otherId, memberId);
+
+			// Step 13a item 4: meLiked comes back filled for the caller
+			expect(result.meLiked).toEqual([{ memberId: otherId, likeRefId: memberId, myFavorite: true }]);
 
 			expect(likeService.toggleLike).toHaveBeenCalledWith({
 				memberId: otherId,

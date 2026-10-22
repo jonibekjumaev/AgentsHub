@@ -19,7 +19,7 @@ import { escapeRegex, lookupAuthMemberLiked, lookupMember, shapeInToMongoObjectI
 import { describeDbError } from '../../libs/utils';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
-import { LikeService } from '../like/like.service';
+import { LikeService, withMeLiked } from '../like/like.service';
 
 @Injectable()
 export class BoardArticleService {
@@ -151,7 +151,7 @@ export class BoardArticleService {
 		});
 
 		if (!result) throw new InternalServerErrorException(Message.SOMETHING_WENT_WRONG);
-		return result;
+		return withMeLiked(result, input, modifier);
 	}
 
 	public async getAllBoardArticlesByAdmin(input: AllBoardArticlesInquiry): Promise<BoardArticles> {

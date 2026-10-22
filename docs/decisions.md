@@ -827,3 +827,68 @@
   - **Frontend:** after a reload, call `getMe`. Log out on `UNAUTHENTICATED`, or on `FORBIDDEN` with `reason === 'MEMBER_BLOCKED'`. The D-23 advice to load one's own contacts with `getMember` after login is replaced by `getMe`; D-23 itself is unchanged.
   - **Only blocked members have a reason for now.** Other errors have no `reason`. New reasons are added to `ErrorReason` and need no change in `formatError`.
   - **Not in this decision:** the WebSocket chat doesn't re-check blocked members on open connections. That stays on the Step 13 list.
+
+## D-34 — Legacy Nestar documents and errors that outlive a request
+
+**Status:** Proposed
+
+- **Context:** In the client walk-through (Step 13a), `getAllMembersByAdmin` met Nestar-era members: `memberType: "AGENT"` and no `memberBriefs`. GraphQL answered with field errors (`Enum MemberType cannot represent value: AGENT`, `Cannot return null for non-nullable field Member.memberBriefs`), and then the whole API process exited. Cause (B22): graphql-js 16 completes list items one by one; when one item fails synchronously while other items still have async fields running, those fields' later rejections are never awaited. Node 15+ exits on an unhandled rejection. The Step 6 mongosh migrations had not reached every document (they also hard-code `getSiblingDB('agentsHub')`, so a shell connected elsewhere matches 0 documents).
+- **Options:**
+  - **Process:**
+    - **A. A process `unhandledRejection` handler that logs and keeps running.**
+      - Pro: One request's orphaned promise can't take the API down for everyone. The client already got its GraphQL error.
+      - Con: A real bug that leaves a rejection unhandled is only logged, not fatal.
+    - **B. Keep Node's default (exit) and rely on a process manager to restart.**
+      - Con: Every request in flight fails, and a bad document crashes the API on every list that reaches it.
+    - **C. Make every list field resolver defensive.**
+      - Con: Many places, and the graphql-js behaviour stays.
+  - **Data:** a one-off script that fixes the documents (A), or defaults in the GraphQL output types (B, hides bad data).
+- **Decision:**
+  - **Process: option A.** `registerProcessHandlers()` (`libs/process-handlers.ts`) is the first call of both `main.ts` files. It logs `Unhandled promise rejection: <stack>` (redacted, S15) through Nest's `Logger` and does not exit. Uncaught **synchronous** exceptions keep Node's default exit, because the process state can't be trusted after one.
+  - **Data: option A.** `npm run migrate:legacy` (`scripts/migrate-legacy.ts`, rules in `apps/agentshub-batch/src/maintenance/legacy-data.ts`):
+    - connects with the app's own `MONGODB_DEV` and prints the database name and host first;
+    - is a **dry run by default**: per collection and per rule, how many documents would change; `--apply` writes. Dev only;
+    - checks every non-null field of the GraphQL output types of members, products, briefs, board articles and comments, plus the `likes` / `views` groups. Safe values are filled (counters → 0, `memberType AGENT → CREATOR`, `PROPERTY → PRODUCT`, `memberProperties → memberProducts` without overwriting a count, `memberAddress` removed, `productStatus SOLD → PAUSED`, missing `productCategory` → `OTHER`, missing `productPricing` → `ONE_TIME` with a price / `CUSTOM` without, D-03, missing timestamps → the `_id` time);
+    - never guesses a value it can't know (a missing title, nick or `memberId`, an unknown enum value): those are listed by `_id` as problems to fix by hand.
+- **Reason:** The API must survive bad data, and the data must still be fixed at the source, so lists show every member instead of failing.
+- **Consequence:** Re-runnable: a dry run after `--apply` reports 0. Back up the collections before `--apply`. The old mongosh files under `scripts/migrations/` stay as the record of Step 6.
+
+## D-35 — Text limits for comments, chat, articles and member descriptions
+
+**Status:** Proposed
+
+- **Context:** The Nestar limits were short: comments 1–100, chat messages 1–500, article content 3–250, and `memberDesc` had none. In the client walk-through a 100-character comment felt too short for a review of an agent, and forum posts need room.
+- **Decision:** One place in `libs/config.ts` (`TEXT LIMITS`), used by the DTOs and the chat gateway:
+
+  | Field | Before | Now |
+  |---|---|---|
+  | `commentContent` (create and update) | 1–100 | 1–1000 |
+  | chat message (after trim) | 1–500 | 1–3000 |
+  | `articleContent` (create and update) | 3–250 | 3–3000 |
+  | `articleTitle` | 3–50 | unchanged |
+  | `memberDesc` (`updateMember`, `updateMemberByAdmin`) | no limit | max 500; `null` still clears it |
+
+- **Reason:** Long enough for real use, short enough to keep lists readable and to bound what one request stores. 3000 matches `productDesc` and `briefContent`.
+- **Consequence:** Validation stays in the DTOs (`BAD_REQUEST` with the field name), not in the Mongoose schemas. The chat message `INVALID_CHAT_MESSAGE` now says 1 to 3000. The client constants follow (comment 1000, chat 3000, article 3000).
+
+## D-36 — Upload errors and orphan uploads
+
+**Status:** Proposed
+
+- **Context:** `imageUploader` / `imagesUploader` answered a file over the size limit with `INTERNAL_SERVER_ERROR` `Upload failed!`, so the client showed "something went wrong" for a user mistake. An image is uploaded before the form that uses it is saved, so a cancelled form leaves a file that nothing references, and nothing ever removed those.
+- **Decision:**
+  - **Errors:** one helper, `saveUpload()` (`libs/upload.ts`), used by both uploaders. User mistakes are `BAD_REQUEST` with a stable message: unknown target `Bad Request`, no file name `Upload failed!`, wrong type `Please provide jpg, jpeg or png images!`, too big (graphql-upload's 413) `Image must be at most 15 MB!` (new `FILE_TOO_LARGE`). Only a server fault (disk, permissions) is `INTERNAL_SERVER_ERROR` `Upload failed!`. `imagesUploader` keeps its `(file N: name)` suffix and stays all-or-nothing.
+  - **Orphans:** `npm run clean:uploads` (`scripts/clean-uploads.ts`, rules in `apps/agentshub-batch/src/maintenance/orphan-uploads.ts`). Dry run by default, `--apply` deletes. A file is an orphan when it is in `uploads/member|product|article/`, no member (`memberImage`), product (`productImages`, any status) or article (`articleImage`, any status) references it, and it is older than 24 h. `uploads/property/` (D-13) is never touched.
+- **Reason:** The client can show the right message, and disk use stays bounded without risking a file a form is about to save.
+- **Consequence:** It is a manual script, not a nightly job, until there is production storage (it reads the local `uploads/` folder of the machine it runs on). Allowed in production; it prints the database first.
+
+## D-37 — Rank position and the like response
+
+**Status:** Proposed
+
+- **Context:** `productRank` and `memberRank` are nightly scores (D-17, D-22). The client wants to show "#3", and only knew the position inside the page it had loaded. After a like, the client also wrote `meLiked` into its cache itself, because the like mutations returned the target without it.
+- **Decision:**
+  - **Position:** new nullable fields `Product.productRankPosition: Int` and `Member.memberRankPosition: Int`. The nightly batch writes them after the ranking step: 1, 2, 3… among `ACTIVE` products / `ACTIVE` creators with a rank > 0, ordered by rank DESC, then newest `_id`. The rollback step removes them, so an unranked document has `null`. Additive, no breaking change.
+  - **Like response:** `likeTargetProduct`, `likeTargetMember` and `likeTargetBoardArticle` return the target with `meLiked` filled for the caller: one entry after a like, `[]` after an unlike (from the toggle's own result, no extra read).
+- **Reason:** One source for the position, the same for every page and client; the like button can trust the response.
+- **Consequence:** The position is as of the last nightly run: a product paused during the day keeps its number until the next run, like its rank.

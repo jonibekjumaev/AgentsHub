@@ -6,11 +6,27 @@ import { LikeInput } from '../../libs/dto/like/like.input';
 import { ObjectId, T } from '../../libs/types/common';
 import { Message } from '../../libs/enums/common.enum';
 import { OrdinaryInquiry } from '../../libs/dto/common.input';
-import { Products } from '../../libs/dto/product/product';
+import { Product, Products } from '../../libs/dto/product/product';
+import { TotalCounter } from '../../libs/dto/member/member';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { ProductStatus } from '../../libs/enums/product.enum';
 import { lookupFavorite } from '../../libs/config';
 import { describeDbError } from '../../libs/utils';
+
+/**
+ * The liked target as the like mutations return it: a plain object with `meLiked` filled for the caller, from the
+ * toggle's own result (+1 liked, -1 unliked), so the client needs no extra read (Step 13a item 4).
+ */
+export const withMeLiked = <D extends object>(
+	target: D,
+	input: LikeInput,
+	modifier: number,
+): D & { meLiked: MeLiked[] } => {
+	const document = target as { toObject?: () => D };
+	const plain: D = typeof document.toObject === 'function' ? document.toObject() : target;
+	const meLiked = modifier > 0 ? [{ memberId: input.memberId, likeRefId: input.likeRefId, myFavorite: true }] : [];
+	return { ...plain, meLiked };
+};
 
 @Injectable()
 export class LikeService {
@@ -33,7 +49,6 @@ export class LikeService {
 			}
 		}
 
-		console.log(`- Like modifier ${modifier} -`);
 		return modifier;
 	}
 
@@ -48,8 +63,8 @@ export class LikeService {
 		const { page, limit } = input;
 		const match = { likeGroup: LikeGroup.PRODUCT, memberId: memberId };
 
-		const data: T = await this.likeModel
-			.aggregate([
+		const data = await this.likeModel
+			.aggregate<{ list: { favoriteProduct: Product }[]; metaCounter: TotalCounter[] }>([
 				{ $match: match },
 				{ $sort: { updatedAt: -1 } },
 				{

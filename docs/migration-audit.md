@@ -584,6 +584,14 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
     - without `@Roles` and with an empty `@Roles()` → 500 `SOMETHING_WENT_WRONG`, even with a valid token; `authenticate` is not called and `authMember` stays unset. Both tests fail on the old guard and pass with the fix.
     - a regression test loads every `*.resolver.ts` under `components/`, so new resolvers are covered without editing it, and lists each method guarded by `RolesGuard` (method or class level) without non-empty `@Roles`: none. It finds the 19 methods; with the `@Roles` of `removeCommentByAdmin` removed, it fails and names `CommentResolver.removeCommentByAdmin`.
 
+- [x] **B22 — One bad list item can exit the whole API process**
+  - **When:** found in the client walk-through (Step 13a): `getAllMembersByAdmin` on Nestar-era members (`memberType: "AGENT"`, no `memberBriefs`) answered with GraphQL errors, then Node printed the error again and exited.
+  - **Where:** graphql-js 16 `completeListValue` + Node 15+ default for unhandled rejections; `main.ts` had no handler.
+  - **Problem:** when one list item fails synchronously, the async fields of the other items keep running, and their later rejection has no handler. Node exits on it, so every request in flight fails and the API is down until restarted.
+  - **Fix (D-34):** `registerProcessHandlers()` (`api/libs/process-handlers.ts`), the first call in both `main.ts` files, logs unhandled rejections (redacted) and keeps the process running. The bad data itself is fixed by `npm run migrate:legacy` (dry run by default).
+  - **API:** no change; the client still gets the same GraphQL error.
+  - **Verify:** `libs/process-handlers.spec.ts` runs the crash case in a child Node process: without the handler it exits after the response (the bug); with it, the response has the GraphQL error, the rejection is logged, and the process keeps running. The rule-break check (handler not registered) fails 3 tests.
+
 ---
 
 ## Step 3 — Config (package names, DB name, env, app names)
@@ -1285,6 +1293,11 @@ Totals: **537 unit tests** in 17 suites (about 15 s), **28 API e2e tests** (abou
   | Duplicate nick, phone or product title: `signup` and `createProduct` returned `BAD_REQUEST` (`createProduct` with `CREATE_FAILED`); the four update operations returned `INTERNAL_SERVER_ERROR` with the raw MongoDB `E11000 …` text | Since B15 part 2, every duplicate returns **`CONFLICT`**:<br>• `signup`, `updateMember`, `updateMemberByAdmin`: `USED_MEMBER_NICK_OR_PHONE` ("Already used member nick or phone")<br>• `createProduct`, `updateProduct`, `updateProductByAdmin`: new `USED_PRODUCT_TITLE` ("A product with this title already exists for this creator!")<br>Other `signup` / `createProduct` failures keep `BAD_REQUEST` |
   | `login` errors: `NO_MEMBER_NICK` (unknown nick or deleted member), `WRONG_PASSWORD`, `BLOCKED_USER` (checked before the password), all with `INTERNAL_SERVER_ERROR` | Since B15 part 3 (D-27): an unknown nick, a deleted member and a wrong password all return **`UNAUTHENTICATED`** with `INVALID_CREDENTIALS` ("Wrong member nick or password!"). A blocked member gets **`FORBIDDEN`** with `BLOCKED_USER` only when the password is correct; with a wrong password they get `INVALID_CREDENTIALS` like everyone else. `NO_MEMBER_NICK` no longer exists. Show one login error; there is no separate "unknown nick" state |
   | `removeBoardArticleByAdmin` hard-deleted only `ACTIVE` articles; an article already set to `DELETE` could not be removed | Since B15 part 4 (D-28): it removes only articles with `articleStatus: DELETE`, like `removeProductByAdmin`. An `ACTIVE` article returns `NOT_FOUND` with `REMOVE_FAILED`. Admin UI: first `updateBoardArticleByAdmin` with `articleStatus: DELETE`, then `removeBoardArticleByAdmin` |
+  | Text limits: `commentContent` 1–100, chat 1–500, `articleContent` 3–250, `memberDesc` unlimited | Since Step 13a (D-35): `commentContent` 1–1000, chat 1–3000 (`INVALID_CHAT_MESSAGE` now says 3000), `articleContent` 3–3000, `memberDesc` max 500 (`BAD_REQUEST`); `articleTitle` unchanged |
+  | `likeTarget*` returned the target without `meLiked` | Since Step 13a (D-37): `meLiked` is filled for the caller (one entry after a like, `[]` after an unlike) |
+  | — | Since Step 13a (D-37): nullable `Product.productRankPosition` and `Member.memberRankPosition` (1 = top; `null` when unranked), set nightly |
+  | Upload over the size limit → `INTERNAL_SERVER_ERROR` `Upload failed!` | Since Step 13a (D-36): `BAD_REQUEST` `Image must be at most 15 MB!`; more than 10 `productImages` → `BAD_REQUEST` |
+  | `sayHello`, `checkAuth`, `checkAuthRoles` | removed in Step 13a (Nestar test queries; use `getMe`) |
 
 - [ ] In the frontend repo, remove the real-estate pages and filters (location, beds, rooms, square, barter/rent, sold state) in the same step (D-10).
 - [ ] Contact info must come from the API's null-for-guests behaviour, not only from hiding it in the UI (D-07).
@@ -1302,7 +1315,7 @@ Totals: **537 unit tests** in 17 suites (about 15 s), **28 API e2e tests** (abou
 
 ## Step 13 — Refactors and cleanup
 
-- [ ] Extract the shared single-file save logic (format check, mkdir, pipeline, partial-file cleanup) used by `imageUploader` and `imagesUploader` into one helper.
+- [x] Extract the shared single-file save logic (format check, mkdir, pipeline, partial-file cleanup) used by `imageUploader` and `imagesUploader` into one helper.
   - Both uploaders in `api/components/member/member.resolver.ts` currently repeat the same steps:
     - MIME check against `validMimeTypes`
     - `getSerialForImage` + `getUploadPath`
@@ -1316,11 +1329,11 @@ Totals: **537 unit tests** in 17 suites (about 15 s), **28 API e2e tests** (abou
   - `libs/utils.ts` was created in Step 6 part 11 with `normalizeTags()`.
   - Candidates to move: `escapeRegex`, `getSerialForImage`, `getUploadPath`, `shapeInToMongoObjectId`, and the `$lookup` builders (`lookupMember`, `lookupAuthMemberLiked`, …).
   - Update every import in the same commit. This is a pure move with no behaviour change.
-- [ ] guards (auth/roles/without) use console.log for memberNick; move to Logger.debug or remove
+- [x] guards (auth/roles/without) use console.log for memberNick; move to Logger.debug or remove
 - [ ] `getBoardArticle` and `getMember` should use `isBoardArticleVisible` / `isMemberVisible`, so each visibility rule lives in one place.
   - Both helpers were added in Step 8 part 2 for `getComments`. The two single reads still filter by status in their own query (`articleStatus: ACTIVE`, `memberStatus: { $in: [ACTIVE, BLOCK] }`).
   - Load by `_id`, then check the helper, as `getProduct` / `getBrief` do. In `getMember`, the `memberViews` increment reuses the same `search`; keep its filter unchanged or move it to `memberStatsEditor`. No behaviour change.
-- [ ] Fix the existing lint problems, so `npm run lint` passes. Found in Step 11 part 1 (before that part, none in test files).
+- [x] Fix the existing lint problems, so `npm run lint` passes. Found in Step 11 part 1 (before that part, none in test files).
   - `npm run lint` (with `--fix`) leaves **42 problems** (38 errors, 4 warnings), all in `api/`. Run without `--fix`, ESLint reports 43: the extra one is the `prettier/prettier` error in `Notice.model.ts:27` (a line with only tabs), which `--fix` rewrites. Until it's fixed, revert that `--fix` change before a commit.
   - Each fix is a type or unused-code change with no behaviour change.
 
@@ -1336,8 +1349,8 @@ Totals: **537 unit tests** in 17 suites (about 15 s), **28 API e2e tests** (abou
     | `socket/socket.gateway.ts` | 1 error, 3 warnings | `retrieveAuth(req: any)` (79): `req.url` is untyped (`no-unsafe-member-access`, `no-unsafe-argument`); type `req` as `IncomingMessage` (`http`). Unused `server` parameter of `afterInit` (72) and unused `err` in its `catch` (92): remove them or prefix them with `_`. |
     | `schemas/Notice.model.ts` | 1 warning (+ the prettier error above) | `mongoose` default import unused (line 1); the whitespace-only line 27. |
 
-- [ ] Unit specs for the chat gateway (`api/socket/socket.gateway.ts`), left out of Step 11 by owner decision: message validation (D-19 condition 3, S6), only authenticated members send (condition 2, S5), the per-member rate limit across sockets (condition 4, S7), public `memberData` fields only (condition 1, S3), and the member status check on connection (condition 7, S4). The gateway needs fake `ws` clients and a mocked `AuthService` / `Member` model.
-- [ ] Add `@IsEnum(...)` to the required enum fields of the create inputs, which have only `@IsNotEmpty()`. Found in Step 11 part 2.
+- [x] Unit specs for the chat gateway (`api/socket/socket.gateway.ts`), left out of Step 11 by owner decision: message validation (D-19 condition 3, S6), only authenticated members send (condition 2, S5), the per-member rate limit across sockets (condition 4, S7), public `memberData` fields only (condition 1, S3), and the member status check on connection (condition 7, S4). The gateway needs fake `ws` clients and a mocked `AuthService` / `Member` model.
+- [x] Add `@IsEnum(...)` to the required enum fields of the create inputs, which have only `@IsNotEmpty()`. Found in Step 11 part 2.
   - **Where:** `api/libs/dto/product/product.input.ts:39` (`ProductInput.productCategory`) and `:43` (`productPricing`); `api/libs/dto/brief/brief.input.ts:36` (`BriefInput.briefCategory`); `api/libs/dto/comment/comment.input.ts:13` (`CommentInput.commentGroup`) and `:37` (`CISearch.commentGroup`); `api/libs/dto/board-article/board-article.input.ts:14` (`BoardArticleInput.articleCategory`).
   - **Why it's not a bug through the API:** GraphQL rejects an unknown enum value before the `ValidationPipe` runs.
   - **Why fix it anyway:** `npm run seed` and `npm run create-admin` call the services directly and check their input with the same DTOs (`validated()` in `scripts/script-utils.ts`), so an unknown value in the seed data would pass and be stored. The update inputs already use `@IsEnum` (B11).
@@ -1345,8 +1358,8 @@ Totals: **537 unit tests** in 17 suites (about 15 s), **28 API e2e tests** (abou
   - **Where:** `@Length(1, productTagMaxLength, { each: true })` on `ProductInput.productTags` (`product.input.ts:67`), `ProductFilters.tagList` (`:136`) and `ProductUpdate.productTags` (`product.update.ts:76`).
   - **Problem:** the length is checked on the raw value, but the tag is saved after `normalizeTags` (trim, lowercase). A 30-character tag sent with spaces around it is rejected, although the stored tag would be 30 characters. The reverse can't happen, so nothing too long is stored.
   - **Fix:** trim before validating (e.g. `@Transform` on the field, which the `ValidationPipe` applies through `plainToInstance`), or accept it and document that the limit counts the spaces. Decide which; either way it's a small, client-visible change (Step 12 table).
-- [ ] Remove the outdated "Write-only until D-07: not a field on the Member output type yet" comment above `memberEmail` in `MemberUpdate` and `MemberUpdateByAdmin` (`api/libs/dto/member/member.update.ts:43`, `:96`). Since Step 9, `memberEmail` / `memberWhatsapp` are fields of the `Member` output type, returned only to authenticated requests (D-07, D-23). Keep the "Send null to remove the contact" part.
-- [ ] Remove or hide the Nestar test queries `sayHello`, `checkAuth` and `checkAuthRoles`. Found while writing `docs/FRONTEND_MIGRATION.md`.
+- [x] Remove the outdated "Write-only until D-07: not a field on the Member output type yet" comment above `memberEmail` in `MemberUpdate` and `MemberUpdateByAdmin` (`api/libs/dto/member/member.update.ts:43`, `:96`). Since Step 9, `memberEmail` / `memberWhatsapp` are fields of the `Member` output type, returned only to authenticated requests (D-07, D-23). Keep the "Send null to remove the contact" part.
+- [x] Remove or hide the Nestar test queries `sayHello`, `checkAuth` and `checkAuthRoles`. Found while writing `docs/FRONTEND_MIGRATION.md`.
   - **Where:** `api/app.resolver.ts` (`sayHello`, public, returns `'GraphQL API Server'`, so `AppResolver` would become empty) and `api/components/member/member.resolver.ts:52–66` (`checkAuth`, `AuthGuard`; `checkAuthRoles`, `RolesGuard` with `@Roles(USER, CREATOR)`).
   - **Problem:** they are part of the public schema, but no app feature, spec or script uses them. The frontend guide tells clients not to call them.
   - **Fix:** delete them, or keep them out of production builds if they're still useful for manual guard checks. Deleting `checkAuth` / `checkAuthRoles` also clears their two `require-await` lint errors (see the lint table above). A schema change: record it in the Step 12 table and `docs/FRONTEND_MIGRATION.md`.
@@ -1354,6 +1367,25 @@ Totals: **537 unit tests** in 17 suites (about 15 s), **28 API e2e tests** (abou
   - **Current state:** `MemberAuthType` (`PHONE`, `EMAIL`, `TELEGRAM`) is an optional `MemberInput.memberAuthType` at signup (`api/libs/dto/member/member.input.ts:52`), a non-null `Member.memberAuthType` in the output type, and a schema field with default `PHONE` (`api/schemas/Member.model.ts:18`). Nothing reads it: there is only nick + password login, and `auths` is out of scope for the MVP.
   - **ER doc:** `docs/agentshub-er.md:35` lists it as "unchanged from Nestar" (NN), and line 237 keeps the enum as in Nestar. No decision covers it.
   - **To decide:** keep it as is for a later auth method, drop it from the signup input only (the client can set a value that means nothing), or remove it everywhere. Record the choice as a new decision and update the ER doc, the Step 12 table and `docs/FRONTEND_MIGRATION.md` together.
+
+- **Done in Step 13a** (items above ticked): the upload helper is `api/libs/upload.ts` (`saveUpload`, `removeUploads`); the guards' `memberNick` logs were removed; `npm run lint` reports 0 problems (the table's fixes, plus `Notice.model.ts`); `api/socket/socket.gateway.spec.ts` covers D-19 conditions 1, 2, 3, 4 and 7; `@IsEnum` on the five create-input enums, with tests; the `memberEmail` comment; `sayHello`, `checkAuth` and `checkAuthRoles` were deleted (`AppResolver` with them).
+- **Still open:** moving the helpers from `libs/config.ts` to `libs/utils.ts`; `getBoardArticle` / `getMember` using the visibility helpers; the tag length after trimming (needs a decision); `memberAuthType` (needs a decision).
+
+## Step 13a — Fixes from the client walk-through
+
+Found while checking the Next.js client in the browser (2026-10). Decisions D-34 … D-37 (Proposed).
+
+- [x] **1. Crash on legacy data (B22, D-34):** process `unhandledRejection` handler; see B22.
+- [x] **2. Legacy data migration (D-34):** `npm run migrate:legacy` (dry run) / `-- --apply`. Rules and tests in `apps/agentshub-batch/src/maintenance/legacy-data(.spec).ts`. Not yet run against the dev database: run the dry run, back up, then `--apply`, then the dry run again (must report 0).
+- [x] **3. Limits (D-35):** comment 1–1000, chat 1–3000, article content 3–3000, `memberDesc` max 500. DTO specs and the gateway spec cover each bound.
+- [x] **4. Like response:** `likeTargetProduct` / `likeTargetMember` / `likeTargetBoardArticle` return `meLiked` for the caller (`withMeLiked`, D-37).
+- [x] **5. Rank position (D-37):** nullable `productRankPosition` / `memberRankPosition`, written by the nightly batch after ranking, removed by the rollback.
+- [x] **6. Chat:** a member blocked or deleted after connecting is re-checked on each message (after the rate limit, so at most one read per member per second); they become a guest and get `NOT_AUTHENTICATED`. A database error refuses the message. Closes the gap noted in D-33.
+- [x] **7. Upload errors (D-36):** too big → `BAD_REQUEST` `Image must be at most 15 MB!`; wrong type, unknown target, no file name → `BAD_REQUEST`; only server faults are `INTERNAL_SERVER_ERROR`.
+- [x] **8. Products:** `@ArrayMaxSize(10)` on `productImages` (input and update); `productTags` already had it.
+- [x] **9. Orphan uploads (D-36):** `npm run clean:uploads` (dry run) / `-- --apply`.
+- [x] **10. Cleanup:** debug `console.log` calls removed (guards, `checkAuth`, `getMember`, `memberStatsEditor`, like and view services). Kept: the `Query:` / `Mutation:` resolver logs (convention), error logs, `formatError` and startup logs.
+- **Not run here:** the e2e suites (the sandbox could not download the `mongod` binary); run `npm run test:e2e` locally.
 
 ---
 

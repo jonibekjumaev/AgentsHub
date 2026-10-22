@@ -9,12 +9,16 @@ const objectId = () => new Types.ObjectId().toHexString();
 describe('CommentInput', () => {
 	const comment = { commentGroup: CommentGroup.PRODUCT, commentContent: 'Nice agent', commentRefId: objectId() };
 
-	it('accepts a comment of 1–100 characters', async () => {
+	it('accepts a comment of 1–1000 characters (D-35)', async () => {
 		expect(await invalidFields(CommentInput, comment)).toEqual([]);
-		expect(await invalidFields(CommentInput, { ...comment, commentContent: 'a'.repeat(100) })).toEqual([]);
+		expect(await invalidFields(CommentInput, { ...comment, commentContent: 'a'.repeat(1000) })).toEqual([]);
 	});
 
-	it.each(['', 'a'.repeat(101)])('rejects commentContent of length %#', async (commentContent) => {
+	it('rejects an unknown commentGroup, e.g. the Nestar PROPERTY (Step 13: @IsEnum)', async () => {
+		expect(await invalidFields(CommentInput, { ...comment, commentGroup: 'PROPERTY' })).toEqual(['commentGroup']);
+	});
+
+	it.each(['', 'a'.repeat(1001)])('rejects commentContent of length %# (D-35)', async (commentContent) => {
 		expect(await invalidFields(CommentInput, { ...comment, commentContent })).toEqual(['commentContent']);
 	});
 });
@@ -28,6 +32,14 @@ describe('CommentUpdate', () => {
 
 	it.each(['commentStatus', 'commentContent'])('rejects null for %s (B11)', async (field) => {
 		expect(await invalidFields(CommentUpdate, { ...update, [field]: null })).toEqual([field]);
+	});
+
+	it('commentContent is 1–1000 characters, as on create (D-35)', async () => {
+		expect(await invalidFields(CommentUpdate, { ...update, commentContent: 'a'.repeat(1000) })).toEqual([]);
+		expect(await invalidFields(CommentUpdate, { ...update, commentContent: 'a'.repeat(1001) })).toEqual([
+			'commentContent',
+		]);
+		expect(await invalidFields(CommentUpdate, { ...update, commentContent: '' })).toEqual(['commentContent']);
 	});
 
 	it('accepts DELETE, the owner delete of B19', async () => {

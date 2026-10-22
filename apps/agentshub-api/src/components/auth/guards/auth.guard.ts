@@ -17,7 +17,6 @@ export class AuthGuard implements CanActivate {
 			// valid token and an ACTIVE member in the DB; otherwise 401 / 403 BLOCKED_USER (B17)
 			const authMember = await this.authService.authenticate(request.headers.authorization);
 
-			console.log('memberNick[auth] =>', authMember.memberNick);
 			(request.body as Record<string, unknown>).authMember = authMember;
 
 			return true;

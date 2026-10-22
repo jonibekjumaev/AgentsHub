@@ -60,6 +60,11 @@ const ProductSchema = new Schema(
 			default: 0,
 		},
 
+		// 1, 2, 3… among ranked ACTIVE products, written by the nightly batch; missing = not ranked (Step 13a item 5)
+		productRankPosition: {
+			type: Number,
+		},
+
 		productImages: {
 			type: [String],
 			required: true,

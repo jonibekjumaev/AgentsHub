@@ -167,7 +167,8 @@ All list queries take `{ page, limit, sort?, direction?, search }`:
 - **Money:** all prices and budgets are **USD**, with no currency field (D-06). `SUBSCRIPTION` product prices are **per month**. Show `$49 / month` for subscriptions, `$49` for one-time.
 - **Images:**
   - Upload with `imageUploader(file, target)` / `imagesUploader(files, target)` (logged-in only). `target` is `"member"`, `"product"` or `"article"`; the old `"property"` → `BAD_REQUEST`.
-  - Only `jpg`, `jpeg`, `png` (`"Please provide jpg, jpeg or png images!"`). Max 15 MB, max 10 files per request.
+  - Only `jpg`, `jpeg`, `png` (`"Please provide jpg, jpeg or png images!"`). Max 15 MB (`BAD_REQUEST` `"Image must be at most 15 MB!"`, Step 13a, D-36), max 10 files per request. Every user mistake is `BAD_REQUEST`; only a server fault is `INTERNAL_SERVER_ERROR` `Upload failed!`. `imagesUploader` adds ` (file N: name)` to the message.
+  - An uploaded image that no saved form uses is deleted after 24 h by a cleanup script (D-36): upload, then save the form.
   - The result is a path like `uploads/product/<uuid>.png`; prefix it with the API origin to show it.
   - `memberImage` is `''` when the member has no picture: **show a placeholder** (D-15).
 - **Dates** are ISO strings in UTC (`DateTime`). Show them in the viewer's time zone.
@@ -249,7 +250,7 @@ Suggested labels: `CUSTOMER_SUPPORT` "Customer support", `DATA_ANALYSIS` "Data a
 
 Everything else keeps its name: `signup`, `login`, `getMember`, `updateMember`, `likeTargetMember`, `getAllMembersByAdmin`, `updateMemberByAdmin`, `imageUploader`, `imagesUploader`, board article, comment and follow operations. Their rules changed in places; see the pages.
 
-`sayHello`, `checkAuth` and `checkAuthRoles` are server test queries; don't use them in the app. Use `getMe` to check the session.
+`sayHello`, `checkAuth` and `checkAuthRoles` were removed in Step 13a. Use `getMe` to check the session.
 
 ### 2.5 Sort values
 
@@ -298,6 +299,9 @@ Old values (`propertyLikes`, `propertyViews`, `propertyRank`, `propertyPrice`, `
   - The API doesn't reformat: no spaces, dashes or brackets. Normalize in the form before sending (strip spaces and dashes), or use a phone input that outputs E.164.
   - Members from the Nestar dev data may still have stored local numbers (`010…`). They can log in, but must enter an E.164 number the next time they update their phone. Don't pre-validate the stored value on load.
 - **Email:** valid email, at most 254 characters.
+- **`memberDesc`:** at most 500 characters (Step 13a, D-35); `null` clears it.
+- **`memberRankPosition`** (nullable `Int`, Step 13a, D-37): the creator's place in the nightly ranking, 1 = top; `null` when not ranked. Show it as "#n".
+- **`likeTargetMember`** returns `meLiked` for the caller: one entry after a like, `[]` after an unlike (D-37).
 - **Passwords (D-26):**
   - New passwords (`signup.memberPassword`, `changePassword.newPassword`): at least **8 characters**, at most **72 bytes** in UTF-8, no composition rules (no "must contain a digit"). 72 bytes is fewer characters for non-Latin text (e.g. 36 Cyrillic letters, 18 emoji).
   - `login.memberPassword` and `changePassword.currentPassword`: only non-empty, so old 5–7 character passwords still log in. **Don't** apply the 8-character rule on the login form.
@@ -388,6 +392,7 @@ Removed (D-10): `locationList`, `typeList`, `roomsList`, `bedsList`, `options`, 
 - `productCategory`: show the label; link to the list filtered by category.
 - `memberData`: the creator. Its contacts are `null` for guests (see 3.1). This is the "contact the creator" box: there is no in-app offer or message (D-08).
 - `meLiked`: present for logged-in viewers.
+- `productRankPosition` (nullable `Int`, Step 13a, D-37): the place in the nightly ranking, 1 = top; `null` when not ranked. Use it for "#n" badges instead of the position in the loaded page.
 
 **Visibility (D-16)**
 
@@ -430,7 +435,7 @@ Removed (D-10): `locationList`, `typeList`, `roomsList`, `bedsList`, `options`, 
 | `productPricing` | required | `ProductPricing` |
 | `productPrice` | depends on pricing | see the D-03 table below |
 | `productDesc` | required | 20–3000 characters |
-| `productImages` | required | at least 1 uploaded image path |
+| `productImages` | required | 1–10 uploaded image paths (max 10 since Step 13a) |
 | `productDemoUrl` | optional | `http://` or `https://` URL, max 500 |
 | `productTags` | optional | max 10 tags, each 1–30 characters with at least one non-space character. The API trims, lowercases and de-duplicates them; show the returned tags |
 
@@ -592,7 +597,7 @@ On update: leave a field out to keep it; `null` clears `briefBudget` / `briefDea
 
 - `getComments` **requires** `search.commentGroup` next to `commentRefId`: `{ commentRefId, commentGroup: PRODUCT }`. Without it → `GRAPHQL_VALIDATION_FAILED` (D-16). Only comments of that group are returned.
 - `CommentGroup.PROPERTY` → `PRODUCT`; new `BRIEF`. Sending `PROPERTY` → `GRAPHQL_VALIDATION_FAILED`.
-- `commentContent` is 1–100 characters.
+- `commentContent` is 1–1000 characters (since Step 13a, D-35; was 1–100).
 - Sorts: `createdAt`, `updatedAt`.
 
 **Who can read (comments follow their target's visibility)**
@@ -625,7 +630,7 @@ On update: leave a field out to keep it; `null` clears `briefBudget` / `briefDea
 
 **Likes**
 
-- `likeTargetProperty(propertyId)` → `likeTargetProduct(productId)`. It toggles: call again to unlike. Use the returned `meLiked` / `productLikes`.
+- `likeTargetProperty(propertyId)` → `likeTargetProduct(productId)`. It toggles: call again to unlike. Use the returned `meLiked` / `productLikes`: since Step 13a (D-37) all three like mutations return `meLiked` for the caller (one entry after a like, `[]` after an unlike), so no cache write is needed.
 - `likeTargetProduct` on a paused, deleted or missing product → `NOT_FOUND`. Products only; briefs have no likes.
 - `likeTargetMember`, `likeTargetBoardArticle`: unchanged names; a missing target → `NOT_FOUND` (was `INTERNAL_SERVER_ERROR`).
 
@@ -655,7 +660,7 @@ Unchanged operations: `createBoardArticle`, `getBoardArticle(articleId)`, `getBo
 
 **Changes**
 
-- `articleTitle` 3–50, `articleContent` 3–250 characters. `articleImage` optional; upload with `target: "article"`.
+- `articleTitle` 3–50, `articleContent` 3–3000 characters (since Step 13a, D-35; was 3–250). `articleImage` optional; upload with `target: "article"`.
 - Update: `null` on `articleTitle`, `articleContent`, `articleStatus` → `BAD_REQUEST`; `null` on `articleImage` clears it (B11).
 - `getBoardArticles`: `search.text` max 100; a malformed `search.memberId` → `BAD_REQUEST` (B16).
 - `getBoardArticle` on a missing or deleted article → `NOT_FOUND` `"No data found!"`.
@@ -686,15 +691,17 @@ D-19 keeps the public chat for the MVP. It is a raw WebSocket (`ws`), not Socket
 | Message | When |
 |---|---|
 | `You are not authenticated, please login first!` | a guest tried to send |
-| `Message must be text of 1 to 500 characters!` | empty (after trimming) or longer than 500 |
+| `Message must be text of 1 to 3000 characters!` | empty (after trimming) or longer than 3000 (Step 13a, D-35) |
 | `You can send at most 1 message per second!` | rate limit, per member across all their tabs |
+
+A member blocked or deleted while connected gets `You are not authenticated, please login first!` on their next message and is a guest from then on (Step 13a).
 
 **UI hints**
 
 - **Render message text as plain text** (text nodes / the framework's default escaping). Never `innerHTML` or `dangerouslySetInnerHTML`.
 - Guests can read; **hide the send box** for them ("Log in to chat").
 - Show the `error` messages to the sender (e.g. under the input); disable the send button for 1 second after sending.
-- Limit the input to 500 characters.
+- Limit the input to 3000 characters.
 - Reconnect after login / logout so the socket uses the new token.
 - There is no private messaging (D-08); contact happens through the profile contacts.
 
@@ -854,6 +861,7 @@ The `message` strings the UI may need to match. Codes are those the API returns 
 | `Brief status can only change between OPEN and CLOSED, or to DELETE!` | `BAD_REQUEST` | brief update |
 | `Self subscription is denied!` | `BAD_REQUEST` | `subscribe` |
 | `Please provide jpg, jpeg or png images!` | `BAD_REQUEST` | image upload |
-| `Message must be text of 1 to 500 characters!` | chat `error` event | chat |
+| `Image must be at most 15 MB!` | `BAD_REQUEST` | image upload (Step 13a) |
+| `Message must be text of 1 to 3000 characters!` | chat `error` event | chat |
 | `You can send at most 1 message per second!` | chat `error` event | chat |
 | `Something went wrong!` | `INTERNAL_SERVER_ERROR` | server fault |

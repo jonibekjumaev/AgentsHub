@@ -36,7 +36,6 @@ export class RolesGuard implements CanActivate {
 			const authMember = await this.authService.authenticate(request.headers.authorization);
 			if (!roles.includes(authMember.memberType)) throw new ForbiddenException(Message.ONLY_SPECIFIC_ROLES_ALLOWED);
 
-			console.log('memberNick[roles] =>', authMember.memberNick);
 			(request.body as Record<string, unknown>).authMember = authMember;
 			return true;
 		}

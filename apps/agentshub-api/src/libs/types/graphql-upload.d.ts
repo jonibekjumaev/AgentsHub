@@ -1,6 +1,7 @@
 declare module 'graphql-upload' {
 	import { ReadStream } from 'fs';
 	import { RequestHandler } from 'express';
+	import { GraphQLScalarType } from 'graphql';
 
 	export interface FileUpload {
 		filename: string;
@@ -9,7 +10,7 @@ declare module 'graphql-upload' {
 		createReadStream: () => ReadStream;
 	}
 
-	export const GraphQLUpload: any;
+	export const GraphQLUpload: GraphQLScalarType;
 
 	export interface GraphqlUploadExpressOptions {
 		maxFieldSize?: number;

@@ -6,7 +6,8 @@ import { ObjectId, T } from '../../libs/types/common';
 import { OrdinaryInquiry } from '../../libs/dto/common.input';
 import { ViewGroup } from '../../libs/enums/view.enum';
 import { ProductStatus } from '../../libs/enums/product.enum';
-import { Products } from '../../libs/dto/product/product';
+import { Product, Products } from '../../libs/dto/product/product';
+import { TotalCounter } from '../../libs/dto/member/member';
 import { lookupVisit } from '../../libs/config';
 import { Model } from 'mongoose';
 
@@ -17,7 +18,6 @@ export class ViewService {
 	public async recordView(input: ViewInput): Promise<View | null> {
 		const viewExist = await this.checkViewExistence(input);
 		if (!viewExist) {
-			console.log('- New View Insert -');
 			return await this.viewModel.create(input);
 		} else return null;
 	}
@@ -32,8 +32,8 @@ export class ViewService {
 		const { page, limit } = input;
 		const match: T = { viewGroup: ViewGroup.PRODUCT, memberId: memberId };
 
-		const data: T = await this.viewModel
-			.aggregate([
+		const data = await this.viewModel
+			.aggregate<{ list: { visitedProduct: Product }[]; metaCounter: TotalCounter[] }>([
 				{ $match: match },
 				{ $sort: { updatedAt: -1 } },
 				{

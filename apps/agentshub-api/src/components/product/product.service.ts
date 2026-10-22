@@ -34,7 +34,7 @@ import {
 	paidProductPricings,
 	shapeInToMongoObjectId,
 } from '../../libs/config';
-import { LikeService } from '../like/like.service';
+import { LikeService, withMeLiked } from '../like/like.service';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { describeDbError, isDuplicateKeyError, normalizeTags } from '../../libs/utils';
@@ -231,7 +231,7 @@ export class ProductService {
 		const result = await this.productStatsEditor({ _id: likeRefId, targetKey: 'productLikes', modifier: modifier });
 
 		if (!result) throw new InternalServerErrorException(Message.SOMETHING_WENT_WRONG);
-		return result;
+		return withMeLiked(result, input, modifier);
 	}
 
 	public async getAllProductsByAdmin(input: AllProductsInquiry): Promise<Products> {

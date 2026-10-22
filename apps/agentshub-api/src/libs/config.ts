@@ -46,6 +46,7 @@ export const productDescMinLength = 20;
 export const productDescMaxLength = 3000;
 export const productDemoUrlMaxLength = 500;
 export const productTagsMaxCount = 10;
+export const productImagesMaxCount = 10; // the client allows 10 per product (Step 13a item 8)
 export const productTagMaxLength = 30;
 
 // the pricings that have a price (D-03): the price rule and the price range filter use this list
@@ -57,6 +58,15 @@ export const briefTitleMinLength = 3;
 export const briefTitleMaxLength = 100;
 export const briefContentMinLength = 20;
 export const briefContentMaxLength = 3000;
+
+/**  TEXT LIMITS (D-35)  **/
+
+// a comment is a short reply, a chat message a short note, an article a forum post; memberDesc is a short bio
+export const commentContentMaxLength = 1000;
+export const chatMessageMaxLength = 3000;
+export const articleContentMinLength = 3;
+export const articleContentMaxLength = 3000;
+export const memberDescMaxLength = 500;
 
 /**  PASSWORD CONFIGURATION (D-26)  **/
 
@@ -83,6 +93,9 @@ export const escapeRegex = (text: string): string => {
 /**  IMAGE CONFIGURATION  **/
 
 export const validMimeTypes = ['image/png', 'image/jpg', 'image/jpeg'];
+// graphqlUploadExpress limits in main.ts; the messages in Message.FILE_TOO_LARGE use the same numbers
+export const uploadMaxFileSize = 15_000_000; // bytes
+export const uploadMaxFiles = 10;
 export const getSerialForImage = (filename: string) => {
 	const ext = path.parse(filename).ext;
 	return uuidv4() + ext;
