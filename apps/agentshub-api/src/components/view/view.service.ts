@@ -8,7 +8,7 @@ import { ViewGroup } from '../../libs/enums/view.enum';
 import { ProductStatus } from '../../libs/enums/product.enum';
 import { Product, Products } from '../../libs/dto/product/product';
 import { TotalCounter } from '../../libs/dto/member/member';
-import { lookupVisit } from '../../libs/config';
+import { lookupVisit, unwindKeepingItem } from '../../libs/config';
 import { Model } from 'mongoose';
 
 @Injectable()
@@ -52,7 +52,7 @@ export class ViewService {
 							{ $skip: (page - 1) * limit },
 							{ $limit: limit },
 							lookupVisit,
-							{ $unwind: '$visitedProduct.memberData' },
+							unwindKeepingItem('$visitedProduct.memberData'),
 						],
 						metaCounter: [{ $count: 'total' }],
 					},

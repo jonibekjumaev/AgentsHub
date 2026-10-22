@@ -10,7 +10,7 @@ This repo is a **copy of Nestar** (a real estate platform), and it is being conv
 - **USER** members publish **Briefs**, which describe a business need for a custom agent.
 - Contact happens off-platform: email/WhatsApp on the profile, shown to logged-in members only (D-07, D-08).
 
-**`docs/agentshub-er.md` is the source of truth** for every schema, DTO, enum and GraphQL type. `docs/decisions.md` records the reasons (D-01 … D-37). If code and the ER doc disagree, fix one of them on purpose and record why in `docs/decisions.md`. New decisions start as **Proposed**. Never delete a decision; mark it **Superseded by D-XX** instead.
+**`docs/agentshub-er.md` is the source of truth** for every schema, DTO, enum and GraphQL type. `docs/decisions.md` records the reasons (D-01 … D-41). If code and the ER doc disagree, fix one of them on purpose and record why in `docs/decisions.md`. New decisions start as **Proposed**. Never delete a decision; mark it **Superseded by D-XX** instead.
 
 The code is still almost entirely Nestar. Main conversions:
 
@@ -59,6 +59,8 @@ The code is still almost entirely Nestar. Main conversions:
 | `npm run create-admin` | Creates the `ADMIN_NICK` admin if missing, never changes an existing one (D-14). Allowed in production |
 | `npm run migrate:legacy` | Dev only. Dry run of the Nestar → AgentsHub data fixes (D-34): prints the database, then per collection and rule how many documents would change, and problems to fix by hand. `-- --apply` writes; back up first |
 | `npm run clean:uploads` | Dry run: lists uploaded images no document references, older than 24 h (D-36). `-- --apply` deletes them. Run from the repo root on the machine that serves `uploads/` |
+| `npm run cleanup:follows` | Dev only. Dry run: per deleted member or admin, how many follows would be removed (D-39, D-40). `-- --apply` removes them and fixes the other side's counters |
+| `npm run optimize:uploads` | Dry run: lists stored images over 1600px, with metadata or over 500 KB (D-41). `-- --apply` re-encodes them in place (same name and format). No database needed |
 | `npm run batch:run -- <job>` | Dev only (refuses `NODE_ENV=production`). Runs a batch job once without the scheduler: `rollback`, `products`, `creators` or `all` (default, nightly order). Prints the counts and the top 5 products and creators |
 
 Known issues, so you don't trip over them:
@@ -82,7 +84,7 @@ This is a NestJS 10 monorepo (`nest-cli.json`, `monorepo: true`) with Apollo Gra
 ```
 apps/
   agentshub-api/src/
-    main.ts               configureApp(app), CORS, graphql-upload (15MB, 10 files), static /uploads, WsAdapter
+    main.ts               configureApp(app), CORS, graphql-upload (10MB, 10 files), static /uploads, WsAdapter
     app.setup.ts          configureApp(app): global ValidationPipe + LoggingInterceptor, shared with the e2e tests
     app.module.ts         GraphQLModule (custom formatError), ComponentsModule, DatabaseModule, SocketModule
     components/<name>/    <name>.module.ts, <name>.resolver.ts, <name>.service.ts
@@ -100,7 +102,8 @@ apps/
                           lookupAuthMemberLiked, lookupAuthMemberFollowed, lookupFavorite, lookupVisit, ...)
     libs/types/common.ts  T, ObjectId, StatisticModifier
     libs/process-handlers.ts  logs unhandled promise rejections instead of exiting (B22, D-34); first call in both main.ts
-    libs/upload.ts        saveUpload / removeUploads: the image upload rules and error codes (D-36)
+    libs/upload.ts        saveUpload / removeUploads: the image upload rules and error codes (D-36); every upload is
+                          re-encoded with sharp to a WebP of at most 1600px without metadata (D-41)
     socket/               raw `ws` gateway: public broadcast chat, last 5 messages kept in memory
                           (note: D-08 says no in-platform chat in the MVP)
   agentshub-api/test/

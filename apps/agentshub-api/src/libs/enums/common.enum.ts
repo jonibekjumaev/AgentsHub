@@ -7,7 +7,9 @@ export enum Message {
 	UPDATE_FAILED = 'Update failed!',
 	REMOVE_FAILED = 'Remove failed!',
 	UPLOAD_FAILED = 'Upload failed!',
-	FILE_TOO_LARGE = 'Image must be at most 15 MB!',
+	FILE_TOO_LARGE = 'Image must be at most 10 MB!',
+	INVALID_IMAGE = 'The file is not a readable image!',
+	IMAGE_TOO_MANY_PIXELS = 'Image must be at most 50 megapixels!',
 	BAD_REQUEST = 'Bad Request',
 	INVALID_MONGO_ID = 'must be a mongodb id', // prefixed with the argument name, like class-validator's @IsMongoId message (B18)
 

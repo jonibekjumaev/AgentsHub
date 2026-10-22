@@ -892,3 +892,70 @@
   - **Like response:** `likeTargetProduct`, `likeTargetMember` and `likeTargetBoardArticle` return the target with `meLiked` filled for the caller: one entry after a like, `[]` after an unlike (from the toggle's own result, no extra read).
 - **Reason:** One source for the position, the same for every page and client; the like button can trust the response.
 - **Consequence:** The position is as of the last nightly run: a product paused during the day keeps its number until the next run, like its rank.
+
+## D-38 — Comments of a deleted member
+
+**Status:** Proposed
+
+- **Context:** In the client walk-through, a member was deleted by an admin, but their comments still showed their nick and picture as a link to their profile, and that profile answers 404 (`getMember` returns only `ACTIVE` and `BLOCK` members). A link that always ends in 404 is a dead link, and the deleted member's nick and image keep being published.
+- **Options:**
+  - **A. Keep the comment, hide the author** (Reddit `[deleted]`, Stack Overflow anonymous user, GitHub `@ghost`).
+    - Pro: Q&A threads under briefs and products keep their context: the answers to a question still make sense. The deleted member's public data is no longer shown.
+    - Con: Anonymous comments stay on the page.
+  - **B. Hide the deleted member's comments too.**
+    - Pro: Simple.
+    - Con: Answers lose the question they answer; the target's comment counter no longer matches what is shown.
+- **Decision:** Option A, decided in the API, not only in the UI.
+  - The same rule everywhere a member is joined to an item: every member `$lookup` in `libs/config.ts` (`lookupMember`, `lookupFollowingData`, `lookupFollowerData`, `lookupFavorite`, `lookupVisit`) starts with `excludeDeletedMember`, and every `$unwind` after it is `unwindKeepingItem(...)` (`preserveNullAndEmptyArrays`), so the item stays.
+  - So `memberData` (comments, products, briefs, articles, favorites, visited, admin lists), `followerData` and `followingData` are `null` for a deleted member; the id fields (`memberId`, `followerId`, …) stay.
+  - Single reads (`getProduct`, `getBrief`, `getBoardArticle`) take the author from `MemberService.getAuthorData`, which returns `null` for a deleted member instead of `getMember`'s `NOT_FOUND`, so these pages still open.
+  - A `BLOCK` member is unchanged: shown as before, and their profile still opens.
+  - Not decided here: whether the products and briefs of a deleted member should stay listed at all.
+- **Reason:** No dead links, no public data of a deleted member, and threads stay readable.
+- **Consequence:** The client shows "Deleted member" without a link when `memberData` is `null`. Counters are unchanged: the comments still exist.
+
+## D-39 — Follows of a deleted member
+
+**Status:** Proposed
+
+- **Context:** After D-38, a deleted member still appeared in follow lists as "Deleted member", and the followers / following counts of the members on the other side still counted them. In follow lists that reads as noise: other platforms drop deleted accounts from follower lists and their counts.
+- **Decision:** When an admin sets `memberStatus: DELETE` (`updateMemberByAdmin`), `MemberService.removeAllFollowsOf` runs:
+  - every follow of the member is removed, in both directions;
+  - for each removed follow the other member's counter drops by 1: someone who followed the deleted member → their `memberFollowings`; someone the deleted member followed → their `memberFollowers`;
+  - the deleted member's own `memberFollowers` / `memberFollowings` become 0;
+  - each follow is removed with its own `findOneAndDelete`, and its counter moves only when that call removed it, so a concurrent `unsubscribe` can't lower a counter twice. Re-runnable.
+  - Members deleted before this rule: `npm run cleanup:follows` (dry run by default, `--apply` writes) runs the same method for each of them.
+- **Reason:** Follow lists show only members you can visit, and the counts match the lists.
+- **Consequence:** Follows are not restored if a deleted member is ever set back to ACTIVE (no admin action does that today). D-38 still applies to follows left in the database some other way: `followerData` / `followingData` are null for them, and the client leaves such rows out.
+
+## D-40 — Admins are not part of the follow graph
+
+**Status:** Proposed
+
+- **Context:** In the client walk-through an admin could follow members, and members could follow an admin. An admin has no public profile (`/members/<admin>` is 404 in the client), so following one leads nowhere, and an admin's follows show up in members' follower lists and counts as if the admin were a regular member.
+- **Decision:**
+  - `subscribe` is `@Roles(USER, CREATOR)` with `RolesGuard`: an admin gets `FORBIDDEN` `ONLY_SPECIFIC_ROLES_ALLOWED`.
+  - Following an admin → `NOT_FOUND` `NO_DATA_FOUND`, the same answer as a missing member (the client never offers it).
+  - `unsubscribe` stays open to every logged-in member, so nothing that already exists gets stuck.
+  - Follows from before this rule: `npm run cleanup:follows` (D-39's script, now also for admins) removes every follow of an admin, both directions, and fixes the other side's counters with `MemberService.removeAllFollowsOf`.
+- **Reason:** Follows are between members who publish (creators) and members who look for them (users). An admin moderates; their account is not a profile.
+- **Consequence:** The client hides the Follow button from admins. Admin likes on members (`likeTargetMember`) are not changed here.
+
+## D-41 — Uploaded images are re-encoded on the server
+
+**Status:** Proposed
+
+- **Context:** Uploads were stored as sent. A 10 MB phone photo stayed 10 MB on disk; `next/image` had to decode it for every new size (slow first loads, a busy CPU, and in dev a laggy page); the original was served wherever `next/image` isn't used; and phone photos carry EXIF, often with the GPS position of where they were taken.
+- **Options:**
+  - **A. Re-encode on the server at upload (`sharp`):** one place, every client benefits, the stored file is known to be small and clean.
+  - **B. Compress in the browser before upload:** less upload traffic, but every client has to do it, and the server would still store whatever arrives.
+  - **C. Only rely on `next/image` / a CDN:** still stores and serves the originals and keeps the metadata.
+- **Decision:** Option A. `saveUpload()` streams every upload through sharp (`imageTransformer` in `libs/upload.ts`):
+  - `rotate()` applies the EXIF orientation, then the image is resized to at most **1600 px** on its longer side (`fit: inside`, never enlarged) and written as **WebP, quality 80**. sharp writes no metadata, so EXIF and GPS are gone.
+  - The stored name is always `<uuid>.webp` (`getStoredImageName`), whatever was uploaded. `jpg` / `jpeg` / `png` stay the accepted types.
+  - Bytes sharp can't read (a fake or broken image whose mime type claimed jpg / png) → `BAD_REQUEST` `INVALID_IMAGE` ("The file is not a readable image!"). The first stream to fail decides the answer: the upload (413 → `FILE_TOO_LARGE`, other read errors → `INTERNAL_SERVER_ERROR`), sharp (`INVALID_IMAGE`), or the disk (`INTERNAL_SERVER_ERROR`).
+  - The upload limit goes from 15 MB to **10 MB** per file (`uploadMaxFileSize`): enough for a full-resolution phone photo, and what is stored is far smaller anyway.
+  - Bytes don't bound memory: a 4.5 MB JPEG in the dev data was 10924 × 16384 = 179 MP (~700 MB decoded). sharp gets `limitInputPixels: 50 000 000` (`imageMaxInputPixels`; a 45 MP camera photo passes) and refuses larger images from their header, before decoding → `BAD_REQUEST` `IMAGE_TOO_MANY_PIXELS` ("Image must be at most 50 megapixels!").
+  - Images stored before this: `npm run optimize:uploads` (dry run by default, `--apply` writes) re-encodes files over 1600 px, with metadata, or over 500 KB, in place, keeping their name and format, so no document changes. Run on the dev data: 8 files, 35.7 MB → 1.2 MB; originals kept in `uploads/_backup-d41/` until checked (delete them then: `/uploads` is served publicly and they still carry EXIF/GPS).
+- **Reason:** Small, upright, metadata-free images for every client, from one place on the server — what most image-heavy sites do.
+- **Consequence:** A new dependency, `sharp` (prebuilt binaries per platform; run `npm install` on each machine). Uploads cost a little CPU on the API once, instead of `next/image` decoding the originals again and again. Supersedes the 15 MB limit of D-36; the rest of D-36 stands.

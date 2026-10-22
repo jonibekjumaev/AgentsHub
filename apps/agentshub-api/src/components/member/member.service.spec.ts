@@ -255,6 +255,17 @@ describe('MemberService', () => {
 			});
 		});
 
+		it('D-38: getAuthorData returns the ACTIVE / BLOCK author, or null for a deleted one (no NOT_FOUND)', async () => {
+			memberModel.resolve('findOne', { _id: memberId, memberNick: 'alice' });
+			await expect(service.getAuthorData(memberId)).resolves.toEqual({ _id: memberId, memberNick: 'alice' });
+			expect(memberModel.findOne).toHaveBeenCalledWith({
+				_id: memberId,
+				memberStatus: { $in: [MemberStatus.ACTIVE, MemberStatus.BLOCK] },
+			});
+
+			await expect(service.getAuthorData(memberId)).resolves.toBeNull();
+		});
+
 		it('viewing your own profile records no view', async () => {
 			memberModel.resolve('findOne', memberDocument());
 			const result = await service.getMember(memberId, memberId);
@@ -317,6 +328,49 @@ describe('MemberService', () => {
 				likeGroup: LikeGroup.MEMBER,
 			});
 			expect(memberModel.findByIdAndUpdate).toHaveBeenCalledWith(memberId, { $inc: { memberLikes: 1 } }, { new: true });
+		});
+	});
+
+	describe('a deleted member leaves every follow list (D-39)', () => {
+		const fan = new Types.ObjectId(); // follows the deleted member
+		const idol = new Types.ObjectId(); // is followed by the deleted member
+		const follows = [
+			{ _id: new Types.ObjectId(), followerId: fan, followingId: memberId },
+			{ _id: new Types.ObjectId(), followerId: memberId, followingId: idol },
+		];
+
+		it("removes both directions and lowers the other side's counter once per removed follow", async () => {
+			followModel
+				.resolve('find', follows)
+				.resolve('findOneAndDelete', follows[0])
+				.resolve('findOneAndDelete', follows[1]);
+
+			await expect(service.removeAllFollowsOf(memberId)).resolves.toEqual({ followers: 1, followings: 1 });
+			expect(followModel.find).toHaveBeenCalledWith({ $or: [{ followingId: memberId }, { followerId: memberId }] });
+			expect(memberModel.updateOne).toHaveBeenCalledWith({ _id: fan }, { $inc: { memberFollowings: -1 } });
+			expect(memberModel.updateOne).toHaveBeenCalledWith({ _id: idol }, { $inc: { memberFollowers: -1 } });
+			expect(memberModel.updateOne).toHaveBeenCalledWith(
+				{ _id: memberId },
+				{ $set: { memberFollowers: 0, memberFollowings: 0 } },
+			);
+		});
+
+		it('a follow removed meanwhile (e.g. an unsubscribe) changes no counter', async () => {
+			followModel.resolve('find', [follows[0]]).resolve('findOneAndDelete', null);
+
+			await expect(service.removeAllFollowsOf(memberId)).resolves.toEqual({ followers: 0, followings: 0 });
+			expect(memberModel.updateOne).not.toHaveBeenCalledWith({ _id: fan }, expect.anything());
+		});
+
+		it('updateMemberByAdmin with DELETE runs it; other changes do not', async () => {
+			memberModel.resolve('findOneAndUpdate', memberDocument({ memberStatus: MemberStatus.DELETE }));
+			followModel.resolve('find', []);
+			await service.updateMemberByAdmin({ _id: memberId.toHexString(), memberStatus: MemberStatus.DELETE } as never);
+			expect(followModel.find).toHaveBeenCalledTimes(1);
+
+			memberModel.resolve('findOneAndUpdate', memberDocument({ memberStatus: MemberStatus.BLOCK }));
+			await service.updateMemberByAdmin({ _id: memberId.toHexString(), memberStatus: MemberStatus.BLOCK } as never);
+			expect(followModel.find).toHaveBeenCalledTimes(1);
 		});
 	});
 });

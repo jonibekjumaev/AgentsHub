@@ -12,6 +12,7 @@ import { CommentGroup, CommentStatus } from '../../libs/enums/comment.enum';
 import { Message } from '../../libs/enums/common.enum';
 import { MemberStatus, MemberType } from '../../libs/enums/member.enum';
 import { ProductStatus } from '../../libs/enums/product.enum';
+import { excludeDeletedMember, lookupMember } from '../../libs/config';
 import { ObjectId, StatisticModifier } from '../../libs/types/common';
 import { BoardArticleService } from '../board-article/board-article.service';
 import { BriefService } from '../brief/brief.service';
@@ -289,6 +290,18 @@ describe('CommentService', () => {
 				await expectHttpError(result, NotFoundException, Message.NO_DATA_FOUND);
 				expect(models.comment.aggregate).not.toHaveBeenCalled();
 			}
+		});
+
+		it('D-38: a deleted author leaves the comment with memberData null; other authors are joined as before', async () => {
+			models.brief.resolve('findById', { _id: targetId, memberId: ownerId, briefStatus: BriefStatus.OPEN });
+			await service.getComments(null, null, inquiry(CommentGroup.BRIEF));
+
+			const stages = models.comment.aggregate.mock.calls[0][0] as Array<{ $facet?: { list: unknown[] } }>;
+			const list = stages.find((stage) => stage.$facet)!.$facet!.list;
+			expect(list).toContainEqual(lookupMember);
+			expect(lookupMember.$lookup.pipeline).toContainEqual(excludeDeletedMember);
+			// without preserveNullAndEmptyArrays the $unwind would drop the comment itself
+			expect(list).toContainEqual({ $unwind: { path: '$memberData', preserveNullAndEmptyArrays: true } });
 		});
 
 		it.each(targets)('%s: a missing target → NOT_FOUND, like a hidden one', async (group) => {

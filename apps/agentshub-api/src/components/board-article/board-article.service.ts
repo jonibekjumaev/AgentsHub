@@ -15,7 +15,13 @@ import { ViewInput } from '../../libs/dto/view/view.input';
 import { ViewGroup } from '../../libs/enums/view.enum';
 import { ViewService } from '../view/view.service';
 import { BoardArticleUpdate } from '../../libs/dto/board-article/board-article.update';
-import { escapeRegex, lookupAuthMemberLiked, lookupMember, shapeInToMongoObjectId } from '../../libs/config';
+import {
+	escapeRegex,
+	lookupAuthMemberLiked,
+	lookupMember,
+	shapeInToMongoObjectId,
+	unwindKeepingItem,
+} from '../../libs/config';
 import { describeDbError } from '../../libs/utils';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
@@ -69,7 +75,7 @@ export class BoardArticleService {
 			const likeInput: LikeInput = { memberId: memberId, likeRefId: articleId, likeGroup: LikeGroup.ARTICLE };
 			targetBoardArticle.meLiked = await this.likeService.checkLikeExistence(likeInput);
 		}
-		targetBoardArticle.memberData = await this.memberService.getMember(null, targetBoardArticle.memberId);
+		targetBoardArticle.memberData = (await this.memberService.getAuthorData(targetBoardArticle.memberId)) ?? undefined; // D-38
 		return targetBoardArticle;
 	}
 
@@ -117,7 +123,7 @@ export class BoardArticleService {
 							//meliked
 							lookupAuthMemberLiked(memberId),
 							lookupMember,
-							{ $unwind: '$memberData' },
+							unwindKeepingItem('$memberData'),
 						],
 
 						metaCounter: [{ $count: 'total' }],
@@ -170,7 +176,7 @@ export class BoardArticleService {
 							{ $skip: (input.page - 1) * input.limit },
 							{ $limit: input.limit },
 							lookupMember,
-							{ $unwind: '$memberData' },
+							unwindKeepingItem('$memberData'),
 						],
 						metaCounter: [{ $count: 'total' }],
 					},

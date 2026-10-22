@@ -167,9 +167,9 @@ All list queries take `{ page, limit, sort?, direction?, search }`:
 - **Money:** all prices and budgets are **USD**, with no currency field (D-06). `SUBSCRIPTION` product prices are **per month**. Show `$49 / month` for subscriptions, `$49` for one-time.
 - **Images:**
   - Upload with `imageUploader(file, target)` / `imagesUploader(files, target)` (logged-in only). `target` is `"member"`, `"product"` or `"article"`; the old `"property"` → `BAD_REQUEST`.
-  - Only `jpg`, `jpeg`, `png` (`"Please provide jpg, jpeg or png images!"`). Max 15 MB (`BAD_REQUEST` `"Image must be at most 15 MB!"`, Step 13a, D-36), max 10 files per request. Every user mistake is `BAD_REQUEST`; only a server fault is `INTERNAL_SERVER_ERROR` `Upload failed!`. `imagesUploader` adds ` (file N: name)` to the message.
+  - Only `jpg`, `jpeg`, `png` (`"Please provide jpg, jpeg or png images!"`). Max 10 MB (`BAD_REQUEST` `"Image must be at most 10 MB!"`, D-36, D-41), max 10 files per request. A file that is not a readable image → `BAD_REQUEST` `"The file is not a readable image!"`; over 50 megapixels → `BAD_REQUEST` `"Image must be at most 50 megapixels!"` (D-41). Every user mistake is `BAD_REQUEST`; only a server fault is `INTERNAL_SERVER_ERROR` `Upload failed!`. `imagesUploader` adds ` (file N: name)` to the message.
   - An uploaded image that no saved form uses is deleted after 24 h by a cleanup script (D-36): upload, then save the form.
-  - The result is a path like `uploads/product/<uuid>.png`; prefix it with the API origin to show it.
+  - The result is a path like `uploads/product/<uuid>.webp`; prefix it with the API origin to show it. Since D-41 every upload is stored as a WebP of at most 1600 px on its longer side, upright, without EXIF/GPS: a preview made from the local file can differ slightly from the stored image.
   - `memberImage` is `''` when the member has no picture: **show a placeholder** (D-15).
 - **Dates** are ISO strings in UTC (`DateTime`). Show them in the viewer's time zone.
 
@@ -599,6 +599,7 @@ On update: leave a field out to keep it; `null` clears `briefBudget` / `briefDea
 - `CommentGroup.PROPERTY` → `PRODUCT`; new `BRIEF`. Sending `PROPERTY` → `GRAPHQL_VALIDATION_FAILED`.
 - `commentContent` is 1–1000 characters (since Step 13a, D-35; was 1–100).
 - Sorts: `createdAt`, `updatedAt`.
+- **Deleted author (D-38, Step 13a):** the comment of a member who was deleted stays in the list, with `memberData: null` (`memberId` is still set). Show "Deleted member" without a profile link: `getMember` answers `NOT_FOUND` for them. A blocked author is shown as usual (their profile still opens). The same holds for every joined member: `memberData` on products, briefs, articles, favorites, visited and admin lists, and `followerData` / `followingData` in follow lists. Since D-40 only USER and CREATOR members can follow (`subscribe` as an admin → `FORBIDDEN`), and an admin can't be followed (`NOT_FOUND`): hide the Follow button from admins. Since D-39 a deleted member's follows are removed and the other side's counts drop, so they don't appear in follow lists at all; skip a null `followerData` / `followingData` if one ever comes.
 
 **Who can read (comments follow their target's visibility)**
 
@@ -861,7 +862,9 @@ The `message` strings the UI may need to match. Codes are those the API returns 
 | `Brief status can only change between OPEN and CLOSED, or to DELETE!` | `BAD_REQUEST` | brief update |
 | `Self subscription is denied!` | `BAD_REQUEST` | `subscribe` |
 | `Please provide jpg, jpeg or png images!` | `BAD_REQUEST` | image upload |
-| `Image must be at most 15 MB!` | `BAD_REQUEST` | image upload (Step 13a) |
+| `Image must be at most 10 MB!` | `BAD_REQUEST` | image upload (Step 13a, D-41) |
+| `The file is not a readable image!` | `BAD_REQUEST` | image upload (D-41) |
+| `Image must be at most 50 megapixels!` | `BAD_REQUEST` | image upload (D-41) |
 | `Message must be text of 1 to 3000 characters!` | chat `error` event | chat |
 | `You can send at most 1 message per second!` | chat `error` event | chat |
 | `Something went wrong!` | `INTERNAL_SERVER_ERROR` | server fault |

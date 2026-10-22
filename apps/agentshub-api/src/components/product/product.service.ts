@@ -33,6 +33,7 @@ import {
 	lookupMember,
 	paidProductPricings,
 	shapeInToMongoObjectId,
+	unwindKeepingItem,
 } from '../../libs/config';
 import { LikeService, withMeLiked } from '../like/like.service';
 import { LikeInput } from '../../libs/dto/like/like.input';
@@ -97,7 +98,7 @@ export class ProductService {
 			targetProduct.meLiked = await this.likeService.checkLikeExistence(likeInput);
 		}
 
-		targetProduct.memberData = await this.memberService.getMember(null, targetProduct.memberId);
+		targetProduct.memberData = (await this.memberService.getAuthorData(targetProduct.memberId)) ?? undefined; // D-38
 		return targetProduct;
 	}
 
@@ -123,7 +124,7 @@ export class ProductService {
 							lookupAuthMemberLiked(memberId),
 
 							lookupMember,
-							{ $unwind: '$memberData' },
+							unwindKeepingItem('$memberData'),
 						],
 						metaCounter: [{ $count: 'total' }],
 					},
@@ -203,7 +204,7 @@ export class ProductService {
 							{ $skip: (input.page - 1) * input.limit },
 							{ $limit: input.limit },
 							lookupMember,
-							{ $unwind: '$memberData' },
+							unwindKeepingItem('$memberData'),
 						],
 						metaCounter: [{ $count: 'total' }],
 					},
@@ -251,7 +252,7 @@ export class ProductService {
 							{ $skip: (input.page - 1) * input.limit },
 							{ $limit: input.limit },
 							lookupMember,
-							{ $unwind: '$memberData' },
+							unwindKeepingItem('$memberData'),
 						],
 						metaCounter: [{ $count: 'total' }],
 					},

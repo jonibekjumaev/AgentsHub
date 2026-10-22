@@ -13,7 +13,7 @@ import {
 import { BriefUpdate } from '../../libs/dto/brief/brief.update';
 import { BriefStatus } from '../../libs/enums/brief.enum';
 import { Direction, Message } from '../../libs/enums/common.enum';
-import { escapeRegex, lookupMember, shapeInToMongoObjectId } from '../../libs/config';
+import { escapeRegex, lookupMember, shapeInToMongoObjectId, unwindKeepingItem } from '../../libs/config';
 import { ViewGroup } from '../../libs/enums/view.enum';
 import { ObjectId, StatisticModifier, T } from '../../libs/types/common';
 import { ViewInput } from '../../libs/dto/view/view.input';
@@ -68,7 +68,7 @@ export class BriefService {
 			}
 		}
 
-		targetBrief.memberData = await this.memberService.getMember(null, targetBrief.memberId);
+		targetBrief.memberData = (await this.memberService.getAuthorData(targetBrief.memberId)) ?? undefined; // D-38
 		return targetBrief;
 	}
 
@@ -189,7 +189,7 @@ export class BriefService {
 							{ $skip: (input.page - 1) * input.limit },
 							{ $limit: input.limit },
 							lookupMember,
-							{ $unwind: '$memberData' },
+							unwindKeepingItem('$memberData'),
 						],
 						metaCounter: [{ $count: 'total' }],
 					},

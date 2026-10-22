@@ -28,7 +28,13 @@ import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { LikeService, withMeLiked } from '../like/like.service';
 import { Follower, Following, MeFollowed } from '../../libs/dto/follow/follow';
-import { dummyPasswordHash, escapeRegex, excludeMemberSecrets, lookupAuthMemberLiked } from '../../libs/config';
+import {
+	dummyPasswordHash,
+	escapeRegex,
+	excludeMemberSecrets,
+	lookupAuthMemberLiked,
+	shapeInToMongoObjectId,
+} from '../../libs/config';
 import { describeDbError, isDuplicateKeyError } from '../../libs/utils';
 import { memberBlockedException } from '../../libs/errors';
 
@@ -127,6 +133,18 @@ export class MemberService {
 		const member = await this.memberModel.findOne({ _id: memberId, memberStatus: MemberStatus.ACTIVE }).lean().exec();
 		if (!member) throw new UnauthorizedException(Message.NOT_AUTHENTICATED);
 		return member;
+	}
+
+	/**
+	 * The author shown on a product, brief or article page (D-38): the public member, or null when the author was
+	 * deleted, so the page still opens and shows "Deleted member" instead of failing with getMember's NOT_FOUND.
+	 * No view, like or follow data: the caller is not visiting the profile.
+	 */
+	public async getAuthorData(authorId: ObjectId): Promise<Member | null> {
+		return await this.memberModel
+			.findOne({ _id: authorId, memberStatus: { $in: [MemberStatus.ACTIVE, MemberStatus.BLOCK] } })
+			.lean<Member>()
+			.exec();
 	}
 
 	public async getMember(memberId: ObjectId | null, targetId: ObjectId): Promise<Member> {
@@ -248,8 +266,46 @@ export class MemberService {
 		}
 		if (!result) throw new NotFoundException(Message.UPDATE_FAILED);
 
+		// a deleted member leaves every follow list, and the other side's counter drops (D-39)
+		if (input.memberStatus === MemberStatus.DELETE) {
+			await this.removeAllFollowsOf(shapeInToMongoObjectId(input._id));
+		}
+
 		const updateMember: Member = result.toObject();
 		return updateMember;
+	}
+
+	/**
+	 * D-39 / D-40: removes every follow of a member who must not be in the social graph (deleted, or an admin), both directions, and moves the counters of the members on the
+	 * other side (their memberFollowers / memberFollowings drop by 1 per removed follow). The deleted member's own
+	 * counters go to 0. Each follow is removed with its own findOneAndDelete and its counter moves only when that call
+	 * removed it, so a concurrent unsubscribe can't lower a counter twice. Re-runnable: a second call finds nothing.
+	 */
+	public async removeAllFollowsOf(memberId: ObjectId): Promise<{ followers: number; followings: number }> {
+		const follows = await this.followModel
+			.find({ $or: [{ followingId: memberId }, { followerId: memberId }] })
+			.select('_id followerId followingId')
+			.lean<Array<{ _id: ObjectId; followerId: ObjectId; followingId: ObjectId }>>()
+			.exec();
+
+		let followers = 0;
+		let followings = 0;
+		for (const follow of follows) {
+			const removed = await this.followModel.findOneAndDelete({ _id: follow._id }).exec();
+			if (!removed) continue;
+			if (memberId.equals(follow.followingId)) {
+				// someone followed the deleted member: that someone follows one member less
+				await this.memberModel.updateOne({ _id: follow.followerId }, { $inc: { memberFollowings: -1 } }).exec();
+				followers += 1;
+			} else {
+				// the deleted member followed someone: that someone has one follower less
+				await this.memberModel.updateOne({ _id: follow.followingId }, { $inc: { memberFollowers: -1 } }).exec();
+				followings += 1;
+			}
+		}
+
+		await this.memberModel.updateOne({ _id: memberId }, { $set: { memberFollowers: 0, memberFollowings: 0 } }).exec();
+		return { followers, followings };
 	}
 
 	public async memberStatsEditor(input: StatisticModifier): Promise<Member> {

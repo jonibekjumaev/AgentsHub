@@ -10,7 +10,7 @@ import { Product, Products } from '../../libs/dto/product/product';
 import { TotalCounter } from '../../libs/dto/member/member';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { ProductStatus } from '../../libs/enums/product.enum';
-import { lookupFavorite } from '../../libs/config';
+import { lookupFavorite, unwindKeepingItem } from '../../libs/config';
 import { describeDbError } from '../../libs/utils';
 
 /**
@@ -83,7 +83,7 @@ export class LikeService {
 							{ $skip: (page - 1) * limit },
 							{ $limit: limit },
 							lookupFavorite,
-							{ $unwind: '$favoriteProduct.memberData' },
+							unwindKeepingItem('$favoriteProduct.memberData'),
 						],
 						metaCounter: [{ $count: 'total' }],
 					},

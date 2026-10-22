@@ -34,7 +34,11 @@ const fullBrief = (fields: object = {}) => ({ _id: briefId, memberId: ownerId, b
 describe('BriefService', () => {
 	let service: BriefService;
 	let briefModel: MockModel;
-	let memberService: { memberStatsEditor: jest.Mock<Promise<unknown>, [StatisticModifier]>; getMember: jest.Mock };
+	let memberService: {
+		memberStatsEditor: jest.Mock<Promise<unknown>, [StatisticModifier]>;
+		getMember: jest.Mock;
+		getAuthorData: jest.Mock;
+	};
 	let viewService: { recordView: jest.Mock };
 
 	beforeEach(async () => {
@@ -42,6 +46,7 @@ describe('BriefService', () => {
 		memberService = {
 			memberStatsEditor: jest.fn<Promise<unknown>, [StatisticModifier]>().mockResolvedValue({}),
 			getMember: jest.fn().mockResolvedValue({ _id: ownerId, memberNick: 'owner' }),
+			getAuthorData: jest.fn().mockResolvedValue({ _id: ownerId, memberNick: 'owner' }),
 		};
 		viewService = { recordView: jest.fn().mockResolvedValue(null) };
 

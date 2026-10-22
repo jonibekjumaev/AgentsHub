@@ -1385,6 +1385,10 @@ Found while checking the Next.js client in the browser (2026-10). Decisions D-34
 - [x] **8. Products:** `@ArrayMaxSize(10)` on `productImages` (input and update); `productTags` already had it.
 - [x] **9. Orphan uploads (D-36):** `npm run clean:uploads` (dry run) / `-- --apply`.
 - [x] **10. Cleanup:** debug `console.log` calls removed (guards, `checkAuth`, `getMember`, `memberStatsEditor`, like and view services). Kept: the `Query:` / `Mutation:` resolver logs (convention), error logs, `formatError` and startup logs.
+- [x] **Found in the walk-through, D-38:** comments of a deleted member linked to a profile that answers 404. every member lookup now leaves a deleted member out (`memberData` / `followerData` / `followingData` null, the item stays), and `getProduct` / `getBrief` / `getBoardArticle` use `getAuthorData`; unit and e2e tests added.
+- [x] **D-39:** deleting a member (`updateMemberByAdmin` → `DELETE`) removes their follows in both directions and lowers the other side's counters; `npm run cleanup:follows` does it for members deleted earlier.
+- [x] **D-40:** admins can't follow or be followed (`subscribe` is USER / CREATOR only; an admin target → `NOT_FOUND`); `npm run cleanup:follows` also removes admins' old follows.
+- [x] **D-41:** uploads are re-encoded with sharp (WebP, max 1600 px, no EXIF/GPS), limit 10 MB, `INVALID_IMAGE` for unreadable files; `npm run optimize:uploads` for old files.
 - **Not run here:** the e2e suites (the sandbox could not download the `mongod` binary); run `npm run test:e2e` locally.
 
 ---
