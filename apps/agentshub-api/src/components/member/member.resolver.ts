@@ -23,6 +23,8 @@ import type { ObjectId } from '../../libs/types/common';
 import { GraphQLUpload } from 'graphql-upload';
 import { Message } from '../../libs/enums/common.enum';
 import type { FileUpload } from 'graphql-upload';
+import { ProfileVisitors } from '../../libs/dto/view/view';
+import { OrdinaryInquiry } from '../../libs/dto/common.input';
 
 @Resolver()
 export class MemberResolver {
@@ -73,10 +75,23 @@ export class MemberResolver {
 	public async getMember(
 		@Args('memberId', ObjectIdPipe) input: string,
 		@AuthMember('_id') memberId: ObjectId,
+		@AuthMember('memberType') memberType: MemberType,
 	): Promise<Member> {
 		console.log('Query: getMember');
 		const targetId = shapeInToMongoObjectId(input);
-		return await this.memberService.getMember(memberId, targetId);
+		return await this.memberService.getMember(memberId, targetId, memberType);
+	}
+
+	/** D-42: who viewed my profile. Members with a public profile only (admins have none). */
+	@Roles(MemberType.USER, MemberType.CREATOR)
+	@UseGuards(RolesGuard)
+	@Query(() => ProfileVisitors)
+	public async getProfileVisitors(
+		@Args('input') input: OrdinaryInquiry,
+		@AuthMember('_id') memberId: ObjectId,
+	): Promise<ProfileVisitors> {
+		console.log('Query: getProfileVisitors');
+		return await this.memberService.getProfileVisitors(memberId, input);
 	}
 
 	@UseGuards(WithoutGuard)

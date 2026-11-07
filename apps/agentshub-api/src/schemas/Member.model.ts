@@ -64,6 +64,12 @@ const MemberSchema = new Schema(
 			type: String,
 		},
 
+		// D-42: when true, this member's profile visits are not shown to the profile owner (only counted)
+		memberBrowsePrivately: {
+			type: Boolean,
+			default: false,
+		},
+
 		memberProducts: {
 			type: Number,
 			default: 0,

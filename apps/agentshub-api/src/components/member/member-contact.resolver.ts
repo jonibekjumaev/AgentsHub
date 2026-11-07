@@ -5,9 +5,10 @@ import { Member } from '../../libs/dto/member/member';
 import type { AuthPayload } from '../../libs/types/common';
 
 /**
- * Contact visibility (D-07, D-23): the only place that decides whether `memberEmail` / `memberWhatsapp`
- * are returned. GraphQL runs these field resolvers for every `Member` in a response (findOne, list `$facet`,
- * `$lookup` memberData), so queries and services don't hide the fields themselves.
+ * Field visibility (D-07, D-23, D-42): the only place that decides whether `memberEmail` / `memberWhatsapp`
+ * (signed-in members) and `memberBrowsePrivately` (the member themself) are returned. GraphQL runs these field
+ * resolvers for every `Member` in a response (findOne, list `$facet`, `$lookup` memberData), so queries and
+ * services don't hide the fields themselves.
  */
 @Resolver(() => Member)
 export class MemberContactResolver {
@@ -24,6 +25,14 @@ export class MemberContactResolver {
 	@ResolveField(() => String, { nullable: true })
 	public async memberWhatsapp(@Parent() member: Member, @Context('req') req: Request): Promise<string | null> {
 		return (await this.getViewer(req)) ? (member.memberWhatsapp ?? null) : null;
+	}
+
+	/** A personal setting: other members (and guests) get null, so nobody can tell who browses privately */
+	@ResolveField(() => Boolean, { nullable: true })
+	public async memberBrowsePrivately(@Parent() member: Member, @Context('req') req: Request): Promise<boolean | null> {
+		const viewer = await this.getViewer(req);
+		if (!viewer || String(viewer._id) !== String(member._id)) return null;
+		return member.memberBrowsePrivately ?? false;
 	}
 
 	/** Reads the Authorization header, never `req.body.authMember`: unguarded operations leave that client-controlled */

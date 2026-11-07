@@ -172,6 +172,18 @@ describe.each([
 	});
 });
 
+describe('MemberUpdate.memberBrowsePrivately (D-42)', () => {
+	it('accepts true and false', async () => {
+		expect(await invalidFields(MemberUpdate, { memberBrowsePrivately: true })).toEqual([]);
+		expect(await invalidFields(MemberUpdate, { memberBrowsePrivately: false })).toEqual([]);
+	});
+
+	it('rejects null and non-booleans: the setting is a plain on/off', async () => {
+		expect(await invalidFields(MemberUpdate, { memberBrowsePrivately: null })).toEqual(['memberBrowsePrivately']);
+		expect(await invalidFields(MemberUpdate, { memberBrowsePrivately: 'yes' })).toEqual(['memberBrowsePrivately']);
+	});
+});
+
 describe('MemberUpdateByAdmin only', () => {
 	it('rejects a malformed _id (B18)', async () => {
 		expect(await invalidFields(MemberUpdateByAdmin, { _id: 'abc' })).toEqual(['_id']);

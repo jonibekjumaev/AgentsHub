@@ -83,11 +83,12 @@ export class ProductService {
 		}
 
 		if (memberId) {
-			// own product views don't count (D-22); a PAUSED product records no view, not even for the owner (D-16)
+			// own product views don't count (D-22); a PAUSED product records no view, not even for the owner (D-16);
+			// admins' views never count (D-42, inside recordView)
 			const isOwnProduct = memberId.equals(targetProduct.memberId);
 			const isActive = targetProduct.productStatus === ProductStatus.ACTIVE;
 			const viewInput: ViewInput = { memberId: memberId, viewRefId: productId, viewGroup: ViewGroup.PRODUCT };
-			const newView = isOwnProduct || !isActive ? null : await this.viewService.recordView(viewInput);
+			const newView = isOwnProduct || !isActive ? false : await this.viewService.recordView(viewInput, memberType);
 			if (newView) {
 				await this.productStatsEditor({ _id: productId, targetKey: 'productViews', modifier: 1 });
 				targetProduct.productViews++;

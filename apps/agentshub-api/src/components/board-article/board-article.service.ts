@@ -26,6 +26,7 @@ import { describeDbError } from '../../libs/utils';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { LikeService, withMeLiked } from '../like/like.service';
+import { MemberType } from '../../libs/enums/member.enum';
 
 @Injectable()
 export class BoardArticleService {
@@ -54,7 +55,11 @@ export class BoardArticleService {
 		}
 	}
 
-	public async getBoardArticle(memberId: ObjectId, articleId: ObjectId): Promise<BoardArticle> {
+	public async getBoardArticle(
+		memberId: ObjectId,
+		articleId: ObjectId,
+		viewerType: MemberType | null = null,
+	): Promise<BoardArticle> {
 		const search = {
 			_id: articleId,
 			articleStatus: BoardArticleStatus.ACTIVE,
@@ -65,7 +70,7 @@ export class BoardArticleService {
 
 		if (memberId) {
 			const viewInput: ViewInput = { memberId: memberId, viewRefId: articleId, viewGroup: ViewGroup.ARTICLE };
-			const newView = await this.viewService.recordView(viewInput);
+			const newView = await this.viewService.recordView(viewInput, viewerType); // admins' views never count (D-42)
 			if (newView) {
 				await this.boardArticleStatsEditor({ _id: articleId, targetKey: 'articleViews', modifier: 1 });
 				targetBoardArticle.articleViews++;

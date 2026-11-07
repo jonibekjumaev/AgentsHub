@@ -1,5 +1,6 @@
 import { Field, InputType } from '@nestjs/graphql';
 import {
+	IsBoolean,
 	IsEmail,
 	IsEnum,
 	IsMongoId,
@@ -56,6 +57,12 @@ export class MemberUpdate {
 	@MaxLength(memberDescMaxLength) // D-35; null still clears it
 	@Field(() => String, { nullable: true })
 	memberDesc?: string;
+
+	// D-42 private browsing. Reject null: the setting is a plain on/off
+	@ValidateIf((o: MemberUpdate) => o.memberBrowsePrivately !== undefined)
+	@IsBoolean()
+	@Field(() => Boolean, { nullable: true })
+	memberBrowsePrivately?: boolean;
 
 	deletedAt?: Date;
 }

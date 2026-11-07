@@ -243,6 +243,7 @@ Suggested labels: `CUSTOMER_SUPPORT` "Customer support", `DATA_ANALYSIS` "Data a
 | `getAgents(input: AgentsInquiry)` | `getCreators(input: CreatorsInquiry)` | everyone |
 | `getFavorities`, `getVisited` | same names, now return `Products` | logged in |
 | — | `getMe: Member!` | logged in (D-33) |
+| — | `getProfileVisitors(input: OrdinaryInquiry): ProfileVisitors` | USER, CREATOR (D-42) |
 | — | `changePassword(input: ChangePasswordInput!): Boolean!` | logged in |
 | — | `createBrief`, `updateBrief`, `getMyBriefs` | USER |
 | — | `getBrief(briefId)`, `getBriefs` | everyone |
@@ -643,7 +644,15 @@ On update: leave a field out to keep it; `null` clears `briefBudget` / `briefDea
 **Views**
 
 - No client call; `getProduct` / `getBrief` / `getMember` / `getBoardArticle` record the view.
-- Views are counted for logged-in members only, once per member, never for the owner, never on paused products or closed briefs. Don't expect the view counter to change when you open your own item.
+- Views are counted for logged-in members only, once per member, never for the owner, never for admins (D-42), never on paused products or closed briefs. Don't expect the view counter to change when you open your own item.
+- A repeat view refreshes the view's time (B24): `getVisited` lists the latest visit first.
+
+**Who viewed your profile (D-42)**
+
+- `getProfileVisitors(input: { page, limit })` → `{ list { _id visitor { ...Member } visitedAt } metaCounter { total } privateCount }`. USER and CREATOR only (`FORBIDDEN` for admins, `UNAUTHENTICATED` for guests).
+- Visits of the caller's profile in the last 90 days, latest first. Deleted members and admins never appear. `visitedAt` is the latest visit.
+- `privateCount`: visitors who browse privately. Show them as a number ("3 more members browsed privately"), never as rows.
+- `Member.memberBrowsePrivately`: `true` / `false` for the member themself (`getMe`, `updateMember`), `null` for everyone else. Set it with `updateMember(input: { memberBrowsePrivately: true })`; `null` → `BAD_REQUEST`.
 
 **Follows**
 

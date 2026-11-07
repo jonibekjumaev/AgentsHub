@@ -42,6 +42,10 @@ export class Member {
 	@Field(() => String, { nullable: true })
 	memberDesc?: string;
 
+	/** Only the member themself gets the value; everyone else gets null (MemberContactResolver, D-42) */
+	@Field(() => Boolean, { nullable: true })
+	memberBrowsePrivately?: boolean;
+
 	@Field(() => Int)
 	memberProducts!: number;
 

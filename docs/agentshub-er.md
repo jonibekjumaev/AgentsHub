@@ -41,6 +41,7 @@ AgentsHub is a marketplace for AI agents.
 | memberEmail | string | | | **new**. Contact, visible to logged-in members only |
 | memberWhatsapp | string | | | **new**. Contact, visible to logged-in members only |
 | memberDesc | string | | | bio, max 500 characters (D-35) |
+| memberBrowsePrivately | boolean | | | **new** (D-42), default false. Profile visits are only counted, never named. Returned to the member themself only |
 | memberProducts | int | NN | | **new** (was `memberProperties`), default 0 |
 | memberBriefs | int | NN | | **new**, default 0 |
 | memberArticles | int | NN | | default 0 |
@@ -170,10 +171,12 @@ Unique index: `{ memberId: 1, likeRefId: 1 }`. `memberId` comes first so the sam
 | viewGroup | enum ViewGroup | NN | | `MEMBER`, `PRODUCT`, `BRIEF` or `ARTICLE` |
 | viewRefId | ObjectId | NN | FK (polymorphic) | |
 | memberId | ObjectId | NN | FK → members | |
-| createdAt | date | NN | | |
-| updatedAt | date | NN | | |
+| createdAt | date | NN | | first visit |
+| updatedAt | date | NN | | latest visit: every repeat view refreshes it (B24) |
 
 Unique index: `{ memberId: 1, viewRefId: 1 }`. `memberId` comes first so the same index serves the visited query (by `memberId`) and the "already viewed" check (both fields), see D-18.
+
+Index `{ viewRefId: 1, viewGroup: 1, updatedAt: -1 }`: "who viewed your profile" (D-42), one profile's visits, latest first. Admins' views are never recorded (D-42).
 
 ### follows (unchanged)
 

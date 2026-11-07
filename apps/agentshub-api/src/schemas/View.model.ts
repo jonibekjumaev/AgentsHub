@@ -24,5 +24,7 @@ const ViewSchema = new Schema(
 );
 
 ViewSchema.index({ memberId: 1, viewRefId: 1 }, { unique: true });
+// "Who viewed your profile" (D-42): one profile's visits, newest first
+ViewSchema.index({ viewRefId: 1, viewGroup: 1, updatedAt: -1 });
 
 export default ViewSchema;

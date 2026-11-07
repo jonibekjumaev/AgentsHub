@@ -37,10 +37,11 @@ export class BoardArticleResolver {
 	public async getBoardArticle(
 		@Args('articleId', ObjectIdPipe) input: string,
 		@AuthMember('_id') memberId: ObjectId,
+		@AuthMember('memberType') memberType: MemberType,
 	): Promise<BoardArticle> {
 		console.log('Query: getBoardArticle');
 		const articleId = shapeInToMongoObjectId(input);
-		return await this.boardArticleService.getBoardArticle(memberId, articleId);
+		return await this.boardArticleService.getBoardArticle(memberId, articleId, memberType);
 	}
 
 	@UseGuards(AuthGuard)

@@ -592,6 +592,16 @@ These fixes are made on today's Nestar code, before step 3, and they use today's
   - **API:** no change; the client still gets the same GraphQL error.
   - **Verify:** `libs/process-handlers.spec.ts` runs the crash case in a child Node process: without the handler it exits after the response (the bug); with it, the response has the GraphQL error, the rejection is logged, and the process keeps running. The rule-break check (handler not registered) fails 3 tests.
 
+- [x] **B24 — A repeat view never refreshed the view, and two parallel first views could fail the request**
+  - **When:** found while planning D-42 ("who viewed your profile").
+  - **Where:** `ViewService.recordView`: `findOne` and, if nothing was found, `create`.
+  - **Problem:**
+    - A repeat view changed nothing, so the view's `updatedAt` stayed at the first visit. `getVisited` sorts by `updatedAt`, so "recently visited" was really "first visited": an agent opened again yesterday did not move to the top.
+    - Two requests of the same member at the same moment could both find nothing and both `create`; the second hit the unique index `{ memberId, viewRefId }` and the whole `getProduct` / `getMember` / `getBrief` / `getBoardArticle` failed with `INTERNAL_SERVER_ERROR`.
+  - **Fix:** one atomic `updateOne({ memberId, viewRefId }, { $setOnInsert: { viewGroup } }, { upsert: true })`. Mongoose timestamps set `updatedAt` on every call and `createdAt` on insert. `recordView` now returns `true` only for an inserted view (`upsertedCount === 1`), so counters still grow once per member; a lost race (`E11000`) counts as a repeat view. It also takes the viewer's `MemberType` and records nothing for an ADMIN (D-42).
+  - **API:** no change for the clients; `getVisited` orders by the latest visit.
+  - **Verify:** `view/view.service.spec.ts` (upsert filter, first vs repeat view, lost race, other errors rethrown, admin). The member / product / brief specs check the new call. E2e (`who viewed your profile`): a second visit keeps `memberViews` at +1 and moves `visitedAt` later; checked on the in-memory MongoDB, not in the unit tests.
+
 ---
 
 ## Step 3 — Config (package names, DB name, env, app names)
@@ -1298,6 +1308,8 @@ Totals: **537 unit tests** in 17 suites (about 15 s), **28 API e2e tests** (abou
   | — | Since Step 13a (D-37): nullable `Product.productRankPosition` and `Member.memberRankPosition` (1 = top; `null` when unranked), set nightly |
   | Upload over the size limit → `INTERNAL_SERVER_ERROR` `Upload failed!` | Since Step 13a (D-36): `BAD_REQUEST` `Image must be at most 15 MB!`; more than 10 `productImages` → `BAD_REQUEST` |
   | `sayHello`, `checkAuth`, `checkAuthRoles` | removed in Step 13a (Nestar test queries; use `getMe`) |
+  | — | D-42: `getProfileVisitors(input: OrdinaryInquiry): ProfileVisitors` (USER, CREATOR) and `Member.memberBrowsePrivately` (own value only; set through `updateMember`) |
+  | A repeat view kept the first visit's time; an admin's views were counted | B24, D-42: `getVisited` follows the latest visit; admins record no views |
 
 - [ ] In the frontend repo, remove the real-estate pages and filters (location, beds, rooms, square, barter/rent, sold state) in the same step (D-10).
 - [ ] Contact info must come from the API's null-for-guests behaviour, not only from hiding it in the UI (D-07).
