@@ -6,12 +6,13 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { AuthMember } from '../auth/decorators/authMember.decorator';
 import type { ObjectId } from '../../libs/types/common';
 import { UseGuards } from '@nestjs/common';
-import { Products, Product } from '../../libs/dto/product/product';
+import { Products, Product, ProductFacets } from '../../libs/dto/product/product';
 import {
 	CreatorProductsInquiry,
 	AllProductsInquiry,
 	ProductsInquiry,
 	ProductInput,
+	PIsearch,
 } from '../../libs/dto/product/product.input';
 import { OrdinaryInquiry } from '../../libs/dto/common.input';
 import { WithoutGuard } from '../auth/guards/without.guard';
@@ -68,6 +69,14 @@ export class ProductResolver {
 	): Promise<Products> {
 		console.log('Query: getProducts');
 		return await this.productService.getProducts(memberId, input);
+	}
+
+	/** Public, like getProducts: the counts next to each /agents filter option (D-43). */
+	@UseGuards(WithoutGuard)
+	@Query(() => ProductFacets)
+	public async getProductFacets(@Args('input') input: PIsearch): Promise<ProductFacets> {
+		console.log('Query: getProductFacets');
+		return await this.productService.getProductFacets(input);
 	}
 
 	@UseGuards(AuthGuard)

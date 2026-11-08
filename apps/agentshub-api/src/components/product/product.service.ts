@@ -12,15 +12,17 @@ import {
 	AllProductsInquiry,
 	ProductsInquiry,
 	PeriodsRange,
+	PIsearch,
 	ProductFilters,
 	ProductInput,
 } from '../../libs/dto/product/product.input';
 import { OrdinaryInquiry } from '../../libs/dto/common.input';
-import { Products, Product } from '../../libs/dto/product/product';
+import { Products, Product, ProductFacets } from '../../libs/dto/product/product';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { MemberService } from '../member/member.service';
 import { ObjectId, StatisticModifier, T } from '../../libs/types/common';
 import { ProductPricing, ProductStatus } from '../../libs/enums/product.enum';
+import { AgentCategory } from '../../libs/enums/agent-category.enum';
 import { MemberType } from '../../libs/enums/member.enum';
 import { ViewGroup } from '../../libs/enums/view.enum';
 import { ViewService } from '../view/view.service';
@@ -39,6 +41,13 @@ import { LikeService, withMeLiked } from '../like/like.service';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { describeDbError, isDuplicateKeyError, normalizeTags } from '../../libs/utils';
+
+type FacetRow = { _id: string; count: number };
+
+const countOf = (rows: FacetRow[], value: string): number => rows.find((row) => row._id === value)?.count ?? 0;
+
+/** Only `key` of a $match object (empty when the match has no condition on it). */
+const pick = (match: T, key: string): T => (key in match ? { [key]: match[key] as unknown } : {});
 
 @Injectable()
 export class ProductService {
@@ -134,6 +143,48 @@ export class ProductService {
 			.exec();
 		if (!result.length) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
 		return result[0] as Products;
+	}
+
+	/**
+	 * Live counts for the /agents filter options (D-43), for the same ACTIVE products getProducts lists.
+	 * Each group ignores its own filter, so a selected option never hides its siblings: the category counts
+	 * use every filter but categoryList, the pricing counts every filter but pricingList.
+	 *
+	 * One aggregation: the filters both groups share go into the first $match (it can use indexes; a $facet
+	 * sub-pipeline cannot), then each $facet branch adds the other group's filter and counts.
+	 */
+	public async getProductFacets(search: PIsearch): Promise<ProductFacets> {
+		const shared: T = { productStatus: ProductStatus.ACTIVE };
+		this.shapeMatchQuery(shared, { ...search, categoryList: undefined, pricingList: undefined });
+
+		// The full match without one group's own list; only the other group's field differs from `shared`.
+		const forCategories: T = {};
+		this.shapeMatchQuery(forCategories, { ...search, categoryList: undefined });
+		const forPricing: T = {};
+		this.shapeMatchQuery(forPricing, { ...search, pricingList: undefined });
+
+		const branch = (extra: T, field: string): PipelineStage.FacetPipelineStage[] => [
+			...(Object.keys(extra).length ? [{ $match: extra }] : []),
+			{ $group: { _id: `$${field}`, count: { $sum: 1 } } },
+		];
+
+		const result = await this.productModel
+			.aggregate<{ categories: FacetRow[]; pricing: FacetRow[] }>([
+				{ $match: shared },
+				{
+					$facet: {
+						categories: branch(pick(forCategories, 'productPricing'), 'productCategory'),
+						pricing: branch(pick(forPricing, 'productCategory'), 'productPricing'),
+					},
+				},
+			])
+			.exec();
+		const counts = result[0] ?? { categories: [], pricing: [] };
+
+		return {
+			categories: Object.values(AgentCategory).map((value) => ({ value, count: countOf(counts.categories, value) })),
+			pricing: Object.values(ProductPricing).map((value) => ({ value, count: countOf(counts.pricing, value) })),
+		};
 	}
 
 	/** The search filters shared by the three product lists (Step 6 part 13). Empty lists mean "no filter". */

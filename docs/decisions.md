@@ -979,3 +979,22 @@
 - **Reason:** The data exists already; the opt-out keeps the feature honest towards visitors at a small cost (one field, one check). Option A would answer less, option C would expose people who never agreed to it.
 - **Consequence:** A new index `views { viewRefId: 1, viewGroup: 1, updatedAt: -1 }`. Existing members have no `memberBrowsePrivately` field, which reads as `false`; no migration. The privacy policy page should say that signed-in visits of a profile are shown to its owner unless private browsing is on.
 
+## D-43 — Live filter counts for the agents catalog (`getProductFacets`)
+
+**Status:** Proposed
+
+- **Context:** The new `/agents` page shows a count next to every category and pricing option, and disables options with 0 results, so a visitor never filters into an empty page. `getProducts` only returns the page and one total (`metaCounter`); it cannot say how many products each option would show.
+- **Options:**
+  - **A. A new public query `getProductFacets`** that counts every option in one aggregation.
+  - **B. The client asks `getProducts` once per option** (`limit: 1`, read `metaCounter`): 12 requests on every filter change.
+  - **C. No counts:** plain chips, empty results are possible (the empty state handles them).
+- **Decision:** Option A.
+  - `getProductFacets(input: PIsearch): ProductFacets`, public (`WithoutGuard`), the same filters and validation as `getProducts.search`, over `ACTIVE` products only (D-16).
+  - `ProductFacets { categories: [CategoryFacet] pricing: [PricingFacet] }`, each `{ value count }`. Every enum value is listed, in enum order, with `0` when nothing matches.
+  - **Each group ignores its own filter:** the category counts apply every filter except `categoryList`, the pricing counts every filter except `pricingList`. A selected option therefore never hides its siblings, and the counts read as "what you get if you also pick this".
+  - `pricesRange` keeps its D-03 meaning: only `ONE_TIME` / `SUBSCRIPTION` products match it, so with a price range `FREE` and `CUSTOM` count 0, and the category counts respect the paid part of `pricingList` (as `getProducts` does).
+  - One aggregation: the filters both groups share go into the first `$match` (it can use an index; a `$facet` sub-pipeline cannot), then each `$facet` branch adds the other group's filter and groups.
+  - The client asks `getProducts` and `getProductFacets` as two separate queries. The counts do not depend on `page` or `sort`, so changing those reuses the cached counts.
+- **Reason:** One small request per filter change instead of twelve, and the counting rule lives next to `shapeMatchQuery`, so the counts can never disagree with the list.
+- **Consequence:** No schema change; the existing `{ productCategory: 1, productStatus: 1 }` index serves the first `$match`. "All" in the client is the sum of the category counts (every product has exactly one category).
+

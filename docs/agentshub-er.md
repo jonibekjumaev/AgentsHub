@@ -266,3 +266,4 @@ All other enums (MemberStatus, MemberAuthType, article and notice enums, Notific
 3. `memberEmail` and `memberWhatsapp` are returned only to authenticated requests.
 4. `productPrice` follows D-03, `briefBudget` follows D-04, and `briefDeadline` follows D-05 in `docs/decisions.md`.
 5. Counters (`memberProducts`, `productLikes`, `briefViews`, …) change only through service methods, never directly from client input.
+6. Filter counts (`getProductFacets`, D-43) use the same match rules as `getProducts` over `ACTIVE` products; each group (category, pricing) is counted without its own filter.

@@ -235,6 +235,7 @@ Suggested labels: `CUSTOMER_SUPPORT` "Customer support", `DATA_ANALYSIS` "Data a
 | `getProperty(propertyId)` | `getProduct(productId)` | everyone |
 | `updateProperty` | `updateProduct` | CREATOR, owner |
 | `getProperties` | `getProducts` | everyone |
+| — | `getProductFacets(input: PIsearch): ProductFacets` | everyone (D-43) |
 | `getAgentProperties` | `getCreatorProducts` | CREATOR (own products) |
 | `likeTargetProperty(propertyId)` | `likeTargetProduct(productId)` | logged in |
 | `getAllPropertiesByAdmin` | `getAllProductsByAdmin` | ADMIN |
@@ -646,6 +647,14 @@ On update: leave a field out to keep it; `null` clears `briefBudget` / `briefDea
 - No client call; `getProduct` / `getBrief` / `getMember` / `getBoardArticle` record the view.
 - Views are counted for logged-in members only, once per member, never for the owner, never for admins (D-42), never on paused products or closed briefs. Don't expect the view counter to change when you open your own item.
 - A repeat view refreshes the view's time (B24): `getVisited` lists the latest visit first.
+
+**Filter counts for /agents (D-43)**
+
+- `getProductFacets(input: { categoryList, pricingList, pricesRange, tagList, text })` → `{ categories { value count } pricing { value count } }`. Public. The input is the same object as `getProducts(input: { search })`.
+- All 8 categories and 4 pricings come back, in enum order, `0` when nothing matches. Disable options with `0` (unless selected).
+- Each group ignores its own filter: category counts use every filter except `categoryList`, pricing counts every filter except `pricingList`. "All" = the sum of the category counts.
+- With `pricesRange`, `FREE` and `CUSTOM` count `0` (D-03). `start > end` → `BAD_REQUEST` `INVALID_PRICE_RANGE`, as in `getProducts`.
+- Send it as its own query next to `getProducts`: it does not depend on `page` or `sort`, so Apollo reuses it when only those change.
 
 **Who viewed your profile (D-42)**
 
