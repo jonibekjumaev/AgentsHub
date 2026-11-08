@@ -7,16 +7,19 @@ import {
 	UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { HydratedDocument, Model } from 'mongoose';
-import { Member, Members } from '../../libs/dto/member/member';
+import { HydratedDocument, Model, PipelineStage } from 'mongoose';
+import { CreatorFacets, CreatorStats, Member, Members } from '../../libs/dto/member/member';
 import {
 	ChangePasswordInput,
 	CreatorsInquiry,
+	CRISearch,
 	LoginInput,
 	MemberInput,
 	MembersInquiry,
 } from '../../libs/dto/member/member.input';
 import { MemberStatus, MemberType } from '../../libs/enums/member.enum';
+import { AgentCategory } from '../../libs/enums/agent-category.enum';
+import { ProductStatus } from '../../libs/enums/product.enum';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { AuthService } from '../auth/auth.service';
 import { MemberUpdate, MemberUpdateByAdmin } from '../../libs/dto/member/member.update';
@@ -34,6 +37,7 @@ import {
 	dummyPasswordHash,
 	escapeRegex,
 	excludeMemberSecrets,
+	lookupAuthMemberFollowed,
 	lookupAuthMemberLiked,
 	shapeInToMongoObjectId,
 } from '../../libs/config';
@@ -195,22 +199,29 @@ export class MemberService {
 		return result ? [{ followerId: followerId, followingId: followingId, myFollowing: true }] : [];
 	}
 
-	public async getCreators(memberId: ObjectId, input: CreatorsInquiry): Promise<Members> {
-		const { text } = input.search;
-
-		const match: T = { memberType: MemberType.CREATOR, memberStatus: MemberStatus.ACTIVE };
-		const sort: T = { [input?.sort ?? 'createdAt']: input?.direction ?? Direction.DESC };
-
-		if (text) match.memberNick = { $regex: new RegExp(escapeRegex(text), 'i') };
+	/**
+	 * D-45: the /creators list. Each creator comes with their ACTIVE agents counted from the products collection
+	 * (memberProducts also counts PAUSED ones, D-16), the categories they build in, their 2 best-ranked agents, and
+	 * whether the caller follows them. Filters: text, categoryList, withAgentsOnly, followingOnly.
+	 */
+	public async getCreators(memberId: ObjectId | null, input: CreatorsInquiry): Promise<Members> {
+		const { search } = input;
+		// A guest follows nobody: nothing to look up.
+		if (search.followingOnly && !memberId) return { list: [], metaCounter: [] };
 
 		const result = await this.memberModel
 			.aggregate([
-				{ $match: match },
-				excludeMemberSecrets,
-				{ $sort: sort },
+				...this.creatorBaseStages(memberId, search.text),
+				{ $match: this.creatorFilterMatch(search) },
+				...this.creatorSortStages(input.sort, input.direction),
+				{ $unset: ['_followed'] },
 				{
 					$facet: {
-						list: [{ $skip: (input.page - 1) * input.limit }, { $limit: input.limit }, lookupAuthMemberLiked(memberId)],
+						list: [
+							{ $skip: (input.page - 1) * input.limit },
+							{ $limit: input.limit },
+							lookupAuthMemberLiked(memberId as ObjectId),
+						],
 						metaCounter: [{ $count: 'total' }],
 					},
 				},
@@ -218,6 +229,170 @@ export class MemberService {
 			.exec();
 		if (!result.length) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
 		return result[0] as Members;
+	}
+
+	/**
+	 * D-45: live counts for the /creators filters, with the same rules as getCreators. Each group ignores its own
+	 * filter: the category counts use every filter but categoryList (a creator counts once per category they build
+	 * in), `withoutAgents` is how many creators the "with agents" switch hides, `following` how many the caller follows.
+	 */
+	public async getCreatorFacets(memberId: ObjectId | null, search: CRISearch): Promise<CreatorFacets> {
+		const forCategories = this.creatorFilterMatch({ ...search, categoryList: undefined });
+		const forWithout = this.creatorFilterMatch({ ...search, withAgentsOnly: undefined });
+		const forFollowing = this.creatorFilterMatch({ ...search, followingOnly: undefined });
+		const guestFollowing = search.followingOnly && !memberId;
+
+		const result = await this.memberModel
+			.aggregate<{
+				categories: { _id: string; count: number }[];
+				all: { n: number }[];
+				withoutAgents: { n: number }[];
+				following: { n: number }[];
+			}>([
+				...this.creatorBaseStages(memberId, search.text),
+				{
+					$facet: {
+						categories: [
+							{ $match: forCategories },
+							{ $unwind: '$memberCategories' },
+							{ $group: { _id: '$memberCategories', count: { $sum: 1 } } },
+						],
+						// "All": a creator in two categories is one creator, so not the sum of the category counts
+						all: [{ $match: forCategories }, { $count: 'n' }],
+						withoutAgents: search.withAgentsOnly
+							? [{ $match: { ...forWithout, memberActiveProducts: 0 } }, { $count: 'n' }]
+							: [{ $match: { _never: true } }, { $count: 'n' }],
+						following: [{ $match: { ...forFollowing, _followed: true } }, { $count: 'n' }],
+					},
+				},
+			])
+			.exec();
+		const counts = result[0] ?? { categories: [], all: [], withoutAgents: [], following: [] };
+		const countOf = (value: string) => counts.categories.find((row) => row._id === value)?.count ?? 0;
+
+		return {
+			// The guest asked for "only followed": nobody, so every category is 0.
+			categories: Object.values(AgentCategory).map((value) => ({ value, count: guestFollowing ? 0 : countOf(value) })),
+			all: guestFollowing ? 0 : (counts.all[0]?.n ?? 0),
+			withoutAgents: guestFollowing ? 0 : (counts.withoutAgents[0]?.n ?? 0),
+			following: counts.following[0]?.n ?? 0,
+		};
+	}
+
+	/**
+	 * D-45: the /creators hero, site-wide (no filters): ACTIVE creators, their ACTIVE agents (the number /agents
+	 * shows), and the 5 best-ranked creators with at least one agent.
+	 */
+	public async getCreatorStats(): Promise<CreatorStats> {
+		const result = await this.memberModel
+			.aggregate<{ creators: { n: number }[]; agents: { n: number }[]; faces: Member[] }>([
+				...this.creatorBaseStages(null),
+				{ $unset: ['_followed'] },
+				{
+					$facet: {
+						creators: [{ $count: 'n' }],
+						agents: [{ $group: { _id: null, n: { $sum: '$memberActiveProducts' } } }],
+						faces: [
+							{ $match: { memberActiveProducts: { $gt: 0 } } },
+							{ $sort: { memberRank: -1, _id: -1 } },
+							{ $limit: 5 },
+							{ $unset: ['memberTopProducts'] },
+						],
+					},
+				},
+			])
+			.exec();
+		const stats = result[0];
+		return {
+			creators: stats?.creators[0]?.n ?? 0,
+			agents: stats?.agents[0]?.n ?? 0,
+			faces: stats?.faces ?? [],
+		};
+	}
+
+	/**
+	 * D-45: ACTIVE creators with their ACTIVE agents joined (count, categories best-ranked first, top 2), the text
+	 * search over the member and agent fields, and `_followed` for the caller (false for guests).
+	 */
+	private creatorBaseStages(memberId: ObjectId | null, text?: string): PipelineStage[] {
+		const stages: PipelineStage[] = [
+			{ $match: { memberType: MemberType.CREATOR, memberStatus: MemberStatus.ACTIVE } },
+			excludeMemberSecrets,
+			{
+				$lookup: {
+					from: 'products',
+					let: { creatorId: '$_id' },
+					pipeline: [
+						{ $match: { $expr: { $eq: ['$memberId', '$$creatorId'] }, productStatus: ProductStatus.ACTIVE } },
+						{ $sort: { productRank: -1, productLikes: -1, createdAt: -1 } },
+						{ $project: { _id: 1, productTitle: 1, productCategory: 1, productPricing: 1, productPrice: 1 } },
+					],
+					as: '_products',
+				},
+			},
+			{
+				$addFields: {
+					memberActiveProducts: { $size: '$_products' },
+					memberTopProducts: { $slice: ['$_products', 2] },
+					// unique, in agent order: the best-ranked agent's category first
+					memberCategories: {
+						$reduce: {
+							input: '$_products.productCategory',
+							initialValue: [],
+							in: { $cond: [{ $in: ['$$this', '$$value'] }, '$$value', { $concatArrays: ['$$value', ['$$this']] }] },
+						},
+					},
+				},
+			},
+		];
+		if (text) {
+			const pattern = new RegExp(escapeRegex(text), 'i');
+			stages.push({
+				$match: {
+					$or: [
+						{ memberNick: pattern },
+						{ memberFullName: pattern },
+						{ memberDesc: pattern },
+						{ '_products.productTitle': pattern },
+					],
+				},
+			});
+		}
+		stages.push({ $unset: ['_products'] });
+		if (memberId) {
+			stages.push(lookupAuthMemberFollowed({ followerId: memberId, followingId: '$_id' }));
+			stages.push({ $addFields: { _followed: { $gt: [{ $size: '$meFollowed' }, 0] } } });
+		} else {
+			stages.push({ $addFields: { _followed: false } });
+		}
+		return stages;
+	}
+
+	/** D-45: the filters after creatorBaseStages. Empty lists and false mean "no filter". */
+	private creatorFilterMatch(search: CRISearch): T {
+		const match: T = {};
+		if (search.categoryList?.length) match.memberCategories = { $in: search.categoryList };
+		if (search.withAgentsOnly) match.memberActiveProducts = { $gt: 0 };
+		if (search.followingOnly) match._followed = true;
+		return match;
+	}
+
+	/**
+	 * D-45 sorts, newest _id breaking ties so pages stay stable. creatorProducts sorts by ACTIVE agents, creatorName by
+	 * memberFullName (memberNick without one), case-insensitive; the counters break their own ties by memberRank.
+	 */
+	private creatorSortStages(sort: string = 'createdAt', direction: Direction = Direction.DESC): PipelineStage[] {
+		if (sort === 'creatorName') {
+			const name = { $ifNull: ['$memberFullName', ''] };
+			return [
+				{ $addFields: { _name: { $toLower: { $cond: [{ $gt: [{ $strLenCP: name }, 0] }, name, '$memberNick'] } } } },
+				{ $sort: { _name: direction, _id: -1 } },
+				{ $unset: ['_name'] },
+			];
+		}
+		const field = sort === 'creatorProducts' ? 'memberActiveProducts' : sort;
+		const tieByRank = ['memberActiveProducts', 'memberFollowers', 'memberProducts'].includes(field);
+		return [{ $sort: { [field]: direction, ...(tieByRank ? { memberRank: Direction.DESC } : {}), _id: -1 } }];
 	}
 
 	public async likeTargetMember(memberId: ObjectId, likeRefId: ObjectId): Promise<Member> {

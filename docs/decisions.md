@@ -1019,3 +1019,22 @@
 - **Reason:** The same counting rule as `getBriefs`, next to `shapeMatchQuery`, so counts never disagree with the list. The badge is its own query because it ignores the visitor's filters; mixing it into the facets would make one aggregation answer two different questions.
 - **Consequence:** No schema change, no migration. `{ briefCategory: 1, briefStatus: 1, createdAt: -1 }` keeps serving the lists. "Past deadline" is computed against the server clock at request time; the client shows the same state from `briefDeadline` and its own clock. Search still matches `briefTitle` only (S8); descriptions come with semantic search (D-11).
 
+## D-45 — /creators: agent counts, filters, live counts and the hero line
+
+**Status:** Proposed
+
+- **Context:** The new `/creators` page shows profile cards with each creator's agent count, their 2 best agents and the categories they build in, filters by category ("builds agents for"), "only creators with agents" and "following", sorts by followers, agents and name, shows live counts on the filters, and a hero line "{N} creators, {M} agents listed" with 5 faces. `getCreators` returned members only, searched the nick only, and had none of these filters. The design also reported "14 agents on profiles, 13 on /agents".
+- **The "14 vs 13" difference is not counter drift:** `memberProducts` counts `ACTIVE` + `PAUSED` on purpose (D-16, option B), `/agents` shows `ACTIVE` only. One paused agent explains it.
+- **Options:**
+  - **A. Count on read:** join each creator's `ACTIVE` products in the aggregation (`$lookup`), and derive the count, the top 2 and the categories from them.
+  - **B. More stored counters** (`memberActiveProducts`, categories) updated on every product create, status change and delete.
+- **Decision:** Option A; `memberProducts` keeps its D-16 meaning (owner dashboard).
+  - `getCreators` adds, per creator: `memberActiveProducts`, `memberCategories` (unique, best-ranked agent's category first), `memberTopProducts` (2 best by `productRank`, then likes, then newest; type `CreatorProduct`: id, title, category, pricing, price) and `meFollowed`.
+  - `CRISearch` adds `categoryList` (a creator matches when one of their `ACTIVE` agents is in a listed category), `withAgentsOnly`, `followingOnly` (a guest follows nobody: empty list, no database call). `text` now matches `memberNick`, `memberFullName`, `memberDesc` and the `ACTIVE` agent titles.
+  - New sorts: `memberFollowers`, `creatorProducts` (`ACTIVE` agents), `creatorName` (`memberFullName`, or `memberNick` without one, lower-cased). Counter sorts break ties by `memberRank`, everything by the newest `_id`. The default stays `createdAt`.
+  - `getCreatorFacets(input: CRISearch): CreatorFacets`, public: `categories` (per category, every filter but `categoryList`), `all` (the same creators counted once: a creator builds in several categories, so "All" is not their sum), `withoutAgents` (what `withAgentsOnly` hides), `following` (every filter but `followingOnly`). Same rule as D-43 / D-44: each group without its own filter.
+  - `getCreatorStats: CreatorStats`, public, site-wide: `creators` (`ACTIVE`), `agents` (their `ACTIVE` agents: the number `/agents` shows), `faces` (5 best-ranked creators with an agent).
+  - `CategoryFacet` moves to `libs/dto/facet.ts` (shared by products, briefs and creators; `product.ts` re-exports it), which avoids a member ↔ product DTO import cycle.
+- **Reason:** No new counter that can drift; the numbers on the cards come from the same `ACTIVE` products `/agents` lists. One request renders a full card.
+- **Consequence:** The creators list joins products for every `ACTIVE` creator before paging: fine at MVP size, served by `{ memberId: 1, productStatus: 1 }`. If creators grow into the thousands, revisit with a stored counter (option B) or a materialized view. Search over agent titles is a regex; semantic search replaces it later (D-11).
+

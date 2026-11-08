@@ -3,11 +3,12 @@ import { MemberService } from './member.service';
 import {
 	ChangePasswordInput,
 	CreatorsInquiry,
+	CRISearch,
 	LoginInput,
 	MemberInput,
 	MembersInquiry,
 } from '../../libs/dto/member/member.input';
-import { Member, Members } from '../../libs/dto/member/member';
+import { CreatorFacets, CreatorStats, Member, Members } from '../../libs/dto/member/member';
 import { BadRequestException, HttpException, InternalServerErrorException, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { AuthMember } from '../auth/decorators/authMember.decorator';
@@ -102,6 +103,25 @@ export class MemberResolver {
 	): Promise<Members> {
 		console.log('Query: getCreators');
 		return await this.memberService.getCreators(memberId, input);
+	}
+
+	/** D-45: live counts for the /creators filters; the same search object as getCreators. */
+	@UseGuards(WithoutGuard)
+	@Query(() => CreatorFacets)
+	public async getCreatorFacets(
+		@Args('input') input: CRISearch,
+		@AuthMember('_id') memberId: ObjectId,
+	): Promise<CreatorFacets> {
+		console.log('Query: getCreatorFacets');
+		return await this.memberService.getCreatorFacets(memberId ?? null, input);
+	}
+
+	/** D-45: the /creators hero line ("N creators, M agents listed") and its 5 faces. */
+	@UseGuards(WithoutGuard)
+	@Query(() => CreatorStats)
+	public async getCreatorStats(): Promise<CreatorStats> {
+		console.log('Query: getCreatorStats');
+		return await this.memberService.getCreatorStats();
 	}
 
 	@UseGuards(AuthGuard)

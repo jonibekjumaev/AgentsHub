@@ -2,7 +2,14 @@ import { Types } from 'mongoose';
 import { invalidFields, validationErrors, without } from '../../../../test/utils/validate-dto';
 import { Message } from '../../enums/common.enum';
 import { MemberStatus, MemberType } from '../../enums/member.enum';
-import { ChangePasswordInput, CreatorsInquiry, LoginInput, MemberInput, MembersInquiry } from './member.input';
+import {
+	ChangePasswordInput,
+	CreatorsInquiry,
+	CRISearch,
+	LoginInput,
+	MemberInput,
+	MembersInquiry,
+} from './member.input';
 import { MemberUpdate, MemberUpdateByAdmin } from './member.update';
 
 const signup = { memberNick: 'alice', memberPassword: 'longenough', memberPhone: '+998901234567', memberType: 'USER' };
@@ -213,5 +220,25 @@ describe('nested search inputs are validated (B16)', () => {
 		const fields = await invalidFields(CreatorsInquiry, { page: 0, limit: 0, sort: 'memberPassword', search: {} });
 
 		expect(fields).toEqual(['limit', 'page', 'sort']);
+	});
+
+	it.each(['memberFollowers', 'creatorProducts', 'creatorName'])(
+		'CreatorsInquiry accepts the D-45 sort %s',
+		async (sort) => {
+			expect(await invalidFields(CreatorsInquiry, { ...inquiry, sort, search: {} })).toEqual([]);
+		},
+	);
+
+	it('CRISearch checks the D-45 filters (also the getCreatorFacets input)', async () => {
+		expect(
+			await invalidFields(CRISearch, {
+				categoryList: ['SALES', 'EDUCATION'],
+				withAgentsOnly: true,
+				followingOnly: false,
+			}),
+		).toEqual([]);
+		expect(
+			await invalidFields(CRISearch, { categoryList: ['REAL_ESTATE'], withAgentsOnly: 'yes', followingOnly: 1 }),
+		).toEqual(['categoryList', 'followingOnly', 'withAgentsOnly']);
 	});
 });

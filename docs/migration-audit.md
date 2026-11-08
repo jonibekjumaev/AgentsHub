@@ -1311,6 +1311,7 @@ Totals: **537 unit tests** in 17 suites (about 15 s), **28 API e2e tests** (abou
   | — | D-42: `getProfileVisitors(input: OrdinaryInquiry): ProfileVisitors` (USER, CREATOR) and `Member.memberBrowsePrivately` (own value only; set through `updateMember`) |
   | A repeat view kept the first visit's time; an admin's views were counted | B24, D-42: `getVisited` follows the latest visit; admins record no views |
   | — | D-43: `getProductFacets(input: PIsearch): ProductFacets` (public): live counts per category and pricing for the `/agents` filters |
+  | — | D-45: `getCreators` joins ACTIVE agents (`memberActiveProducts`, `memberCategories`, `memberTopProducts`, `meFollowed`), filters `categoryList` / `withAgentsOnly` / `followingOnly`, sorts `memberFollowers` / `creatorProducts` / `creatorName`, wider text search; `getCreatorFacets` and `getCreatorStats` (public) |
   | — | D-44: brief filters `budgetTypeList` and `hidePastDeadline`, sort `briefComments`, "deadline soonest" order; `getBriefFacets(input: BISearch): BriefFacets` and `getOpenBriefStats: OpenBriefStats` (public) |
 
 - [ ] In the frontend repo, remove the real-estate pages and filters (location, beds, rooms, square, barter/rent, sold state) in the same step (D-10).

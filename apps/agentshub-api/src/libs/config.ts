@@ -5,6 +5,8 @@ import { MemberStatus } from './enums/member.enum';
 import { ProductPricing } from './enums/product.enum';
 import { ObjectId } from './types/common';
 
+// D-45: memberFollowers; creatorProducts = ACTIVE agents (not memberProducts, which counts PAUSED too, D-16);
+// creatorName = memberFullName, or memberNick without one, case-insensitive
 export const aviableCreatorSorts = [
 	'createdAt',
 	'updatedAt',
@@ -12,6 +14,9 @@ export const aviableCreatorSorts = [
 	'memberViews',
 	'memberRank',
 	'memberProducts',
+	'memberFollowers',
+	'creatorProducts',
+	'creatorName',
 ];
 export const aviableMemberSorts = ['createdAt', 'updatedAt', 'memberLikes', 'memberViews'];
 

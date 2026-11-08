@@ -14,9 +14,11 @@ import { createMockModel, MockModel } from '../../../test/utils/mock-model';
 import { dummyPasswordHash } from '../../libs/config';
 import { Member } from '../../libs/dto/member/member';
 import { MemberInput } from '../../libs/dto/member/member.input';
-import { ErrorReason, Message } from '../../libs/enums/common.enum';
+import { AgentCategory } from '../../libs/enums/agent-category.enum';
+import { Direction, ErrorReason, Message } from '../../libs/enums/common.enum';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { MemberStatus, MemberType } from '../../libs/enums/member.enum';
+import { ProductStatus } from '../../libs/enums/product.enum';
 import { ViewGroup } from '../../libs/enums/view.enum';
 import { AuthService } from '../auth/auth.service';
 import { LikeService } from '../like/like.service';
@@ -370,6 +372,176 @@ describe('MemberService', () => {
 			memberModel.resolve('findOneAndUpdate', memberDocument({ memberStatus: MemberStatus.BLOCK }));
 			await service.updateMemberByAdmin({ _id: memberId.toHexString(), memberStatus: MemberStatus.BLOCK } as never);
 			expect(followModel.find).toHaveBeenCalledTimes(1);
+		});
+	});
+	describe('creators list, counts and hero (D-45)', () => {
+		const me = new Types.ObjectId();
+		const pipeline = () => memberModel.aggregate.mock.calls[0][0] as Array<Record<string, unknown>>;
+		const stageWith = (key: string) => pipeline().filter((stage) => key in stage);
+		const inquiry = { page: 1, limit: 20, sort: 'memberRank', direction: Direction.DESC, search: {} };
+		const listResult = () => memberModel.resolve('aggregate', [{ list: [], metaCounter: [] }]);
+
+		it("joins only the creator's ACTIVE agents and derives the count, top 2 and categories from them (D-16)", async () => {
+			listResult();
+			await service.getCreators(null, inquiry);
+
+			expect(pipeline()[0]).toEqual({ $match: { memberType: MemberType.CREATOR, memberStatus: MemberStatus.ACTIVE } });
+			const [lookup] = stageWith('$lookup') as Array<{
+				$lookup: { from: string; pipeline: Array<Record<string, unknown>> };
+			}>;
+			expect(lookup.$lookup.from).toBe('products');
+			expect(lookup.$lookup.pipeline[0]).toEqual({
+				$match: { $expr: { $eq: ['$memberId', '$$creatorId'] }, productStatus: ProductStatus.ACTIVE },
+			});
+			expect(lookup.$lookup.pipeline[1]).toEqual({ $sort: { productRank: -1, productLikes: -1, createdAt: -1 } });
+			const fields = (stageWith('$addFields')[0] as { $addFields: Record<string, unknown> }).$addFields;
+			expect(fields.memberActiveProducts).toEqual({ $size: '$_products' });
+			expect(fields.memberTopProducts).toEqual({ $slice: ['$_products', 2] });
+			// the joined agents never leave the pipeline
+			expect(pipeline()).toContainEqual({ $unset: ['_products'] });
+		});
+
+		it('searches the nick, full name, bio and agent titles, escaped (S8)', async () => {
+			listResult();
+			await service.getCreators(null, { ...inquiry, search: { text: 'a.b' } });
+
+			const pattern = /a\.b/i;
+			expect(pipeline()).toContainEqual({
+				$match: {
+					$or: [
+						{ memberNick: pattern },
+						{ memberFullName: pattern },
+						{ memberDesc: pattern },
+						{ '_products.productTitle': pattern },
+					],
+				},
+			});
+		});
+
+		it('applies categoryList, withAgentsOnly and followingOnly after the join', async () => {
+			listResult();
+			await service.getCreators(me, {
+				...inquiry,
+				search: { categoryList: [AgentCategory.SALES], withAgentsOnly: true, followingOnly: true },
+			});
+
+			expect(pipeline()).toContainEqual({
+				$match: { memberCategories: { $in: [AgentCategory.SALES] }, memberActiveProducts: { $gt: 0 }, _followed: true },
+			});
+			expect(pipeline()).toContainEqual({ $addFields: { _followed: { $gt: [{ $size: '$meFollowed' }, 0] } } });
+		});
+
+		it('followingOnly for a guest: an empty list, without asking the database', async () => {
+			expect(await service.getCreators(null, { ...inquiry, search: { followingOnly: true } })).toEqual({
+				list: [],
+				metaCounter: [],
+			});
+			expect(memberModel.aggregate).not.toHaveBeenCalled();
+		});
+
+		it.each([
+			['creatorProducts', { memberActiveProducts: Direction.DESC, memberRank: Direction.DESC, _id: -1 }],
+			['memberFollowers', { memberFollowers: Direction.DESC, memberRank: Direction.DESC, _id: -1 }],
+			['memberRank', { memberRank: Direction.DESC, _id: -1 }],
+		])('sorts by %s', async (sort, expected) => {
+			listResult();
+			await service.getCreators(null, { ...inquiry, sort });
+
+			expect(pipeline()).toContainEqual({ $sort: expected });
+		});
+
+		it('sorts by name: the full name, or the nick without one, case-insensitive', async () => {
+			listResult();
+			await service.getCreators(null, { ...inquiry, sort: 'creatorName', direction: Direction.ASC });
+
+			const name = { $ifNull: ['$memberFullName', ''] };
+			expect(pipeline()).toContainEqual({
+				$addFields: { _name: { $toLower: { $cond: [{ $gt: [{ $strLenCP: name }, 0] }, name, '$memberNick'] } } },
+			});
+			expect(pipeline()).toContainEqual({ $sort: { _name: Direction.ASC, _id: -1 } });
+		});
+
+		describe('getCreatorFacets', () => {
+			const facets = () =>
+				(pipeline().find((stage) => '$facet' in stage) as { $facet: Record<string, Array<Record<string, unknown>>> })
+					.$facet;
+
+			it('each group ignores its own filter; categories are counted per creator category', async () => {
+				memberModel.resolve('aggregate', [
+					{
+						categories: [{ _id: AgentCategory.SALES, count: 2 }],
+						all: [{ n: 5 }],
+						withoutAgents: [{ n: 3 }],
+						following: [{ n: 1 }],
+					},
+				]);
+
+				const result = await service.getCreatorFacets(me, {
+					categoryList: [AgentCategory.SALES],
+					withAgentsOnly: true,
+					followingOnly: true,
+				});
+
+				expect(facets().categories).toEqual([
+					{ $match: { memberActiveProducts: { $gt: 0 }, _followed: true } },
+					{ $unwind: '$memberCategories' },
+					{ $group: { _id: '$memberCategories', count: { $sum: 1 } } },
+				]);
+				expect(facets().withoutAgents[0]).toEqual({
+					$match: { memberCategories: { $in: [AgentCategory.SALES] }, _followed: true, memberActiveProducts: 0 },
+				});
+				expect(facets().following[0]).toEqual({
+					$match: {
+						memberCategories: { $in: [AgentCategory.SALES] },
+						memberActiveProducts: { $gt: 0 },
+						_followed: true,
+					},
+				});
+				expect(result.categories.map((facet) => facet.value)).toEqual(Object.values(AgentCategory));
+				expect(result.categories.find((facet) => facet.value === AgentCategory.SALES)?.count).toBe(2);
+				expect(facets().all).toEqual([
+					{ $match: { memberActiveProducts: { $gt: 0 }, _followed: true } },
+					{ $count: 'n' },
+				]);
+				expect(result).toMatchObject({ all: 5, withoutAgents: 3, following: 1 });
+			});
+
+			it('withoutAgents is 0 when the switch is off (it hides nothing)', async () => {
+				memberModel.resolve('aggregate', [{ categories: [], all: [], withoutAgents: [], following: [] }]);
+
+				expect((await service.getCreatorFacets(null, {})).withoutAgents).toBe(0);
+				expect(facets().withoutAgents[0]).toEqual({ $match: { _never: true } });
+			});
+
+			it('a guest follows nobody: following 0, and with followingOnly every count is 0', async () => {
+				memberModel.resolve('aggregate', [
+					{
+						categories: [{ _id: AgentCategory.SALES, count: 2 }],
+						all: [{ n: 2 }],
+						withoutAgents: [{ n: 1 }],
+						following: [],
+					},
+				]);
+
+				const result = await service.getCreatorFacets(null, { followingOnly: true, withAgentsOnly: true });
+
+				expect(pipeline()).toContainEqual({ $addFields: { _followed: false } });
+				expect(result.categories.every((facet) => facet.count === 0)).toBe(true);
+				expect(result).toMatchObject({ all: 0, withoutAgents: 0, following: 0 });
+			});
+		});
+
+		it('getCreatorStats counts ACTIVE creators and their ACTIVE agents, and picks 5 ranked faces with agents', async () => {
+			memberModel.resolve('aggregate', [{ creators: [{ n: 8 }], agents: [{ n: 13 }], faces: [{ _id: me }] }]);
+
+			expect(await service.getCreatorStats()).toEqual({ creators: 8, agents: 13, faces: [{ _id: me }] });
+			const { $facet } = pipeline().find((stage) => '$facet' in stage) as { $facet: Record<string, unknown[]> };
+			expect($facet.agents).toEqual([{ $group: { _id: null, n: { $sum: '$memberActiveProducts' } } }]);
+			expect($facet.faces.slice(0, 3)).toEqual([
+				{ $match: { memberActiveProducts: { $gt: 0 } } },
+				{ $sort: { memberRank: -1, _id: -1 } },
+				{ $limit: 5 },
+			]);
 		});
 	});
 });

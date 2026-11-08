@@ -269,3 +269,4 @@ All other enums (MemberStatus, MemberAuthType, article and notice enums, Notific
 5. Counters (`memberProducts`, `productLikes`, `briefViews`, …) change only through service methods, never directly from client input.
 6. Filter counts (`getProductFacets`, D-43) use the same match rules as `getProducts` over `ACTIVE` products; each group (category, pricing) is counted without its own filter.
 7. A brief is past its deadline when `briefDeadline <= now`; it stays `OPEN` (D-44). Brief counts (`getBriefFacets`) follow rule 6 for category, budget type and status; the "open now" badge (`getOpenBriefStats`) counts `OPEN` briefs not past their deadline.
+8. Public creator numbers (`getCreators`, `getCreatorFacets`, `getCreatorStats`, D-45) count `ACTIVE` agents through a join; `memberProducts` (`ACTIVE` + `PAUSED`, D-16) is the owner's counter.

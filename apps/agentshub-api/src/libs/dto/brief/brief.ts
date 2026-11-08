@@ -3,7 +3,7 @@ import type { ObjectId } from '../../types/common';
 import { BriefBudgetType, BriefStatus } from '../../enums/brief.enum';
 import { AgentCategory } from '../../enums/agent-category.enum';
 import { Member, TotalCounter } from '../member/member';
-import { CategoryFacet } from '../product/product';
+import { CategoryFacet } from '../facet';
 
 @ObjectType()
 export class Brief {

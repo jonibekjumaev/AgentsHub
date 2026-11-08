@@ -1,8 +1,30 @@
-import { Field, Int, ObjectType } from '@nestjs/graphql';
+import { Field, Float, Int, ObjectType } from '@nestjs/graphql';
+import { AgentCategory } from '../../enums/agent-category.enum';
 import { MemberAuthType, MemberStatus, MemberType } from '../../enums/member.enum';
+import { ProductPricing } from '../../enums/product.enum';
 import type { ObjectId } from '../../types/common';
 import { MeLiked } from '../like/like';
 import { MeFollowed } from '../follow/follow';
+import { CategoryFacet } from '../facet';
+
+/** D-45: one agent on a creator card (public fields only). */
+@ObjectType()
+export class CreatorProduct {
+	@Field(() => String)
+	_id!: ObjectId;
+
+	@Field(() => String)
+	productTitle!: string;
+
+	@Field(() => AgentCategory)
+	productCategory!: AgentCategory;
+
+	@Field(() => ProductPricing)
+	productPricing!: ProductPricing;
+
+	@Field(() => Float, { nullable: true })
+	productPrice?: number;
+}
 
 @ObjectType()
 export class Member {
@@ -105,6 +127,18 @@ export class Member {
 
 	@Field(() => [MeFollowed], { nullable: true })
 	meFollowed?: MeFollowed[];
+
+	/** D-45, getCreators and getCreatorStats only: the creator's ACTIVE agents (memberProducts also counts PAUSED, D-16) */
+	@Field(() => Int, { nullable: true })
+	memberActiveProducts?: number;
+
+	/** D-45: the categories of the ACTIVE agents, the best-ranked agent's category first */
+	@Field(() => [AgentCategory], { nullable: true })
+	memberCategories?: AgentCategory[];
+
+	/** D-45, getCreators only: the 2 best-ranked ACTIVE agents, for the creator card */
+	@Field(() => [CreatorProduct], { nullable: true })
+	memberTopProducts?: CreatorProduct[];
 }
 
 @ObjectType()
@@ -120,4 +154,40 @@ export class Members {
 
 	@Field(() => [TotalCounter], { nullable: true })
 	metaCounter?: TotalCounter[];
+}
+
+/** D-45: live counts next to the /creators filters. Each group is counted without its own filter. */
+@ObjectType()
+export class CreatorFacets {
+	/** A creator counts once in every category they have an ACTIVE agent in. */
+	@Field(() => [CategoryFacet])
+	categories!: CategoryFacet[];
+
+	/** "All": the creators matching every filter but categoryList (not the sum above: one creator, many categories). */
+	@Field(() => Int)
+	all!: number;
+
+	/** Creators with no ACTIVE agent that "withAgentsOnly" hides (0 when it is off). */
+	@Field(() => Int)
+	withoutAgents!: number;
+
+	/** Creators the caller follows (0 for guests). */
+	@Field(() => Int)
+	following!: number;
+}
+
+/** D-45: the /creators hero line, site-wide: "{creators} creators, {agents} agents listed" and 5 faces. */
+@ObjectType()
+export class CreatorStats {
+	/** ACTIVE creators */
+	@Field(() => Int)
+	creators!: number;
+
+	/** ACTIVE agents of ACTIVE creators (the same number /agents counts) */
+	@Field(() => Int)
+	agents!: number;
+
+	/** The 5 best-ranked creators with at least one ACTIVE agent */
+	@Field(() => [Member])
+	faces!: Member[];
 }

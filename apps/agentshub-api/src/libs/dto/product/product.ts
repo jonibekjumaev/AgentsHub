@@ -3,6 +3,7 @@ import type { ObjectId } from '../../types/common';
 import { ProductPricing, ProductStatus } from '../../enums/product.enum';
 import { AgentCategory } from '../../enums/agent-category.enum';
 import { Member, TotalCounter } from '../member/member';
+import { CategoryFacet } from '../facet';
 import { MeLiked } from '../like/like';
 
 @ObjectType()
@@ -84,15 +85,8 @@ export class Products {
 	metaCounter!: TotalCounter[];
 }
 
-/** How many ACTIVE products one category option would show (D-43). */
-@ObjectType()
-export class CategoryFacet {
-	@Field(() => AgentCategory)
-	value!: AgentCategory;
-
-	@Field(() => Int)
-	count!: number;
-}
+// CategoryFacet lives in ../facet (shared with briefs and creators, D-44, D-45); re-exported for existing imports.
+export { CategoryFacet };
 
 /** How many ACTIVE products one pricing option would show (D-43). */
 @ObjectType()

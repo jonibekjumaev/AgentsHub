@@ -242,6 +242,7 @@ Suggested labels: `CUSTOMER_SUPPORT` "Customer support", `DATA_ANALYSIS` "Data a
 | `updatePropertyByAdmin` | `updateProductByAdmin` | ADMIN |
 | `removePropertyByAdmin(propertyId)` | `removeProductByAdmin(productId)` | ADMIN |
 | `getAgents(input: AgentsInquiry)` | `getCreators(input: CreatorsInquiry)` | everyone |
+| — | `getCreatorFacets(input: CRISearch): CreatorFacets`, `getCreatorStats: CreatorStats` | everyone (D-45) |
 | `getFavorities`, `getVisited` | same names, now return `Products` | logged in |
 | — | `getMe: Member!` | logged in (D-33) |
 | — | `getProfileVisitors(input: OrdinaryInquiry): ProfileVisitors` | USER, CREATOR (D-42) |
@@ -260,7 +261,7 @@ Everything else keeps its name: `signup`, `login`, `getMember`, `updateMember`, 
 | List | Allowed `sort` values (default `createdAt`) |
 |---|---|
 | Products (`getProducts`, `getCreatorProducts`, `getAllProductsByAdmin`) | `createdAt`, `updatedAt`, `productLikes`, `productViews`, `productRank`, `productPrice` |
-| Creators (`getCreators`) | `createdAt`, `updatedAt`, `memberLikes`, `memberViews`, `memberRank`, `memberProducts` |
+| Creators (`getCreators`) | `createdAt`, `updatedAt`, `memberLikes`, `memberViews`, `memberRank`, `memberProducts`, `memberFollowers`, `creatorProducts`, `creatorName` (D-45) |
 | Members (`getAllMembersByAdmin`) | `createdAt`, `updatedAt`, `memberLikes`, `memberViews` |
 | Briefs (`getBriefs`, `getMyBriefs`, `getAllBriefsByAdmin`) | `createdAt`, `updatedAt`, `briefViews`, `briefComments` (D-44), `briefBudget`, `briefDeadline` |
 | Board articles | `createdAt`, `updatedAt`, `articleLikes`, `articleViews` |
@@ -339,8 +340,10 @@ Old values (`propertyLikes`, `propertyViews`, `propertyRank`, `propertyPrice`, `
 
 **Fields**
 
-- `search` (`CRISearch`) has only `text` (nick, max 100). `memberStatus` / `memberType` were removed → `GRAPHQL_VALIDATION_FAILED` if sent (B16). It always returns only active creators.
-- New sort `memberProducts` ("most products"). `memberRank` is the creator ranking computed nightly from likes and views, not from the product count (D-22).
+- `search` (`CRISearch`): `text` (max 100; nick, full name, bio and the creator's ACTIVE agent titles, D-45), `categoryList` (creators with an ACTIVE agent in one of them), `withAgentsOnly`, `followingOnly` (the caller's follows; empty for guests). `memberStatus` / `memberType` were removed → `GRAPHQL_VALIDATION_FAILED` if sent (B16). It always returns only active creators.
+- Sorts: `memberProducts` (ACTIVE + PAUSED, D-16), `creatorProducts` (ACTIVE agents only: use this one for "most agents"), `memberFollowers`, `creatorName` (full name, or nick without one; send `direction: ASC` for A–Z). `memberRank` is the creator ranking computed nightly from likes and views, not from the product count (D-22).
+- Extra fields per creator, `getCreators` only (D-45): `memberActiveProducts` (ACTIVE agents: show this on public cards, it matches `/agents`), `memberCategories` (the categories they build in, the best-ranked agent's first: use it for the card color and specialty tags), `memberTopProducts { _id productTitle productCategory productPricing productPrice }` (the 2 best-ranked ACTIVE agents), `meFollowed`.
+- `memberRankPosition` is the creator's place in the nightly ranking (#1 = top), the same whatever the sort; `null` when not ranked yet.
 
 **UI hints:** rename "Agents" to "Creators" in navigation, routes and copy. Creator cards show `memberProducts`, not `memberProperties`.
 
@@ -664,6 +667,15 @@ On update: leave a field out to keep it; `null` clears `briefBudget` / `briefDea
 - `getOpenBriefStats` → `{ openNow budgetTotal }`. Public, no input, ignores the visitor's filters: `OPEN` briefs whose deadline has not passed, and the sum of their fixed budgets (USD, rounded to cents). Hide the badge when `openNow` is `0`, and the budget part when `budgetTotal` is `0`.
 - A brief stays `OPEN` after its deadline (nothing closes it yet). Send `hidePastDeadline: true` with the Open tab by default, and show the "past deadline" state from `briefDeadline` when it is off.
 - Send `getBriefs`, `getBriefFacets` and `getOpenBriefStats` as separate queries: the counts don't depend on `page` or `sort`, and the badge doesn't depend on any filter.
+
+**Filters, counts and the hero line for /creators (D-45)**
+
+- `getCreatorFacets(input: CRISearch)` → `{ categories { value count } all withoutAgents following }`. Public (`following` needs the token). Same input object as `getCreators(input: { search })`.
+- `categories`: all 8, in enum order; a creator counts once in each category they build in. Each count ignores `categoryList` itself.
+- `all`: the "All" option — creators matching every filter but `categoryList`. Not the sum of `categories`: a creator who builds in two categories counts in both.
+- `withoutAgents`: how many creators `withAgentsOnly: true` hides ("3 creators have no agents yet. Show them"); `0` when it is off.
+- `following`: how many matching creators the caller follows (the "Following" chip); `0` for guests.
+- `getCreatorStats` → `{ creators agents faces { ...Member memberCategories } }`. Public, no input: ACTIVE creators, their ACTIVE agents, and the 5 best-ranked creators with an agent.
 
 **Who viewed your profile (D-42)**
 

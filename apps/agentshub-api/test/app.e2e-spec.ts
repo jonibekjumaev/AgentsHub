@@ -503,6 +503,159 @@ describe('AgentsHub API (e2e smoke)', () => {
 		});
 	});
 
+	describe('/creators list, counts and hero (D-45)', () => {
+		// Here: e2e_creator has 1 ACTIVE SALES agent. This adds a creator without agents (e2e_maker), a USER (e2e_fan)
+		// who follows e2e_maker, and a PAUSED agent for e2e_creator. The fan follows e2e_maker, not e2e_creator: later
+		// blocks count e2e_creator's followers and must not see this one.
+		const fan = { token: '' };
+		const maker = { _id: '' };
+		type Creator = {
+			memberNick: string;
+			memberProducts: number;
+			memberActiveProducts: number;
+			memberCategories: string[];
+			memberTopProducts: Array<{ productTitle: string; productCategory: string; productPrice: number | null }>;
+			meFollowed: Array<{ myFollowing: boolean }> | null;
+		};
+		const creators = async (
+			search: Record<string, unknown>,
+			token?: string,
+			sort = 'memberRank',
+			direction = 'DESC',
+		) => {
+			const response = await gql<{ getCreators: { list: Creator[]; metaCounter: Array<{ total: number }> } }>(
+				app,
+				`query ($input: CreatorsInquiry!) { getCreators(input: $input) {
+					list { memberNick memberProducts memberActiveProducts memberCategories
+						memberTopProducts { productTitle productCategory productPrice } meFollowed { myFollowing } }
+					metaCounter { total } } }`,
+				{ input: { page: 1, limit: 50, sort, direction, search } },
+				token,
+			);
+			expect(response.errors).toBeUndefined();
+			return response.data!.getCreators.list;
+		};
+		const nicks = async (search: Record<string, unknown>, token?: string, sort?: string, direction?: string) =>
+			(await creators(search, token, sort, direction)).map((creator) => creator.memberNick);
+		const facets = async (search: Record<string, unknown>, token?: string) => {
+			const response = await gql<{
+				getCreatorFacets: {
+					categories: Array<{ value: string; count: number }>;
+					all: number;
+					withoutAgents: number;
+					following: number;
+				};
+			}>(
+				app,
+				`query ($input: CRISearch!) { getCreatorFacets(input: $input) { categories { value count } all withoutAgents following } }`,
+				{ input: search },
+				token,
+			);
+			expect(response.errors).toBeUndefined();
+			return response.data!.getCreatorFacets;
+		};
+
+		it('sets up a creator without agents (e2e_maker) and a USER who will follow (e2e_fan)', async () => {
+			const makerSignup = await signup('e2e_maker', 'CREATOR', '+998900000021');
+			expect(makerSignup.errors).toBeUndefined();
+			maker._id = makerSignup.data!.signup._id;
+			const fanSignup = await signup('e2e_fan', 'USER', '+998900000022');
+			expect(fanSignup.errors).toBeUndefined();
+			fan.token = fanSignup.data!.signup.accessToken;
+		});
+
+		it('counts ACTIVE agents only; memberProducts still counts the paused one (D-16)', async () => {
+			const paused = await gql<{ createProduct: { _id: string } }>(
+				app,
+				`mutation ($input: ProductInput!) { createProduct(input: $input) { _id } }`,
+				{
+					input: {
+						productCategory: 'EDUCATION',
+						productTitle: 'E2E paused tutor',
+						productImages: ['uploads/product/e2e.png'],
+						productDesc: 'Explains homework step by step for school students.',
+						productPricing: 'FREE',
+					},
+				},
+				creator.token,
+			);
+			expect(paused.errors).toBeUndefined();
+			await gql(
+				app,
+				`mutation ($input: ProductUpdate!) { updateProduct(input: $input) { _id } }`,
+				{ input: { _id: paused.data!.createProduct._id, productStatus: 'PAUSED' } },
+				creator.token,
+			);
+
+			const [card] = (await creators({ text: 'e2e_creator' })).filter((item) => item.memberNick === 'e2e_creator');
+			expect(card).toMatchObject({ memberProducts: 2, memberActiveProducts: 1, memberCategories: ['SALES'] });
+			expect(card.memberTopProducts).toEqual([
+				{ productTitle: 'E2E lead qualifier', productCategory: 'SALES', productPrice: 49 },
+			]);
+		});
+
+		it('withAgentsOnly hides creators without an ACTIVE agent; the facets say how many', async () => {
+			expect(await nicks({})).toEqual(expect.arrayContaining(['e2e_creator', 'e2e_maker']));
+			expect(await nicks({ withAgentsOnly: true })).toEqual(['e2e_creator']);
+
+			const counts = await facets({ withAgentsOnly: true });
+			expect(counts.withoutAgents).toBe(1);
+			expect(counts.all).toBe(1);
+			expect(counts.categories.find((facet) => facet.value === 'SALES')?.count).toBe(1);
+			// the paused EDUCATION agent does not count
+			expect(counts.categories.find((facet) => facet.value === 'EDUCATION')?.count).toBe(0);
+		});
+
+		it('searches agent titles, and filters by category', async () => {
+			expect(await nicks({ text: 'lead qualifier' })).toEqual(['e2e_creator']);
+			expect(await nicks({ text: 'paused tutor' })).toEqual([]);
+			expect(await nicks({ categoryList: ['SALES'] })).toEqual(['e2e_creator']);
+			expect(await nicks({ categoryList: ['EDUCATION'] })).toEqual([]);
+		});
+
+		it('followingOnly: the creators the caller follows; a guest gets none', async () => {
+			const follow = await gql(
+				app,
+				`mutation ($id: String!) { subscribe(input: $id) { _id } }`,
+				{ id: maker._id },
+				fan.token,
+			);
+			expect(follow.errors).toBeUndefined();
+
+			expect(await nicks({ followingOnly: true }, fan.token)).toEqual(['e2e_maker']);
+			// both filters together: e2e_maker has no ACTIVE agent
+			expect(await nicks({ followingOnly: true, withAgentsOnly: true }, fan.token)).toEqual([]);
+			expect(await nicks({ followingOnly: true })).toEqual([]);
+			expect((await facets({}, fan.token)).following).toBe(1);
+			const [card] = await creators({ followingOnly: true }, fan.token);
+			expect(card.meFollowed).toEqual([{ myFollowing: true }]);
+		});
+
+		it('sorts by name and by ACTIVE agents', async () => {
+			const byName = await nicks({}, undefined, 'creatorName', 'ASC');
+			expect(byName.indexOf('e2e_creator')).toBeLessThan(byName.indexOf('e2e_maker'));
+			const byAgents = await nicks({}, undefined, 'creatorProducts', 'DESC');
+			expect(byAgents.indexOf('e2e_creator')).toBeLessThan(byAgents.indexOf('e2e_maker'));
+		});
+
+		it('getCreatorStats: ACTIVE creators, their ACTIVE agents, faces with agents only', async () => {
+			const response = await gql<{
+				getCreatorStats: {
+					creators: number;
+					agents: number;
+					faces: Array<{ memberNick: string; memberCategories: string[] }>;
+				};
+			}>(app, `query { getCreatorStats { creators agents faces { memberNick memberCategories } } }`);
+
+			expect(response.errors).toBeUndefined();
+			expect(response.data!.getCreatorStats).toEqual({
+				creators: 2,
+				agents: 1,
+				faces: [{ memberNick: 'e2e_creator', memberCategories: ['SALES'] }],
+			});
+		});
+	});
+
 	describe('who viewed your profile (D-42, B24)', () => {
 		const visitor = { _id: '', token: '' };
 		const moderator = { _id: '', token: '' };

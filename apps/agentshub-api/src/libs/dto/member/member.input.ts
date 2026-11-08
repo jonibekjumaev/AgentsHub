@@ -1,6 +1,10 @@
 import { Field, InputType, Int } from '@nestjs/graphql';
 import {
+	ArrayMaxSize,
+	IsArray,
+	IsBoolean,
 	IsByteLength,
+	IsEnum,
 	IsIn,
 	IsNotEmpty,
 	IsOptional,
@@ -13,6 +17,7 @@ import {
 	ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { AgentCategory } from '../../enums/agent-category.enum';
 import { MemberAuthType, MemberStatus, MemberType } from '../../enums/member.enum';
 import { Direction, Message } from '../../enums/common.enum';
 import {
@@ -82,12 +87,34 @@ export class ChangePasswordInput {
 	newPassword!: string;
 }
 
+/** getCreators / getCreatorFacets search (D-45). */
 @InputType()
-class CRISearch {
+export class CRISearch {
+	// D-45: matched against memberNick, memberFullName, memberDesc and the creator's ACTIVE agent titles
 	@IsOptional()
 	@MaxLength(searchTextMaxLength)
 	@Field(() => String, { nullable: true })
 	text?: string;
+
+	// D-45: creators with at least one ACTIVE agent in one of these categories
+	@IsOptional()
+	@IsArray()
+	@ArrayMaxSize(Object.values(AgentCategory).length)
+	@IsEnum(AgentCategory, { each: true })
+	@Field(() => [AgentCategory], { nullable: true })
+	categoryList?: AgentCategory[];
+
+	// D-45: only creators with at least one ACTIVE agent
+	@IsOptional()
+	@IsBoolean()
+	@Field(() => Boolean, { nullable: true })
+	withAgentsOnly?: boolean;
+
+	// D-45: only creators the caller follows; a guest follows nobody, so the list is empty
+	@IsOptional()
+	@IsBoolean()
+	@Field(() => Boolean, { nullable: true })
+	followingOnly?: boolean;
 }
 
 @InputType()
