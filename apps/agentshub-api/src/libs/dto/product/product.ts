@@ -83,3 +83,37 @@ export class Products {
 	@Field(() => [TotalCounter], { nullable: true })
 	metaCounter!: TotalCounter[];
 }
+
+/** How many ACTIVE products one category option would show (D-43). */
+@ObjectType()
+export class CategoryFacet {
+	@Field(() => AgentCategory)
+	value!: AgentCategory;
+
+	@Field(() => Int)
+	count!: number;
+}
+
+/** How many ACTIVE products one pricing option would show (D-43). */
+@ObjectType()
+export class PricingFacet {
+	@Field(() => ProductPricing)
+	value!: ProductPricing;
+
+	@Field(() => Int)
+	count!: number;
+}
+
+/**
+ * Live counts for the /agents filter options (D-43). Every category and every pricing is listed, in enum
+ * order, with 0 when nothing matches. Each group is counted with all the other filters applied, but not its
+ * own: the category counts ignore categoryList, the pricing counts ignore pricingList.
+ */
+@ObjectType()
+export class ProductFacets {
+	@Field(() => [CategoryFacet])
+	categories!: CategoryFacet[];
+
+	@Field(() => [PricingFacet])
+	pricing!: PricingFacet[];
+}

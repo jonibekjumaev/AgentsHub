@@ -625,6 +625,93 @@ describe('ProductService', () => {
 		});
 	});
 
+	describe('getProductFacets (D-43)', () => {
+		const pipeline = () => productModel.aggregate.mock.calls[0][0] as Array<Record<string, unknown>>;
+		const facets = () => pipeline()[1].$facet as Record<string, Array<Record<string, unknown>>>;
+		const countBy = (field: string) => ({ $group: { _id: `$${field}`, count: { $sum: 1 } } });
+
+		it('lists every category and pricing in enum order, 0 when nothing matches', async () => {
+			productModel.resolve('aggregate', [
+				{ categories: [{ _id: AgentCategory.SALES, count: 3 }], pricing: [{ _id: FREE, count: 2 }] },
+			]);
+
+			const result = await service.getProductFacets({});
+
+			expect(result.categories).toHaveLength(Object.values(AgentCategory).length);
+			expect(result.categories.map((facet) => facet.value)).toEqual(Object.values(AgentCategory));
+			expect(result.categories.find((facet) => facet.value === AgentCategory.SALES)?.count).toBe(3);
+			expect(result.categories.find((facet) => facet.value === AgentCategory.EDUCATION)?.count).toBe(0);
+			expect(result.pricing).toEqual(
+				Object.values(ProductPricing).map((value) => ({ value, count: value === FREE ? 2 : 0 })),
+			);
+		});
+
+		it('counts ACTIVE products only, with no extra stage when there is no category or pricing filter', async () => {
+			productModel.resolve('aggregate', [{ categories: [], pricing: [] }]);
+
+			await service.getProductFacets({});
+
+			expect(pipeline()[0]).toEqual({ $match: { productStatus: ACTIVE } });
+			expect(facets()).toEqual({ categories: [countBy('productCategory')], pricing: [countBy('productPricing')] });
+		});
+
+		it('each group ignores its own filter and applies the other one', async () => {
+			productModel.resolve('aggregate', [{ categories: [], pricing: [] }]);
+
+			await service.getProductFacets({ categoryList: [AgentCategory.SALES], pricingList: [FREE], text: 'bot' });
+
+			// Shared: everything but the two lists.
+			expect(pipeline()[0]).toEqual({ $match: { productStatus: ACTIVE, productTitle: { $regex: /bot/i } } });
+			expect(facets().categories).toEqual([
+				{ $match: { productPricing: { $in: [FREE] } } },
+				countBy('productCategory'),
+			]);
+			expect(facets().pricing).toEqual([
+				{ $match: { productCategory: { $in: [AgentCategory.SALES] } } },
+				countBy('productPricing'),
+			]);
+		});
+
+		it('a price range keeps only paid pricings everywhere (D-03), so FREE and CUSTOM count 0', async () => {
+			productModel.resolve('aggregate', [{ categories: [], pricing: [{ _id: ONE_TIME, count: 4 }] }]);
+
+			const result = await service.getProductFacets({
+				pricesRange: { start: 0, end: 300 },
+				pricingList: [FREE, ONE_TIME],
+			});
+
+			expect(pipeline()[0]).toEqual({
+				$match: {
+					productStatus: ACTIVE,
+					productPricing: { $in: [ONE_TIME, SUBSCRIPTION] },
+					productPrice: { $gte: 0, $lte: 300 },
+				},
+			});
+			// The category counts also respect the chosen pricings (only their paid part).
+			expect(facets().categories[0]).toEqual({ $match: { productPricing: { $in: [ONE_TIME] } } });
+			expect(result.pricing.find((facet) => facet.value === FREE)?.count).toBe(0);
+			expect(result.pricing.find((facet) => facet.value === ONE_TIME)?.count).toBe(4);
+		});
+
+		it('start greater than end → BAD_REQUEST INVALID_PRICE_RANGE, before the database is asked', async () => {
+			await expectHttpError(
+				service.getProductFacets({ pricesRange: { start: 50, end: 5 } }),
+				BadRequestException,
+				Message.INVALID_PRICE_RANGE,
+			);
+			expect(productModel.aggregate).not.toHaveBeenCalled();
+		});
+
+		it('an empty aggregation result gives all zeros', async () => {
+			productModel.resolve('aggregate', []);
+
+			const result = await service.getProductFacets({});
+
+			expect(result.categories.every((facet) => facet.count === 0)).toBe(true);
+			expect(result.pricing.every((facet) => facet.count === 0)).toBe(true);
+		});
+	});
+
 	describe('removeProductByAdmin', () => {
 		it('hard-deletes only a product already set to DELETE (D-28 principle)', async () => {
 			productModel.resolve('findOneAndDelete', fullProduct({ productStatus: DELETE }));

@@ -196,6 +196,53 @@ describe('AgentsHub API (e2e smoke)', () => {
 		});
 	});
 
+	describe('filter counts for /agents (D-43)', () => {
+		type Facet = { value: string; count: number };
+		const facets = (search: Record<string, unknown>) =>
+			gql<{ getProductFacets: { categories: Facet[]; pricing: Facet[] } }>(
+				app,
+				`query ($input: PIsearch!) { getProductFacets(input: $input) { categories { value count } pricing { value count } } }`,
+				{ input: search },
+			);
+		const countOf = (list: Facet[], value: string) => list.find((facet) => facet.value === value)?.count;
+
+		it('a guest gets every category and pricing, counted over ACTIVE products', async () => {
+			const response = await facets({});
+
+			expect(response.errors).toBeUndefined();
+			const { categories, pricing } = response.data!.getProductFacets;
+			expect(categories).toHaveLength(8);
+			expect(pricing).toHaveLength(4);
+			expect(countOf(categories, 'SALES')).toBe(1);
+			expect(countOf(categories, 'MARKETING')).toBe(0);
+			expect(countOf(pricing, 'ONE_TIME')).toBe(1);
+			expect(countOf(pricing, 'FREE')).toBe(0);
+		});
+
+		it('each group ignores its own filter but applies the other one', async () => {
+			const { categories, pricing } = (await facets({ categoryList: ['MARKETING'], pricingList: ['ONE_TIME'] })).data!
+				.getProductFacets;
+
+			// The SALES product is still counted for its category: the category filter does not apply here...
+			expect(countOf(categories, 'SALES')).toBe(1);
+			// ...but the MARKETING filter applies to the pricing counts, and nothing is in MARKETING.
+			expect(countOf(pricing, 'ONE_TIME')).toBe(0);
+		});
+
+		it('a price range drops products outside it (D-03)', async () => {
+			const { categories } = (await facets({ pricesRange: { start: 0, end: 10 } })).data!.getProductFacets;
+
+			expect(countOf(categories, 'SALES')).toBe(0);
+		});
+
+		it('start greater than end → BAD_REQUEST INVALID_PRICE_RANGE', async () => {
+			expect(onlyError(await facets({ pricesRange: { start: 50, end: 5 } }))).toEqual({
+				code: 'BAD_REQUEST',
+				message: Message.INVALID_PRICE_RANGE,
+			});
+		});
+	});
+
 	describe('contact visibility (D-07, D-23)', () => {
 		it('the creator adds an email and a WhatsApp number', async () => {
 			const response = await gql(
