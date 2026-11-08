@@ -7,7 +7,7 @@ import { createMockModel, MockModel } from '../../../test/utils/mock-model';
 import { BriefInput } from '../../libs/dto/brief/brief.input';
 import { BriefUpdate } from '../../libs/dto/brief/brief.update';
 import { AgentCategory } from '../../libs/enums/agent-category.enum';
-import { BriefStatus } from '../../libs/enums/brief.enum';
+import { BriefBudgetType, BriefStatus } from '../../libs/enums/brief.enum';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { ViewGroup } from '../../libs/enums/view.enum';
 import { MemberType } from '../../libs/enums/member.enum';
@@ -17,6 +17,7 @@ import { ViewService } from '../view/view.service';
 import { BriefService } from './brief.service';
 
 const { OPEN, CLOSED, DELETE } = BriefStatus;
+const { FIXED, OPEN_TO_OFFERS } = BriefBudgetType;
 
 const ownerId = new Types.ObjectId();
 const otherId = new Types.ObjectId();
@@ -26,6 +27,9 @@ const briefId = new Types.ObjectId();
 const NOW = new Date('2026-10-09T12:00:00.000Z');
 const PAST = new Date('2026-10-08T12:00:00.000Z');
 const FUTURE = new Date('2026-10-10T12:00:00.000Z');
+
+/** D-44: "not past its deadline": no deadline, or one later than now */
+const notPast = { briefDeadline: { $not: { $lte: NOW } } };
 
 /** What applyBriefUpdate reads before it writes (status and deadline only) */
 const storedBrief = (fields: object = {}) => ({ briefStatus: OPEN, ...fields });
@@ -537,11 +541,55 @@ describe('BriefService', () => {
 			});
 		});
 
+		describe('budget type filter (D-44)', () => {
+			it.each([
+				[[FIXED], { $type: 'number' }],
+				[[OPEN_TO_OFFERS], { $not: { $type: 'number' } }],
+			])('%p matches on briefBudget', async (budgetTypeList, briefBudget) => {
+				await service.getBriefs({ ...inquiry, search: { budgetTypeList } });
+
+				expect(match()).toEqual({ briefStatus: OPEN, briefBudget });
+			});
+
+			it('both types, or an empty list, are no filter', async () => {
+				await service.getBriefs({ ...inquiry, search: { budgetTypeList: [FIXED, OPEN_TO_OFFERS] } });
+				briefModel.resolve('aggregate', [{ list: [], metaCounter: [] }]);
+				await service.getBriefs({ ...inquiry, search: { budgetTypeList: [] } });
+
+				for (const [stages] of briefModel.aggregate.mock.calls as Array<[Array<Record<string, unknown>>]>) {
+					expect(stages[0]).toEqual({ $match: { briefStatus: OPEN } });
+				}
+			});
+
+			it('the owner and admin lists take it too', async () => {
+				await service.getMyBriefs(ownerId, { ...inquiry, search: { budgetTypeList: [FIXED] } });
+
+				expect(match()).toEqual({ memberId: ownerId, briefStatus: { $ne: DELETE }, briefBudget: { $type: 'number' } });
+			});
+		});
+
+		describe('hidePastDeadline (D-44)', () => {
+			it('leaves out OPEN briefs whose deadline is not later than now', async () => {
+				await service.getBriefs({ ...inquiry, search: { hidePastDeadline: true } });
+
+				expect(match()).toEqual({ briefStatus: OPEN, ...notPast });
+			});
+
+			it('has no effect on the CLOSED list, or when false', async () => {
+				await service.getBriefs({ ...inquiry, search: { briefStatus: CLOSED, hidePastDeadline: true } });
+				expect(match()).toEqual({ briefStatus: CLOSED });
+
+				briefModel.aggregate.mockClear();
+				briefModel.resolve('aggregate', [{ list: [], metaCounter: [] }]);
+				await service.getBriefs({ ...inquiry, search: { hidePastDeadline: false } });
+				expect(match()).toEqual({ briefStatus: OPEN });
+			});
+		});
+
 		describe('sorting by budget or deadline puts briefs without one last, in both directions (D-04, D-05)', () => {
 			it.each([
 				['briefBudget', Direction.ASC, { $isNumber: '$briefBudget' }],
 				['briefBudget', Direction.DESC, { $isNumber: '$briefBudget' }],
-				['briefDeadline', Direction.ASC, { $eq: [{ $type: '$briefDeadline' }, 'date'] }],
 				['briefDeadline', Direction.DESC, { $eq: [{ $type: '$briefDeadline' }, 'date'] }],
 			])('%s, direction %p', async (sort, direction, hasValue) => {
 				await service.getBriefs({ ...inquiry, sort, direction });
@@ -555,6 +603,155 @@ describe('BriefService', () => {
 
 				expect(pipeline()[1]).toEqual({ $sort: { briefViews: Direction.DESC, _id: -1 } });
 			});
+		});
+
+		it('briefDeadline ASC ("deadline soonest") lists upcoming, then passed, then none, each nearest to now first (D-44)', async () => {
+			await service.getBriefs({ ...inquiry, sort: 'briefDeadline', direction: Direction.ASC });
+
+			expect(pipeline()[1]).toEqual({
+				$addFields: {
+					_deadlineRank: {
+						$switch: {
+							branches: [
+								{ case: { $ne: [{ $type: '$briefDeadline' }, 'date'] }, then: 2 },
+								{ case: { $lte: ['$briefDeadline', NOW] }, then: 1 },
+							],
+							default: 0,
+						},
+					},
+					_deadlineGap: { $abs: { $subtract: ['$briefDeadline', NOW] } },
+				},
+			});
+			expect(pipeline()[2]).toEqual({ $sort: { _deadlineRank: 1, _deadlineGap: 1, _id: -1 } });
+			expect(pipeline()[3]).toEqual({ $unset: ['_deadlineRank', '_deadlineGap'] });
+		});
+
+		it('briefComments ("most discussed") breaks ties by briefViews (D-44)', async () => {
+			await service.getBriefs({ ...inquiry, sort: 'briefComments', direction: Direction.DESC });
+
+			expect(pipeline()[1]).toEqual({
+				$sort: { briefComments: Direction.DESC, briefViews: Direction.DESC, _id: -1 },
+			});
+		});
+	});
+
+	describe('getBriefFacets (D-44)', () => {
+		const pipeline = () => briefModel.aggregate.mock.calls[0][0] as Array<Record<string, unknown>>;
+		const facets = () => pipeline()[1].$facet as Record<string, Array<Record<string, unknown>>>;
+		const group = (by: unknown) => ({ $group: { _id: by, count: { $sum: 1 } } });
+		const byBudgetType = {
+			$cond: [{ $isNumber: '$briefBudget' }, FIXED, OPEN_TO_OFFERS],
+		};
+
+		const noCounts = () => briefModel.resolve('aggregate', [{ categories: [], budgetTypes: [], statuses: [] }]);
+
+		it('lists every category, both budget types and OPEN / CLOSED in order, 0 when nothing matches', async () => {
+			briefModel.resolve('aggregate', [
+				{
+					categories: [{ _id: AgentCategory.SALES, count: 2 }],
+					budgetTypes: [{ _id: OPEN_TO_OFFERS, count: 1 }],
+					statuses: [{ _id: CLOSED, count: 4 }],
+				},
+			]);
+
+			const result = await service.getBriefFacets({});
+
+			expect(result.categories.map((facet) => facet.value)).toEqual(Object.values(AgentCategory));
+			expect(result.categories.find((facet) => facet.value === AgentCategory.SALES)?.count).toBe(2);
+			expect(result.categories.find((facet) => facet.value === AgentCategory.OTHER)?.count).toBe(0);
+			expect(result.budgetTypes).toEqual([
+				{ value: FIXED, count: 0 },
+				{ value: OPEN_TO_OFFERS, count: 1 },
+			]);
+			expect(result.statuses).toEqual([
+				{ value: OPEN, count: 0 },
+				{ value: CLOSED, count: 4 },
+			]);
+		});
+
+		it('counts OPEN and CLOSED only (never DELETE); categories and budgets count the chosen status (OPEN by default)', async () => {
+			noCounts();
+			await service.getBriefFacets({});
+
+			expect(pipeline()[0]).toEqual({ $match: { briefStatus: { $in: [OPEN, CLOSED] } } });
+			expect(facets()).toEqual({
+				categories: [{ $match: { briefStatus: OPEN } }, group('$briefCategory')],
+				budgetTypes: [{ $match: { briefStatus: OPEN } }, group(byBudgetType)],
+				statuses: [group('$briefStatus')],
+			});
+		});
+
+		it('each group ignores its own filter and applies the others', async () => {
+			noCounts();
+			await service.getBriefFacets({
+				memberId: ownerId,
+				text: 'bot',
+				categoryList: [AgentCategory.SALES],
+				budgetTypeList: [FIXED],
+				briefStatus: CLOSED,
+			});
+
+			// Shared: the filters no group owns.
+			expect(pipeline()[0]).toEqual({
+				$match: { briefStatus: { $in: [OPEN, CLOSED] }, memberId: ownerId, briefTitle: { $regex: /bot/i } },
+			});
+			const budget = { briefBudget: { $type: 'number' } };
+			const category = { briefCategory: { $in: [AgentCategory.SALES] } };
+			expect(facets()).toEqual({
+				categories: [{ $match: { briefStatus: CLOSED, ...budget } }, group('$briefCategory')],
+				budgetTypes: [{ $match: { briefStatus: CLOSED, ...category } }, group(byBudgetType)],
+				statuses: [{ $match: { ...category, ...budget } }, group('$briefStatus')],
+			});
+		});
+
+		it('hidePastDeadline drops past-deadline briefs from the OPEN counts only', async () => {
+			noCounts();
+			await service.getBriefFacets({ hidePastDeadline: true });
+
+			expect(facets().categories[0]).toEqual({ $match: { briefStatus: OPEN, ...notPast } });
+			expect(facets().budgetTypes[0]).toEqual({ $match: { briefStatus: OPEN, ...notPast } });
+			// CLOSED briefs are counted whatever their deadline
+			expect(facets().statuses[0]).toEqual({ $match: { $or: [{ briefStatus: CLOSED }, notPast] } });
+
+			briefModel.aggregate.mockClear();
+			noCounts();
+			await service.getBriefFacets({ hidePastDeadline: true, briefStatus: CLOSED });
+			expect(facets().categories[0]).toEqual({ $match: { briefStatus: CLOSED } });
+		});
+
+		it('DELETE → BAD_REQUEST, before the database is asked (D-30)', async () => {
+			await expectHttpError(
+				service.getBriefFacets({ briefStatus: DELETE }),
+				BadRequestException,
+				Message.NO_DATA_FOUND,
+			);
+			expect(briefModel.aggregate).not.toHaveBeenCalled();
+		});
+
+		it('an empty aggregation result gives all zeros', async () => {
+			briefModel.resolve('aggregate', []);
+
+			const result = await service.getBriefFacets({});
+
+			expect([...result.categories, ...result.budgetTypes, ...result.statuses].every((f) => f.count === 0)).toBe(true);
+		});
+	});
+
+	describe('getOpenBriefStats (D-44)', () => {
+		it('counts OPEN briefs not past their deadline and sums their budgets, rounded to cents', async () => {
+			briefModel.resolve('aggregate', [{ _id: null, openNow: 3, budgetTotal: 2450.1 + 0.2 }]);
+
+			expect(await service.getOpenBriefStats()).toEqual({ openNow: 3, budgetTotal: 2450.3 });
+			expect(briefModel.aggregate.mock.calls[0][0]).toEqual([
+				{ $match: { briefStatus: OPEN, ...notPast } },
+				{ $group: { _id: null, openNow: { $sum: 1 }, budgetTotal: { $sum: '$briefBudget' } } },
+			]);
+		});
+
+		it('no open briefs → zeros', async () => {
+			briefModel.resolve('aggregate', []);
+
+			expect(await service.getOpenBriefStats()).toEqual({ openNow: 0, budgetTotal: 0 });
 		});
 	});
 

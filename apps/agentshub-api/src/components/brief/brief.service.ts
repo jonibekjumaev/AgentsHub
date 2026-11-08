@@ -2,16 +2,18 @@ import { BadRequestException, Injectable, InternalServerErrorException, NotFound
 import { InjectModel } from '@nestjs/mongoose';
 import { HydratedDocument, Model, PipelineStage, UpdateQuery } from 'mongoose';
 import moment from 'moment';
-import { Brief, Briefs } from '../../libs/dto/brief/brief';
+import { Brief, BriefFacets, Briefs, OpenBriefStats } from '../../libs/dto/brief/brief';
 import {
 	AllBriefsInquiry,
+	BISearch,
 	BriefFilters,
 	BriefInput,
 	BriefsInquiry,
 	MyBriefsInquiry,
 } from '../../libs/dto/brief/brief.input';
 import { BriefUpdate } from '../../libs/dto/brief/brief.update';
-import { BriefStatus } from '../../libs/enums/brief.enum';
+import { BriefBudgetType, BriefStatus } from '../../libs/enums/brief.enum';
+import { AgentCategory } from '../../libs/enums/agent-category.enum';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { escapeRegex, lookupMember, shapeInToMongoObjectId, unwindKeepingItem } from '../../libs/config';
 import { ViewGroup } from '../../libs/enums/view.enum';
@@ -21,6 +23,19 @@ import { MemberService } from '../member/member.service';
 import { ViewService } from '../view/view.service';
 import { describeDbError } from '../../libs/utils';
 import { MemberType } from '../../libs/enums/member.enum';
+
+type FacetRow = { _id: string; count: number };
+
+const countOf = (rows: FacetRow[], value: string): number => rows.find((row) => row._id === value)?.count ?? 0;
+
+/** The statuses the public lists and counts show (D-30); DELETE never. */
+const listedStatuses = [BriefStatus.OPEN, BriefStatus.CLOSED];
+
+/** D-44: a deadline has passed when it is not later than now (the D-05 rule, turned around). */
+const notPastDeadline = (now: Date): T => ({ briefDeadline: { $not: { $lte: now } } });
+
+/** D-44: FIXED / OPEN_TO_OFFERS, the same test as the budget sort (`$isNumber`, D-04). */
+const budgetTypeOf = { $cond: [{ $isNumber: '$briefBudget' }, BriefBudgetType.FIXED, BriefBudgetType.OPEN_TO_OFFERS] };
 
 @Injectable()
 export class BriefService {
@@ -88,7 +103,90 @@ export class BriefService {
 
 		const match: T = { briefStatus: briefStatus ?? BriefStatus.OPEN };
 		this.shapeMatchQuery(match, input.search);
+		// D-44: only OPEN briefs can be past their deadline in a useful sense; CLOSED ones are listed as they are
+		if (input.search.hidePastDeadline && match.briefStatus === BriefStatus.OPEN) {
+			Object.assign(match, notPastDeadline(new Date()));
+		}
 		return await this.aggregateBriefs(match, input);
+	}
+
+	/**
+	 * D-44: live counts for the /briefs filters, with the same rules as getBriefs. Each group ignores its own filter:
+	 * the category counts use every filter but categoryList, the budget counts every filter but budgetTypeList, the
+	 * status counts every filter but briefStatus (hidePastDeadline still applies to the OPEN count only).
+	 *
+	 * One aggregation, as in getProductFacets (D-43): the filters every group shares (memberId, text) go into the first
+	 * $match, then each $facet branch adds the other groups' filters and counts.
+	 */
+	public async getBriefFacets(search: BISearch): Promise<BriefFacets> {
+		const { briefStatus, categoryList, budgetTypeList, hidePastDeadline } = search;
+		if (briefStatus === BriefStatus.DELETE) throw new BadRequestException(Message.NO_DATA_FOUND);
+
+		const now = new Date();
+		const status = briefStatus ?? BriefStatus.OPEN;
+		const shared: T = { briefStatus: { $in: listedStatuses } };
+		this.shapeMatchQuery(shared, { memberId: search.memberId, text: search.text });
+
+		// Each group's own filter, as shapeMatchQuery would write it; {} when it is not set.
+		const byCategory: T = {};
+		this.shapeMatchQuery(byCategory, { categoryList });
+		const byBudget: T = {};
+		this.shapeMatchQuery(byBudget, { budgetTypeList });
+		const byStatus: T = {
+			briefStatus: status,
+			...(hidePastDeadline && status === BriefStatus.OPEN ? notPastDeadline(now) : {}),
+		};
+		// The status counts: the past-deadline rule applies to OPEN briefs only.
+		const hidePastFromOpen: T = hidePastDeadline
+			? { $or: [{ briefStatus: BriefStatus.CLOSED }, notPastDeadline(now)] }
+			: {};
+
+		const branch = (extra: T, groupBy: unknown): PipelineStage.FacetPipelineStage[] => [
+			...(Object.keys(extra).length ? [{ $match: extra }] : []),
+			{ $group: { _id: groupBy, count: { $sum: 1 } } },
+		];
+
+		const result = await this.briefModel
+			.aggregate<{ categories: FacetRow[]; budgetTypes: FacetRow[]; statuses: FacetRow[] }>([
+				{ $match: shared },
+				{
+					$facet: {
+						categories: branch({ ...byStatus, ...byBudget }, '$briefCategory'),
+						budgetTypes: branch({ ...byStatus, ...byCategory }, budgetTypeOf),
+						statuses: branch({ ...byCategory, ...byBudget, ...hidePastFromOpen }, '$briefStatus'),
+					},
+				},
+			])
+			.exec();
+		const counts = result[0] ?? { categories: [], budgetTypes: [], statuses: [] };
+
+		return {
+			categories: Object.values(AgentCategory).map((value) => ({ value, count: countOf(counts.categories, value) })),
+			budgetTypes: Object.values(BriefBudgetType).map((value) => ({
+				value,
+				count: countOf(counts.budgetTypes, value),
+			})),
+			statuses: listedStatuses.map((value) => ({ value, count: countOf(counts.statuses, value) })),
+		};
+	}
+
+	/**
+	 * D-44: the /briefs live badge, over the whole site (no filters): OPEN briefs whose deadline has not passed, and the
+	 * sum of their fixed budgets (open-to-offers briefs add nothing). Both numbers come from the same briefs.
+	 */
+	public async getOpenBriefStats(): Promise<OpenBriefStats> {
+		const result = await this.briefModel
+			.aggregate<{ openNow: number; budgetTotal: number }>([
+				{ $match: { briefStatus: BriefStatus.OPEN, ...notPastDeadline(new Date()) } },
+				// $sum skips briefs without a briefBudget (D-04)
+				{ $group: { _id: null, openNow: { $sum: 1 }, budgetTotal: { $sum: '$briefBudget' } } },
+			])
+			.exec();
+		const stats = result[0];
+		if (!stats) return { openNow: 0, budgetTotal: 0 };
+
+		// floating-point sums like 0.1 + 0.2 are rounded back to cents
+		return { openNow: stats.openNow, budgetTotal: Math.round(stats.budgetTotal * 100) / 100 };
 	}
 
 	/** D-30: the owner's list shows OPEN and CLOSED, or one of them on request; never DELETE. */
@@ -152,10 +250,15 @@ export class BriefService {
 
 	/** The search filters shared by the brief lists. Empty lists mean "no filter". */
 	private shapeMatchQuery(match: T, search: BriefFilters & { memberId?: ObjectId }): void {
-		const { memberId, categoryList, text } = search;
+		const { memberId, categoryList, budgetTypeList, text } = search;
 
 		if (memberId) match.memberId = shapeInToMongoObjectId(memberId);
 		if (categoryList?.length) match.briefCategory = { $in: categoryList };
+		// D-44: one budget type filters; both types are every brief, so no filter
+		const budgetTypes = new Set(budgetTypeList ?? []);
+		if (budgetTypes.size === 1) {
+			match.briefBudget = budgetTypes.has(BriefBudgetType.FIXED) ? { $type: 'number' } : { $not: { $type: 'number' } };
+		}
 		if (text) match.briefTitle = { $regex: new RegExp(escapeRegex(text), 'i') };
 	}
 
@@ -163,8 +266,37 @@ export class BriefService {
 	 * The $sort stages of the brief lists. Ties are broken by the newest _id, so skip/limit pages stay stable. Sorting
 	 * by briefBudget or briefDeadline puts briefs without one ("open to offers" / no date, D-04, D-05) last in both
 	 * directions.
+	 *
+	 * D-44: briefComments ("most discussed") breaks ties by briefViews. briefDeadline ASC ("deadline soonest") lists the
+	 * upcoming deadlines first (soonest first), then the passed ones (most recently passed first), then briefs without
+	 * one: a plain ascending date would put long-passed deadlines on top.
 	 */
 	private shapeSortStages(sort: string = 'createdAt', direction: Direction = Direction.DESC): PipelineStage[] {
+		if (sort === 'briefComments') {
+			return [{ $sort: { briefComments: direction, briefViews: direction, _id: -1 } }];
+		}
+		if (sort === 'briefDeadline' && direction === Direction.ASC) {
+			const now = new Date();
+			return [
+				{
+					$addFields: {
+						_deadlineRank: {
+							$switch: {
+								branches: [
+									{ case: { $ne: [{ $type: '$briefDeadline' }, 'date'] }, then: 2 },
+									{ case: { $lte: ['$briefDeadline', now] }, then: 1 },
+								],
+								default: 0,
+							},
+						},
+						// distance from now: soonest upcoming and most recently passed come first in their group
+						_deadlineGap: { $abs: { $subtract: ['$briefDeadline', now] } },
+					},
+				},
+				{ $sort: { _deadlineRank: 1, _deadlineGap: 1, _id: -1 } },
+				{ $unset: ['_deadlineRank', '_deadlineGap'] },
+			];
+		}
 		const hasValue: T = {
 			briefBudget: { $isNumber: '$briefBudget' },
 			briefDeadline: { $eq: [{ $type: '$briefDeadline' }, 'date'] },

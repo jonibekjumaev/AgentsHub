@@ -2,9 +2,9 @@ import { Types } from 'mongoose';
 import { invalidFields, validationErrors, without } from '../../../../test/utils/validate-dto';
 import { briefContentMaxLength, briefContentMinLength, briefTitleMaxLength, briefTitleMinLength } from '../../config';
 import { AgentCategory } from '../../enums/agent-category.enum';
-import { BriefStatus } from '../../enums/brief.enum';
+import { BriefBudgetType, BriefStatus } from '../../enums/brief.enum';
 import { Message } from '../../enums/common.enum';
-import { AllBriefsInquiry, BriefInput, BriefsInquiry, MyBriefsInquiry } from './brief.input';
+import { AllBriefsInquiry, BISearch, BriefInput, BriefsInquiry, MyBriefsInquiry } from './brief.input';
 import { BriefUpdate } from './brief.update';
 
 const brief = {
@@ -123,6 +123,30 @@ describe('brief inquiries validate their nested search (B16)', () => {
 		['AllBriefsInquiry', AllBriefsInquiry],
 	])('%s rejects a malformed search.memberId', async (_name, cls) => {
 		expect(await invalidFields(cls, { ...inquiry, search: { memberId: 'abc' } })).toEqual(['search.memberId']);
+	});
+
+	it.each([
+		['BriefsInquiry', BriefsInquiry],
+		['MyBriefsInquiry', MyBriefsInquiry],
+		['AllBriefsInquiry', AllBriefsInquiry],
+	])('%s checks budgetTypeList inside search (D-44)', async (_name, cls) => {
+		const both = Object.values(BriefBudgetType);
+		expect(await invalidFields(cls, { ...inquiry, search: { budgetTypeList: both } })).toEqual([]);
+		expect(await invalidFields(cls, { ...inquiry, search: { budgetTypeList: ['HOURLY'] } })).toEqual([
+			'search.budgetTypeList',
+		]);
+		expect(await invalidFields(cls, { ...inquiry, search: { budgetTypeList: [...both, 'FIXED'] } })).toEqual([
+			'search.budgetTypeList',
+		]);
+	});
+
+	it('accepts the D-44 sort briefComments', async () => {
+		expect(await invalidFields(BriefsInquiry, { ...inquiry, sort: 'briefComments', search: {} })).toEqual([]);
+	});
+
+	it('BISearch (also the getBriefFacets input) takes hidePastDeadline as a boolean only (D-44)', async () => {
+		expect(await invalidFields(BISearch, { hidePastDeadline: true })).toEqual([]);
+		expect(await invalidFields(BISearch, { hidePastDeadline: 'yes' })).toEqual(['hidePastDeadline']);
 	});
 
 	it('rejects an unknown sort and page or limit below 1', async () => {

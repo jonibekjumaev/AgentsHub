@@ -998,3 +998,24 @@
 - **Reason:** One small request per filter change instead of twelve, and the counting rule lives next to `shapeMatchQuery`, so the counts can never disagree with the list.
 - **Consequence:** No schema change; the existing `{ productCategory: 1, productStatus: 1 }` index serves the first `$match`. "All" in the client is the sum of the category counts (every product has exactly one category).
 
+## D-44 — /briefs filters, live counts and the "open now" badge
+
+**Status:** Proposed
+
+- **Context:** The new `/briefs` page (an Upwork-style feed) filters by budget type and hides briefs past their deadline, sorts by "most discussed" and "deadline soonest", shows live counts next to every option (as `/agents` does, D-43), and has a hero badge: "{N} briefs open now, {total} in posted budgets". `getBriefs` has none of these filters, `briefComments` is not a sort, and nothing counts or sums briefs. A brief also stays `OPEN` after its deadline passes: nothing closes it.
+- **Options for the past-deadline problem:**
+  - **A. A query rule:** "past deadline" means `briefDeadline <= now`; lists and counts can leave those briefs out on request. No data changes.
+  - **B. A scheduled job** that sets expired briefs to `CLOSED`.
+  - **C. Both.**
+- **Decision:** Option A now; B stays open (it changes a member's brief without their action, and reopening rules, D-31, would need a second look).
+  - **Filters** (`BriefFilters`, so the public, owner and admin lists all take them):
+    - `budgetTypeList: [BriefBudgetType]`, with `BriefBudgetType = FIXED | OPEN_TO_OFFERS`, a GraphQL enum only (not stored). `FIXED` = `briefBudget` is a number, `OPEN_TO_OFFERS` = it is not (D-04). Both types, or none, = no filter.
+    - `BISearch.hidePastDeadline: Boolean` (public list only): leaves out `OPEN` briefs whose `briefDeadline` is not later than now; no effect on `CLOSED` briefs.
+  - **Sorts:**
+    - `briefComments` joins `aviableBriefSorts` ("most discussed"); ties are broken by `briefViews`, then the newest `_id`.
+    - `briefDeadline` `ASC` ("deadline soonest") lists upcoming deadlines first (soonest first), then passed ones (most recently passed first), then briefs without a deadline. A plain ascending date put long-passed deadlines on top. `DESC` is unchanged.
+  - **Counts:** `getBriefFacets(input: BISearch): BriefFacets`, public. `{ categories budgetTypes statuses }`, each `[{ value count }]`, every value in enum order (statuses: `OPEN`, `CLOSED`; never `DELETE`), `0` when nothing matches. Each group ignores its own filter, as in D-43: categories use every filter but `categoryList`, budget types every filter but `budgetTypeList`, statuses every filter but `briefStatus`. `hidePastDeadline` applies to the `OPEN` count only. One aggregation: `memberId` and `text` in the first `$match`, the rest in the `$facet` branches. `briefStatus: DELETE` → `BAD_REQUEST`, as in `getBriefs`.
+  - **Badge:** `getOpenBriefStats: OpenBriefStats { openNow: Int, budgetTotal: Float }`, public, site-wide (no filters). Both numbers come from the same briefs: `OPEN` and not past their deadline. `budgetTotal` sums their fixed budgets (USD, D-06), rounded to cents; open-to-offers briefs add nothing.
+- **Reason:** The same counting rule as `getBriefs`, next to `shapeMatchQuery`, so counts never disagree with the list. The badge is its own query because it ignores the visitor's filters; mixing it into the facets would make one aggregation answer two different questions.
+- **Consequence:** No schema change, no migration. `{ briefCategory: 1, briefStatus: 1, createdAt: -1 }` keeps serving the lists. "Past deadline" is computed against the server clock at request time; the client shows the same state from `briefDeadline` and its own clock. Search still matches `briefTitle` only (S8); descriptions come with semantic search (D-11).
+

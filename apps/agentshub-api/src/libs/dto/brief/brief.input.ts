@@ -2,6 +2,7 @@ import { Field, Float, InputType, Int } from '@nestjs/graphql';
 import {
 	ArrayMaxSize,
 	IsArray,
+	IsBoolean,
 	IsDate,
 	IsEnum,
 	IsIn,
@@ -17,7 +18,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AgentCategory } from '../../enums/agent-category.enum';
-import { BriefStatus } from '../../enums/brief.enum';
+import { BriefBudgetType, BriefStatus } from '../../enums/brief.enum';
 import { Direction, Message } from '../../enums/common.enum';
 import type { ObjectId } from '../../types/common';
 import {
@@ -72,6 +73,14 @@ export abstract class BriefFilters {
 	@Field(() => [AgentCategory], { nullable: true })
 	categoryList?: AgentCategory[];
 
+	// D-44: FIXED = briefBudget is set, OPEN_TO_OFFERS = it is not (D-04); both or none = no filter
+	@IsOptional()
+	@IsArray()
+	@ArrayMaxSize(Object.values(BriefBudgetType).length)
+	@IsEnum(BriefBudgetType, { each: true })
+	@Field(() => [BriefBudgetType], { nullable: true })
+	budgetTypeList?: BriefBudgetType[];
+
 	// matched against briefTitle
 	@IsOptional()
 	@MaxLength(searchTextMaxLength)
@@ -92,6 +101,12 @@ export class BISearch extends BriefFilters {
 	@IsEnum(BriefStatus)
 	@Field(() => BriefStatus, { nullable: true })
 	briefStatus?: BriefStatus;
+
+	// D-44: leaves out OPEN briefs whose deadline has passed; no effect on CLOSED briefs
+	@IsOptional()
+	@IsBoolean()
+	@Field(() => Boolean, { nullable: true })
+	hidePastDeadline?: boolean;
 }
 
 @InputType()

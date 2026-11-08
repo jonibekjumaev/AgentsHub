@@ -24,8 +24,16 @@ export const aviableProductSorts = [
 	'productPrice',
 ];
 
-// briefBudget / briefDeadline are optional: empty values sort last in both directions (D-04, BriefService)
-export const aviableBriefSorts = ['createdAt', 'updatedAt', 'briefViews', 'briefBudget', 'briefDeadline'];
+// briefBudget / briefDeadline are optional: empty values sort last in both directions (D-04, BriefService).
+// briefComments breaks ties by briefViews; briefDeadline ASC lists upcoming, then passed, then none (D-44)
+export const aviableBriefSorts = [
+	'createdAt',
+	'updatedAt',
+	'briefViews',
+	'briefComments',
+	'briefBudget',
+	'briefDeadline',
+];
 
 /** D-42: "Who viewed your profile" lists the visits of the last N days (each visit refreshes the view's updatedAt, B24). */
 export const profileVisitorsWindowDays = 90;

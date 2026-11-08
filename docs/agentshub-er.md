@@ -236,6 +236,7 @@ Unique index: `{ followingId: 1, followerId: 1 }`.
 | ProductPricing | `FREE`, `ONE_TIME`, `SUBSCRIPTION`, `CUSTOM` | products.productPricing |
 | ProductStatus | `ACTIVE`, `PAUSED`, `DELETE` | products.productStatus |
 | BriefStatus | `OPEN`, `CLOSED`, `DELETE` | briefs.briefStatus |
+| BriefBudgetType | `FIXED`, `OPEN_TO_OFFERS` | GraphQL only, not stored: the brief filter and counts (D-44); `FIXED` = `briefBudget` is set |
 | LikeGroup | `MEMBER`, `PRODUCT`, `ARTICLE` | likes.likeGroup |
 | ViewGroup | `MEMBER`, `PRODUCT`, `BRIEF`, `ARTICLE` | views.viewGroup |
 | CommentGroup | `MEMBER`, `PRODUCT`, `BRIEF`, `ARTICLE` | comments.commentGroup |
@@ -267,3 +268,4 @@ All other enums (MemberStatus, MemberAuthType, article and notice enums, Notific
 4. `productPrice` follows D-03, `briefBudget` follows D-04, and `briefDeadline` follows D-05 in `docs/decisions.md`.
 5. Counters (`memberProducts`, `productLikes`, `briefViews`, …) change only through service methods, never directly from client input.
 6. Filter counts (`getProductFacets`, D-43) use the same match rules as `getProducts` over `ACTIVE` products; each group (category, pricing) is counted without its own filter.
+7. A brief is past its deadline when `briefDeadline <= now`; it stays `OPEN` (D-44). Brief counts (`getBriefFacets`) follow rule 6 for category, budget type and status; the "open now" badge (`getOpenBriefStats`) counts `OPEN` briefs not past their deadline.

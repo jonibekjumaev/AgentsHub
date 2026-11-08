@@ -1,5 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import { Connection } from 'mongoose';
+import { Connection, Types } from 'mongoose';
 import { ErrorReason, Message } from '../src/libs/enums/common.enum';
 import { createE2eApp, gql, onlyError } from './e2e/e2e-app';
 
@@ -394,6 +394,112 @@ describe('AgentsHub API (e2e smoke)', () => {
 			expect(close.data).toEqual({ updateBrief: { briefStatus: 'CLOSED' } });
 			expect((await getBrief(briefId)).data?.getBrief.briefStatus).toBe('CLOSED');
 			expect(await openBriefIds()).not.toContain(briefId);
+		});
+	});
+
+	describe('/briefs filters, counts and live badge (D-44)', () => {
+		// After 'briefs': the first brief is CLOSED. These add three OPEN ones: one open to offers without a deadline,
+		// one with a fixed budget and a future deadline, and one whose deadline is then moved into the past.
+		const ids = { offers: '', upcoming: '', passed: '' };
+		type Facet = { value: string; count: number };
+		const countOf = (list: Facet[], value: string) => list.find((facet) => facet.value === value)?.count;
+
+		const create = async (input: Record<string, unknown>) => {
+			const response = await gql<{ createBrief: { _id: string } }>(
+				app,
+				`mutation ($input: BriefInput!) { createBrief(input: $input) { _id } }`,
+				{ input: { briefContent: 'An agent for our team, details in the comments.', ...input } },
+				user.token,
+			);
+			expect(response.errors).toBeUndefined();
+			return response.data!.createBrief._id;
+		};
+		const briefIds = async (search: Record<string, unknown>, sort?: string, direction?: string) => {
+			const response = await gql<{ getBriefs: { list: Array<{ _id: string }> } }>(
+				app,
+				`query ($input: BriefsInquiry!) { getBriefs(input: $input) { list { _id } } }`,
+				{ input: { page: 1, limit: 50, sort, direction, search } },
+			);
+			expect(response.errors).toBeUndefined();
+			return response.data!.getBriefs.list.map((brief) => brief._id);
+		};
+		const facets = async (search: Record<string, unknown>) => {
+			const response = await gql<{ getBriefFacets: { categories: Facet[]; budgetTypes: Facet[]; statuses: Facet[] } }>(
+				app,
+				`query ($input: BISearch!) { getBriefFacets(input: $input) { categories { value count } budgetTypes { value count } statuses { value count } } }`,
+				{ input: search },
+			);
+			expect(response.errors).toBeUndefined();
+			return response.data!.getBriefFacets;
+		};
+		const stats = async () => {
+			const response = await gql<{ getOpenBriefStats: { openNow: number; budgetTotal: number } }>(
+				app,
+				`query { getOpenBriefStats { openNow budgetTotal } }`,
+			);
+			expect(response.errors).toBeUndefined();
+			return response.data!.getOpenBriefStats;
+		};
+
+		it('a guest sees the live badge: open briefs and the sum of their fixed budgets', async () => {
+			ids.offers = await create({ briefCategory: 'SALES', briefTitle: 'E2E cart follow-ups' });
+			ids.upcoming = await create({
+				briefCategory: 'CUSTOMER_SUPPORT',
+				briefTitle: 'E2E shipping answers',
+				briefBudget: 199.99,
+				briefDeadline: '2100-01-01T00:00:00.000Z',
+			});
+			ids.passed = await create({
+				briefCategory: 'CUSTOMER_SUPPORT',
+				briefTitle: 'E2E weekly report',
+				briefBudget: 50,
+				briefDeadline: '2100-06-01T00:00:00.000Z',
+			});
+
+			expect(await stats()).toEqual({ openNow: 3, budgetTotal: 249.99 });
+		});
+
+		it('a passed deadline leaves the badge and, with hidePastDeadline, the open list', async () => {
+			// The API never accepts a past deadline (D-05); time passing is simulated in the database.
+			await connection
+				.collection('briefs')
+				.updateOne({ _id: new Types.ObjectId(ids.passed) }, { $set: { briefDeadline: new Date('2001-01-01') } });
+
+			expect(await stats()).toEqual({ openNow: 2, budgetTotal: 199.99 });
+			expect(await briefIds({ hidePastDeadline: true })).not.toContain(ids.passed);
+			expect(await briefIds({})).toContain(ids.passed);
+		});
+
+		it('filters by budget type', async () => {
+			expect(await briefIds({ budgetTypeList: ['OPEN_TO_OFFERS'] })).toEqual([ids.offers]);
+			expect(await briefIds({ budgetTypeList: ['FIXED'], hidePastDeadline: true })).toEqual([ids.upcoming]);
+		});
+
+		it('counts each group without its own filter; CLOSED briefs ignore hidePastDeadline', async () => {
+			const all = await facets({ hidePastDeadline: true });
+			expect(countOf(all.statuses, 'OPEN')).toBe(2);
+			expect(countOf(all.statuses, 'CLOSED')).toBe(1);
+			expect(countOf(all.budgetTypes, 'FIXED')).toBe(1);
+			expect(countOf(all.budgetTypes, 'OPEN_TO_OFFERS')).toBe(1);
+			expect(countOf(all.categories, 'CUSTOMER_SUPPORT')).toBe(1);
+
+			const sales = await facets({ hidePastDeadline: true, categoryList: ['SALES'] });
+			expect(countOf(sales.categories, 'CUSTOMER_SUPPORT')).toBe(1);
+			expect(countOf(sales.budgetTypes, 'FIXED')).toBe(0);
+			expect(countOf(sales.budgetTypes, 'OPEN_TO_OFFERS')).toBe(1);
+		});
+
+		it('"deadline soonest" lists upcoming, then passed, then no deadline', async () => {
+			expect(await briefIds({}, 'briefDeadline', 'ASC')).toEqual([ids.upcoming, ids.passed, ids.offers]);
+		});
+
+		it('getBriefFacets rejects DELETE like getBriefs (D-30)', async () => {
+			const response = await gql(
+				app,
+				`query { getBriefFacets(input: { briefStatus: DELETE }) { statuses { count } } }`,
+			);
+
+			expect(onlyError(response)).toEqual({ code: 'BAD_REQUEST', message: Message.NO_DATA_FOUND });
 		});
 	});
 

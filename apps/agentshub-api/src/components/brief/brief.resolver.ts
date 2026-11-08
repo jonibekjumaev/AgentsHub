@@ -7,8 +7,14 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { AuthMember } from '../auth/decorators/authMember.decorator';
 import { MemberType } from '../../libs/enums/member.enum';
 import type { ObjectId } from '../../libs/types/common';
-import { Brief, Briefs } from '../../libs/dto/brief/brief';
-import { AllBriefsInquiry, BriefInput, BriefsInquiry, MyBriefsInquiry } from '../../libs/dto/brief/brief.input';
+import { Brief, BriefFacets, Briefs, OpenBriefStats } from '../../libs/dto/brief/brief';
+import {
+	AllBriefsInquiry,
+	BISearch,
+	BriefInput,
+	BriefsInquiry,
+	MyBriefsInquiry,
+} from '../../libs/dto/brief/brief.input';
 import { BriefUpdate } from '../../libs/dto/brief/brief.update';
 import { shapeInToMongoObjectId } from '../../libs/config';
 import { ObjectIdPipe } from '../../libs/pipes/object-id.pipe';
@@ -43,6 +49,22 @@ export class BriefResolver {
 	public async getBriefs(@Args('input') input: BriefsInquiry): Promise<Briefs> {
 		console.log('Query: getBriefs');
 		return await this.briefService.getBriefs(input);
+	}
+
+	/** D-44: live counts for the /briefs filters; the same search object as getBriefs. */
+	@UseGuards(WithoutGuard)
+	@Query(() => BriefFacets)
+	public async getBriefFacets(@Args('input') input: BISearch): Promise<BriefFacets> {
+		console.log('Query: getBriefFacets');
+		return await this.briefService.getBriefFacets(input);
+	}
+
+	/** D-44: the /briefs live badge (open briefs now, sum of their fixed budgets). */
+	@UseGuards(WithoutGuard)
+	@Query(() => OpenBriefStats)
+	public async getOpenBriefStats(): Promise<OpenBriefStats> {
+		console.log('Query: getOpenBriefStats');
+		return await this.briefService.getOpenBriefStats();
 	}
 
 	@Roles(MemberType.USER)

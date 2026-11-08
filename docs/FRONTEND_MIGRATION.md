@@ -248,6 +248,7 @@ Suggested labels: `CUSTOMER_SUPPORT` "Customer support", `DATA_ANALYSIS` "Data a
 | — | `changePassword(input: ChangePasswordInput!): Boolean!` | logged in |
 | — | `createBrief`, `updateBrief`, `getMyBriefs` | USER |
 | — | `getBrief(briefId)`, `getBriefs` | everyone |
+| — | `getBriefFacets(input: BISearch): BriefFacets`, `getOpenBriefStats: OpenBriefStats` | everyone (D-44) |
 | — | `getAllBriefsByAdmin`, `updateBriefByAdmin`, `removeBriefByAdmin(briefId)` | ADMIN |
 
 Everything else keeps its name: `signup`, `login`, `getMember`, `updateMember`, `likeTargetMember`, `getAllMembersByAdmin`, `updateMemberByAdmin`, `imageUploader`, `imagesUploader`, board article, comment and follow operations. Their rules changed in places; see the pages.
@@ -261,7 +262,7 @@ Everything else keeps its name: `signup`, `login`, `getMember`, `updateMember`, 
 | Products (`getProducts`, `getCreatorProducts`, `getAllProductsByAdmin`) | `createdAt`, `updatedAt`, `productLikes`, `productViews`, `productRank`, `productPrice` |
 | Creators (`getCreators`) | `createdAt`, `updatedAt`, `memberLikes`, `memberViews`, `memberRank`, `memberProducts` |
 | Members (`getAllMembersByAdmin`) | `createdAt`, `updatedAt`, `memberLikes`, `memberViews` |
-| Briefs (`getBriefs`, `getMyBriefs`, `getAllBriefsByAdmin`) | `createdAt`, `updatedAt`, `briefViews`, `briefBudget`, `briefDeadline` |
+| Briefs (`getBriefs`, `getMyBriefs`, `getAllBriefsByAdmin`) | `createdAt`, `updatedAt`, `briefViews`, `briefComments` (D-44), `briefBudget`, `briefDeadline` |
 | Board articles | `createdAt`, `updatedAt`, `articleLikes`, `articleViews` |
 | Comments | `createdAt`, `updatedAt` |
 
@@ -498,8 +499,8 @@ Briefs are new: a USER describes an AI agent they need, and creators contact the
 **List** (`getBriefs`)
 
 - Returns only `OPEN` briefs by default. `search.briefStatus: CLOSED` lists closed ones instead; `DELETE` → `BAD_REQUEST` `"No data found!"`.
-- Filters (`BISearch`): `categoryList`, `text` (title, max 100), `memberId` (one user's briefs, for their profile), `briefStatus`.
-- Sorts: `createdAt` (default), `updatedAt`, `briefViews`, `briefBudget`, `briefDeadline`. Briefs **without** a budget / deadline are always listed last, in both directions.
+- Filters (`BISearch`): `categoryList`, `budgetTypeList` (`FIXED`, `OPEN_TO_OFFERS`; D-44), `text` (title, max 100), `memberId` (one user's briefs, for their profile), `briefStatus`, `hidePastDeadline` (D-44: leaves out `OPEN` briefs whose deadline has passed).
+- Sorts: `createdAt` (default), `updatedAt`, `briefViews`, `briefComments` (ties by views), `briefBudget`, `briefDeadline`. Briefs **without** a budget / deadline are always listed last, in both directions. `briefDeadline` `ASC` lists upcoming deadlines (soonest first), then passed ones, then none (D-44).
 
 **Fields** (`Brief`)
 
@@ -655,6 +656,14 @@ On update: leave a field out to keep it; `null` clears `briefBudget` / `briefDea
 - Each group ignores its own filter: category counts use every filter except `categoryList`, pricing counts every filter except `pricingList`. "All" = the sum of the category counts.
 - With `pricesRange`, `FREE` and `CUSTOM` count `0` (D-03). `start > end` → `BAD_REQUEST` `INVALID_PRICE_RANGE`, as in `getProducts`.
 - Send it as its own query next to `getProducts`: it does not depend on `page` or `sort`, so Apollo reuses it when only those change.
+
+**Filters, counts and the live badge for /briefs (D-44)**
+
+- `getBriefFacets(input: BISearch)` → `{ categories { value count } budgetTypes { value count } statuses { value count } }`. Public. Same input object as `getBriefs(input: { search })`.
+- Every value comes back in enum order, `0` when nothing matches; `statuses` has `OPEN` and `CLOSED` only. Each group ignores its own filter (categories without `categoryList`, budget types without `budgetTypeList`, statuses without `briefStatus`). `hidePastDeadline` changes the `OPEN` counts only.
+- `getOpenBriefStats` → `{ openNow budgetTotal }`. Public, no input, ignores the visitor's filters: `OPEN` briefs whose deadline has not passed, and the sum of their fixed budgets (USD, rounded to cents). Hide the badge when `openNow` is `0`, and the budget part when `budgetTotal` is `0`.
+- A brief stays `OPEN` after its deadline (nothing closes it yet). Send `hidePastDeadline: true` with the Open tab by default, and show the "past deadline" state from `briefDeadline` when it is off.
+- Send `getBriefs`, `getBriefFacets` and `getOpenBriefStats` as separate queries: the counts don't depend on `page` or `sort`, and the badge doesn't depend on any filter.
 
 **Who viewed your profile (D-42)**
 
