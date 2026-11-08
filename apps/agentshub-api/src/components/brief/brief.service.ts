@@ -20,6 +20,7 @@ import { ViewInput } from '../../libs/dto/view/view.input';
 import { MemberService } from '../member/member.service';
 import { ViewService } from '../view/view.service';
 import { describeDbError } from '../../libs/utils';
+import { MemberType } from '../../libs/enums/member.enum';
 
 @Injectable()
 export class BriefService {
@@ -52,7 +53,11 @@ export class BriefService {
 		return result;
 	}
 
-	public async getBrief(memberId: ObjectId | null, briefId: ObjectId): Promise<Brief> {
+	public async getBrief(
+		memberId: ObjectId | null,
+		briefId: ObjectId,
+		viewerType: MemberType | null = null,
+	): Promise<Brief> {
 		const targetBrief = await this.briefModel.findOne({ _id: briefId }).lean().exec();
 		// a brief the caller may not see gets the same answer as a missing one (D-30)
 		if (!targetBrief || !this.isBriefVisible(targetBrief)) throw new NotFoundException(Message.NO_DATA_FOUND);
@@ -61,7 +66,7 @@ export class BriefService {
 		const isOpen = targetBrief.briefStatus === BriefStatus.OPEN;
 		if (memberId && isOpen && !memberId.equals(targetBrief.memberId)) {
 			const viewInput: ViewInput = { memberId: memberId, viewRefId: briefId, viewGroup: ViewGroup.BRIEF };
-			const newView = await this.viewService.recordView(viewInput);
+			const newView = await this.viewService.recordView(viewInput, viewerType); // admins' views never count (D-42)
 			if (newView) {
 				await this.briefStatsEditor({ _id: briefId, targetKey: 'briefViews', modifier: 1 });
 				targetBrief.briefViews++;

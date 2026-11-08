@@ -959,3 +959,23 @@
   - Images stored before this: `npm run optimize:uploads` (dry run by default, `--apply` writes) re-encodes files over 1600 px, with metadata, or over 500 KB, in place, keeping their name and format, so no document changes. Run on the dev data: 8 files, 35.7 MB → 1.2 MB; originals kept in `uploads/_backup-d41/` until checked (delete them then: `/uploads` is served publicly and they still carry EXIF/GPS).
 - **Reason:** Small, upright, metadata-free images for every client, from one place on the server — what most image-heavy sites do.
 - **Consequence:** A new dependency, `sharp` (prebuilt binaries per platform; run `npm install` on each machine). Uploads cost a little CPU on the API once, instead of `next/image` decoding the originals again and again. Supersedes the 15 MB limit of D-36; the rest of D-36 stands.
+
+## D-42 — "Who viewed your profile", with private browsing
+
+**Status:** Proposed
+
+- **Context:** Every signed-in visit of a profile is already stored in `views` (`viewGroup: MEMBER`, `viewRefId` = profile, `memberId` = visitor), but only used to count `memberViews`. Members asked to see who visited them. A visitor does not expect to be named to the profile owner, so this is a privacy decision, not only a query.
+- **Options:**
+  - **A. Only a count and a split** (e.g. "12 members, 5 creators"): no names, little privacy risk.
+  - **B. Names, with a private-browsing setting** (LinkedIn style): the owner sees visitors; a member can browse privately and is then only counted.
+  - **C. Names without any opt-out.**
+- **Decision:** Option B, kept small for the MVP:
+  - New `Member.memberBrowsePrivately` (default `false`), set with `updateMember`. Only the member themself reads it (`MemberContactResolver`); everyone else gets `null`, so nobody can tell who browses privately.
+  - New query `getProfileVisitors(input: OrdinaryInquiry): ProfileVisitors` for USER and CREATOR (`RolesGuard`; admins have no public profile). It returns `list { _id visitor visitedAt }`, `metaCounter` and `privateCount`: visits of the caller's profile in the last **90 days** (`profileVisitorsWindowDays`), latest visit first. Deleted visitors are left out (D-38) and so are admins. Visitors with `memberBrowsePrivately` are only counted in `privateCount`.
+  - The private check uses the visitor's **current** setting, not the setting at the time of the visit (simpler; accepted for the MVP). Turning private browsing off therefore reveals earlier visits again, within the 90 days.
+  - Private browsers can still see their own visitors (no LinkedIn-style reciprocity rule in the MVP).
+  - An ADMIN's views are never recorded, on profiles, products, briefs and articles (`ViewService.recordView`): moderation must not inflate counters or appear as a visit.
+  - `visitedAt` is the view's `updatedAt`, which only means "the latest visit" since B24.
+- **Reason:** The data exists already; the opt-out keeps the feature honest towards visitors at a small cost (one field, one check). Option A would answer less, option C would expose people who never agreed to it.
+- **Consequence:** A new index `views { viewRefId: 1, viewGroup: 1, updatedAt: -1 }`. Existing members have no `memberBrowsePrivately` field, which reads as `false`; no migration. The privacy policy page should say that signed-in visits of a profile are shown to its owner unless private browsing is on.
+

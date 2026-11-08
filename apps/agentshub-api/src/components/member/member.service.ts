@@ -21,6 +21,8 @@ import { Direction, Message } from '../../libs/enums/common.enum';
 import { AuthService } from '../auth/auth.service';
 import { MemberUpdate, MemberUpdateByAdmin } from '../../libs/dto/member/member.update';
 import { ViewService } from '../view/view.service';
+import { ProfileVisitors } from '../../libs/dto/view/view';
+import { OrdinaryInquiry } from '../../libs/dto/common.input';
 import { ViewGroup } from '../../libs/enums/view.enum';
 import { T } from '../../libs/types/common';
 import type { ObjectId, StatisticModifier } from '../../libs/types/common';
@@ -147,7 +149,11 @@ export class MemberService {
 			.exec();
 	}
 
-	public async getMember(memberId: ObjectId | null, targetId: ObjectId): Promise<Member> {
+	public async getMember(
+		memberId: ObjectId | null,
+		targetId: ObjectId,
+		viewerType: MemberType | null = null,
+	): Promise<Member> {
 		const search = {
 			_id: targetId,
 			memberStatus: {
@@ -160,10 +166,10 @@ export class MemberService {
 
 		// if (targetMember.memberStatus === MemberStatus.BLOCK) throw new InternalServerErrorException(Message.BLOCKED_USER);
 		if (memberId) {
-			// record view, increase View (own profile views don't count, D-22)
+			// record view, increase View (own profile views don't count, D-22; admins' never do, D-42)
 			const isOwnProfile = memberId.equals(targetId);
 			const viewInput = { memberId: memberId, viewRefId: targetId, viewGroup: ViewGroup.MEMBER };
-			const newView = isOwnProfile ? null : await this.viewService.recordView(viewInput);
+			const newView = isOwnProfile ? false : await this.viewService.recordView(viewInput, viewerType);
 			if (newView) {
 				await this.memberModel.findOneAndUpdate(search, { $inc: { memberViews: 1 } }, { new: true }).exec();
 				targetMember.memberViews++;
@@ -177,6 +183,11 @@ export class MemberService {
 			targetMember.meFollowed = await this.checkSubscription(memberId, targetId);
 		}
 		return targetMember;
+	}
+
+	/** D-42: who opened my profile lately (private browsers only counted). */
+	public async getProfileVisitors(memberId: ObjectId, input: OrdinaryInquiry): Promise<ProfileVisitors> {
+		return await this.viewService.getProfileVisitors(memberId, input);
 	}
 
 	private async checkSubscription(followerId: ObjectId, followingId: ObjectId): Promise<MeFollowed[]> {

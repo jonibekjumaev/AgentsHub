@@ -350,6 +350,96 @@ describe('AgentsHub API (e2e smoke)', () => {
 		});
 	});
 
+	describe('who viewed your profile (D-42, B24)', () => {
+		const visitor = { _id: '', token: '' };
+		const moderator = { _id: '', token: '' };
+		type Visitors = {
+			getProfileVisitors: {
+				list: Array<{ visitor: { memberNick: string; memberBrowsePrivately: boolean | null }; visitedAt: string }>;
+				metaCounter: Array<{ total: number }>;
+				privateCount: number;
+			};
+		};
+		const visitorsOf = (token?: string) =>
+			gql<Visitors>(
+				app,
+				`query ($input: OrdinaryInquiry!) { getProfileVisitors(input: $input) {
+					list { visitor { memberNick memberBrowsePrivately } visitedAt } metaCounter { total } privateCount } }`,
+				{ input: { page: 1, limit: 20 } },
+				token,
+			);
+		const profileViews = async () =>
+			(
+				await gql<{ getMember: { memberViews: number } }>(
+					app,
+					`query ($id: String!) { getMember(memberId: $id) { memberViews } }`,
+					{ id: creator._id },
+				)
+			).data!.getMember.memberViews;
+		const visitOf = (list: Visitors['getProfileVisitors']['list'], nick: string) =>
+			list.find((item) => item.visitor.memberNick === nick);
+
+		beforeAll(async () => {
+			const visitorSignup = await signup('e2e_visitor', 'USER', '+998900000011');
+			Object.assign(visitor, visitorSignup.data!.signup);
+			visitor.token = visitorSignup.data!.signup.accessToken;
+
+			// admins are created by script only (D-14): promote a member in the DB, then log in for an ADMIN token
+			const moderatorSignup = await signup('e2e_mod', 'USER', '+998900000012');
+			moderator._id = moderatorSignup.data!.signup._id;
+			await connection.collection('members').updateOne({ memberNick: 'e2e_mod' }, { $set: { memberType: 'ADMIN' } });
+			moderator.token = (await login('e2e_mod')).data!.login.accessToken;
+		});
+
+		it('a repeat visit counts once but moves the visit to "now" (B24)', async () => {
+			const before = await profileViews();
+			await getMember(creator._id, visitor.token);
+			const first = visitOf((await visitorsOf(creator.token)).data!.getProfileVisitors.list, 'e2e_visitor');
+
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			await getMember(creator._id, visitor.token);
+			const second = visitOf((await visitorsOf(creator.token)).data!.getProfileVisitors.list, 'e2e_visitor');
+
+			expect(await profileViews()).toBe(before + 1);
+			expect(first).toBeDefined();
+			expect(new Date(second!.visitedAt).getTime()).toBeGreaterThan(new Date(first!.visitedAt).getTime());
+		});
+
+		it("the owner sees the visitor, but not the visitor's private setting", async () => {
+			const visitors = (await visitorsOf(creator.token)).data!.getProfileVisitors;
+
+			expect(visitOf(visitors.list, 'e2e_visitor')).toMatchObject({ visitor: { memberBrowsePrivately: null } });
+			expect(visitors.privateCount).toBe(0);
+		});
+
+		it("an ADMIN's visit is never recorded or counted, and admins have no visitors page", async () => {
+			const before = await profileViews();
+			await getMember(creator._id, moderator.token);
+
+			expect(await profileViews()).toBe(before);
+			expect(visitOf((await visitorsOf(creator.token)).data!.getProfileVisitors.list, 'e2e_mod')).toBeUndefined();
+			expect(onlyError(await visitorsOf(moderator.token)).code).toBe('FORBIDDEN');
+		});
+
+		it('a guest → UNAUTHENTICATED', async () => {
+			expect(onlyError(await visitorsOf()).code).toBe('UNAUTHENTICATED');
+		});
+
+		it('browsing privately hides the visitor from the list; they are only counted', async () => {
+			const update = await gql<{ updateMember: { memberBrowsePrivately: boolean } }>(
+				app,
+				`mutation ($input: MemberUpdate!) { updateMember(input: $input) { memberBrowsePrivately } }`,
+				{ input: { memberBrowsePrivately: true } },
+				visitor.token,
+			);
+			const visitors = (await visitorsOf(creator.token)).data!.getProfileVisitors;
+
+			expect(update.data).toEqual({ updateMember: { memberBrowsePrivately: true } });
+			expect(visitOf(visitors.list, 'e2e_visitor')).toBeUndefined();
+			expect(visitors.privateCount).toBe(1);
+		});
+	});
+
 	describe('comments of a deleted member (D-38)', () => {
 		let commentId = '';
 		const memberComments = () =>

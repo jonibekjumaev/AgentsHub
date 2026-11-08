@@ -31,10 +31,11 @@ export class BriefResolver {
 	public async getBrief(
 		@Args('briefId', ObjectIdPipe) input: string,
 		@AuthMember('_id') memberId: ObjectId,
+		@AuthMember('memberType') memberType: MemberType,
 	): Promise<Brief> {
 		console.log('Query: getBrief');
 		const briefId = shapeInToMongoObjectId(input);
-		return await this.briefService.getBrief(memberId, briefId);
+		return await this.briefService.getBrief(memberId, briefId, memberType);
 	}
 
 	@UseGuards(WithoutGuard)

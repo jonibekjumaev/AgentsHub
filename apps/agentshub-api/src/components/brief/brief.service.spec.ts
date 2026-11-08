@@ -10,6 +10,7 @@ import { AgentCategory } from '../../libs/enums/agent-category.enum';
 import { BriefStatus } from '../../libs/enums/brief.enum';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { ViewGroup } from '../../libs/enums/view.enum';
+import { MemberType } from '../../libs/enums/member.enum';
 import { StatisticModifier } from '../../libs/types/common';
 import { MemberService } from '../member/member.service';
 import { ViewService } from '../view/view.service';
@@ -48,7 +49,7 @@ describe('BriefService', () => {
 			getMember: jest.fn().mockResolvedValue({ _id: ownerId, memberNick: 'owner' }),
 			getAuthorData: jest.fn().mockResolvedValue({ _id: ownerId, memberNick: 'owner' }),
 		};
-		viewService = { recordView: jest.fn().mockResolvedValue(null) };
+		viewService = { recordView: jest.fn().mockResolvedValue(false) };
 
 		const moduleRef = await Test.createTestingModule({
 			providers: [
@@ -439,14 +440,13 @@ describe('BriefService', () => {
 
 		it("another member's first view of an OPEN brief is recorded and counted once", async () => {
 			briefModel.resolve('findOne', fullBrief()).resolve('findByIdAndUpdate', fullBrief());
-			viewService.recordView.mockResolvedValue({ _id: new Types.ObjectId() });
-			const result = await service.getBrief(otherId, briefId);
+			viewService.recordView.mockResolvedValue(true);
+			const result = await service.getBrief(otherId, briefId, MemberType.USER);
 
-			expect(viewService.recordView).toHaveBeenCalledWith({
-				memberId: otherId,
-				viewRefId: briefId,
-				viewGroup: ViewGroup.BRIEF,
-			});
+			expect(viewService.recordView).toHaveBeenCalledWith(
+				{ memberId: otherId, viewRefId: briefId, viewGroup: ViewGroup.BRIEF },
+				MemberType.USER,
+			);
 			expect(briefModel.findByIdAndUpdate).toHaveBeenCalledWith(briefId, { $inc: { briefViews: 1 } }, { new: true });
 			expect(result.briefViews).toBe(4);
 		});

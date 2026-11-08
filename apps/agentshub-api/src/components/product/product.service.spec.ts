@@ -64,7 +64,7 @@ describe('ProductService', () => {
 			getMember: jest.fn().mockResolvedValue({ _id: ownerId, memberNick: 'owner' }),
 			getAuthorData: jest.fn().mockResolvedValue({ _id: ownerId, memberNick: 'owner' }),
 		};
-		viewService = { recordView: jest.fn().mockResolvedValue(null) };
+		viewService = { recordView: jest.fn().mockResolvedValue(false) };
 		likeService = { checkLikeExistence: jest.fn().mockResolvedValue([]), toggleLike: jest.fn().mockResolvedValue(1) };
 
 		const moduleRef = await Test.createTestingModule({
@@ -445,14 +445,13 @@ describe('ProductService', () => {
 
 		it("another member's first view is recorded and counted once", async () => {
 			productModel.resolve('findOne', fullProduct()).resolve('findByIdAndUpdate', fullProduct());
-			viewService.recordView.mockResolvedValue({ _id: new Types.ObjectId() });
+			viewService.recordView.mockResolvedValue(true);
 			const result = await service.getProduct(otherId, MemberType.USER, productId);
 
-			expect(viewService.recordView).toHaveBeenCalledWith({
-				memberId: otherId,
-				viewRefId: productId,
-				viewGroup: ViewGroup.PRODUCT,
-			});
+			expect(viewService.recordView).toHaveBeenCalledWith(
+				{ memberId: otherId, viewRefId: productId, viewGroup: ViewGroup.PRODUCT },
+				MemberType.USER,
+			);
 			expect(productModel.findByIdAndUpdate).toHaveBeenCalledWith(
 				productId,
 				{ $inc: { productViews: 1 } },

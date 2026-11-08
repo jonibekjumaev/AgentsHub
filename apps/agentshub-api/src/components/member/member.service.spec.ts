@@ -64,7 +64,7 @@ describe('MemberService', () => {
 			),
 			createToken: jest.fn<Promise<string>, [Member]>().mockResolvedValue('signed.jwt.token'),
 		};
-		viewService = { recordView: jest.fn().mockResolvedValue(null) };
+		viewService = { recordView: jest.fn().mockResolvedValue(false) };
 		likeService = { checkLikeExistence: jest.fn().mockResolvedValue([]), toggleLike: jest.fn().mockResolvedValue(1) };
 
 		const moduleRef = await Test.createTestingModule({
@@ -277,14 +277,13 @@ describe('MemberService', () => {
 
 		it("another member's first view is recorded and counted once", async () => {
 			memberModel.resolve('findOne', memberDocument());
-			viewService.recordView.mockResolvedValue({ _id: new Types.ObjectId() });
-			const result = await service.getMember(otherId, memberId);
+			viewService.recordView.mockResolvedValue(true);
+			const result = await service.getMember(otherId, memberId, MemberType.USER);
 
-			expect(viewService.recordView).toHaveBeenCalledWith({
-				memberId: otherId,
-				viewRefId: memberId,
-				viewGroup: ViewGroup.MEMBER,
-			});
+			expect(viewService.recordView).toHaveBeenCalledWith(
+				{ memberId: otherId, viewRefId: memberId, viewGroup: ViewGroup.MEMBER },
+				MemberType.USER,
+			);
 			expect(memberModel.findOneAndUpdate).toHaveBeenCalledWith(
 				expect.objectContaining({ _id: memberId }),
 				{ $inc: { memberViews: 1 } },
