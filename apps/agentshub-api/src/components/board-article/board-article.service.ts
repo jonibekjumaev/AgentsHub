@@ -1,22 +1,31 @@
 import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { BoardArticle, BoardArticles } from '../../libs/dto/board-article/board-article';
-import { Model } from 'mongoose';
+import {
+	ArticleFacets,
+	ArticleWriter,
+	BoardArticle,
+	BoardArticles,
+	CommunityStats,
+} from '../../libs/dto/board-article/board-article';
+import { Model, PipelineStage } from 'mongoose';
 import { MemberService } from '../member/member.service';
 import type { ObjectId, StatisticModifier, T } from '../../libs/types/common';
 import {
 	AllBoardArticlesInquiry,
+	BAISearch,
 	BoardArticleInput,
 	BoardArticlesInquiry,
 } from '../../libs/dto/board-article/board-article.input';
 import { Direction, Message } from '../../libs/enums/common.enum';
-import { BoardArticleStatus } from '../../libs/enums/board-article.enum';
+import { BoardArticleCategory, BoardArticleStatus } from '../../libs/enums/board-article.enum';
 import { ViewInput } from '../../libs/dto/view/view.input';
 import { ViewGroup } from '../../libs/enums/view.enum';
 import { ViewService } from '../view/view.service';
 import { BoardArticleUpdate } from '../../libs/dto/board-article/board-article.update';
 import {
+	communityTopWritersLimit,
 	escapeRegex,
+	excludeMemberSecrets,
 	lookupAuthMemberLiked,
 	lookupMember,
 	shapeInToMongoObjectId,
@@ -26,7 +35,9 @@ import { describeDbError } from '../../libs/utils';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { LikeService, withMeLiked } from '../like/like.service';
-import { MemberType } from '../../libs/enums/member.enum';
+import { MemberStatus, MemberType } from '../../libs/enums/member.enum';
+
+type FacetRow = { _id: BoardArticleCategory; count: number };
 
 @Injectable()
 export class BoardArticleService {
@@ -106,15 +117,11 @@ export class BoardArticleService {
 	}
 
 	public async getBoardArticles(memberId: ObjectId, input: BoardArticlesInquiry): Promise<BoardArticles> {
-		const { articleCategory, text } = input.search;
-		const match: T = { articleStatus: BoardArticleStatus.ACTIVE };
-		const sort: T = { [input?.sort ?? 'createdAt']: input?.direction ?? Direction.DESC };
-
-		if (articleCategory) match.articleCategory = articleCategory;
-		if (text) match.articleTitle = { $regex: new RegExp(escapeRegex(text), 'i') };
-		if (input.search?.memberId) {
-			match.memberId = shapeInToMongoObjectId(input.search.memberId);
-		}
+		const match = await this.articleSearchMatch(input.search);
+		if (input.search.articleCategory) match.articleCategory = input.search.articleCategory;
+		// D-46: the newest _id breaks ties, so a page never repeats or skips an article (many have 0 likes or comments)
+		const direction = input?.direction ?? Direction.DESC;
+		const sort: Record<string, 1 | -1> = { [input?.sort ?? 'createdAt']: direction, _id: Direction.DESC };
 
 		const result = await this.boardArticleModel
 			.aggregate([
@@ -139,6 +146,82 @@ export class BoardArticleService {
 		if (!result.length) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
 
 		return result[0] as BoardArticles;
+	}
+
+	/**
+	 * D-46: live counts for the /community topic bar, with the same rules as getBoardArticles. The topic counts ignore
+	 * `articleCategory` itself (D-43 rule), and `all` is the "All" option: the same articles, every topic.
+	 */
+	public async getArticleFacets(search: BAISearch): Promise<ArticleFacets> {
+		const match = await this.articleSearchMatch(search);
+		const result = await this.boardArticleModel
+			.aggregate<{ categories: FacetRow[] }>([
+				{ $match: match },
+				{ $facet: { categories: [{ $group: { _id: '$articleCategory', count: { $sum: 1 } } }] } },
+			])
+			.exec();
+		const rows = result[0]?.categories ?? [];
+
+		const categories = Object.values(BoardArticleCategory).map((value) => ({
+			value,
+			count: rows.find((row) => row._id === value)?.count ?? 0,
+		}));
+		// an article has one topic, so "All" is the sum (unlike creators, D-45)
+		return { categories, all: categories.reduce((sum, facet) => sum + facet.count, 0) };
+	}
+
+	/**
+	 * D-46: the /community hero and "Active writers", site-wide. `articles` counts every ACTIVE article (what the
+	 * feed lists, D-38 keeps a deleted or blocked author's articles listed). Writers are ACTIVE members only: a
+	 * blocked or deleted member is not promoted. Ranked by the likes on their articles, then the number of
+	 * articles, then the newest article.
+	 */
+	public async getCommunityStats(): Promise<CommunityStats> {
+		const writerStages: PipelineStage.FacetPipelineStage[] = [
+			{
+				$group: {
+					_id: '$memberId',
+					articles: { $sum: 1 },
+					likes: { $sum: '$articleLikes' },
+					latestAt: { $max: '$createdAt' },
+				},
+			},
+			{
+				$lookup: {
+					from: 'members',
+					localField: '_id',
+					foreignField: '_id',
+					pipeline: [{ $match: { memberStatus: MemberStatus.ACTIVE } }, excludeMemberSecrets],
+					as: 'memberData',
+				},
+			},
+			// a plain $unwind on purpose: writers who are not ACTIVE drop out
+			{ $unwind: '$memberData' },
+		];
+
+		const result = await this.boardArticleModel
+			.aggregate<{ articles: { n: number }[]; writers: { n: number }[]; topWriters: ArticleWriter[] }>([
+				{ $match: { articleStatus: BoardArticleStatus.ACTIVE } },
+				{
+					$facet: {
+						articles: [{ $count: 'n' }],
+						writers: [...writerStages, { $count: 'n' }],
+						topWriters: [
+							...writerStages,
+							{ $sort: { likes: -1, articles: -1, latestAt: -1 } },
+							{ $limit: communityTopWritersLimit },
+							{ $project: { _id: 0, memberData: 1, articles: 1, likes: 1 } },
+						],
+					},
+				},
+			])
+			.exec();
+		const stats = result[0];
+		return {
+			articles: stats?.articles[0]?.n ?? 0,
+			writers: stats?.writers[0]?.n ?? 0,
+			topWriters: stats?.topWriters ?? [],
+		};
 	}
 
 	public async likeTargetBoardArticle(memberId: ObjectId, likeRefId: ObjectId): Promise<BoardArticle> {
@@ -240,5 +323,27 @@ export class BoardArticleService {
 	 */
 	public isBoardArticleVisible(article: Pick<BoardArticle, 'articleStatus'>): boolean {
 		return article.articleStatus === BoardArticleStatus.ACTIVE;
+	}
+
+	/**
+	 * The public article filters every group shares: ACTIVE, the author's profile (`memberId`) and the text search.
+	 * D-46: the text matches the title, the content, or the author's nick / full name (S8: escaped regex).
+	 * `articleCategory` is left to the caller, so the topic counts can ignore it.
+	 */
+	private async articleSearchMatch(search: BAISearch): Promise<T> {
+		const match: T = { articleStatus: BoardArticleStatus.ACTIVE };
+		if (search.memberId) match.memberId = shapeInToMongoObjectId(search.memberId);
+
+		const text = search.text?.trim();
+		if (text) {
+			const pattern = new RegExp(escapeRegex(text), 'i');
+			const authorIds = await this.memberService.findMemberIdsByName(text);
+			match.$or = [
+				{ articleTitle: pattern },
+				{ articleContent: pattern },
+				...(authorIds.length ? [{ memberId: { $in: authorIds } }] : []),
+			];
+		}
+		return match;
 	}
 }

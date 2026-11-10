@@ -6,6 +6,7 @@ import BriefSchema from '../../schemas/Brief.model';
 import { AuthModule } from '../auth/auth.module';
 import { MemberModule } from '../member/member.module';
 import { ViewModule } from '../view/view.module';
+import { SaveModule } from '../save/save.module';
 
 @Module({
 	imports: [
@@ -18,6 +19,7 @@ import { ViewModule } from '../view/view.module';
 		AuthModule,
 		MemberModule,
 		ViewModule,
+		SaveModule,
 	],
 
 	providers: [BriefResolver, BriefService],

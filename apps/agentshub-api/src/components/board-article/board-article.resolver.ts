@@ -2,9 +2,10 @@ import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { BoardArticleService } from './board-article.service';
 import { UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/guards/auth.guard';
-import { BoardArticle, BoardArticles } from '../../libs/dto/board-article/board-article';
+import { ArticleFacets, BoardArticle, BoardArticles, CommunityStats } from '../../libs/dto/board-article/board-article';
 import {
 	AllBoardArticlesInquiry,
+	BAISearch,
 	BoardArticleInput,
 	BoardArticlesInquiry,
 } from '../../libs/dto/board-article/board-article.input';
@@ -63,6 +64,22 @@ export class BoardArticleResolver {
 	): Promise<BoardArticles> {
 		console.log('Query: getBoardArticles');
 		return await this.boardArticleService.getBoardArticles(memberId, input);
+	}
+
+	/** D-46: live counts for the /community topic bar; the same search object as getBoardArticles. */
+	@UseGuards(WithoutGuard)
+	@Query(() => ArticleFacets)
+	public async getArticleFacets(@Args('input') input: BAISearch): Promise<ArticleFacets> {
+		console.log('Query: getArticleFacets');
+		return await this.boardArticleService.getArticleFacets(input);
+	}
+
+	/** D-46: the /community hero numbers and "Active writers" (site-wide, no filters). */
+	@UseGuards(WithoutGuard)
+	@Query(() => CommunityStats)
+	public async getCommunityStats(): Promise<CommunityStats> {
+		console.log('Query: getCommunityStats');
+		return await this.boardArticleService.getCommunityStats();
 	}
 
 	@UseGuards(AuthGuard)

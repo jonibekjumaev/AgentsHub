@@ -153,6 +153,20 @@ export class MemberService {
 			.exec();
 	}
 
+	/**
+	 * D-46: the ids of members (not deleted) whose nick or full name contains the text, for the community search by
+	 * author. Only the ids: the article search adds them as one `memberId: { $in }` branch.
+	 */
+	public async findMemberIdsByName(text: string): Promise<ObjectId[]> {
+		const pattern = new RegExp(escapeRegex(text), 'i');
+		const members = await this.memberModel
+			.find({ memberStatus: { $ne: MemberStatus.DELETE }, $or: [{ memberNick: pattern }, { memberFullName: pattern }] })
+			.select('_id')
+			.lean<Array<{ _id: ObjectId }>>()
+			.exec();
+		return members.map((member) => member._id);
+	}
+
 	public async getMember(
 		memberId: ObjectId | null,
 		targetId: ObjectId,

@@ -69,3 +69,15 @@ describe('BoardArticlesInquiry validates its nested search (B16)', () => {
 		]);
 	});
 });
+
+describe('BoardArticlesInquiry sort values (D-46)', () => {
+	const inquiry = { page: 1, limit: 10, search: {} };
+
+	it.each(['createdAt', 'updatedAt', 'articleLikes', 'articleViews', 'articleComments'])('accepts %s', async (sort) => {
+		expect(await invalidFields(BoardArticlesInquiry, { ...inquiry, sort })).toEqual([]);
+	});
+
+	it('rejects an unknown sort', async () => {
+		expect(await invalidFields(BoardArticlesInquiry, { ...inquiry, sort: 'articleRank' })).toEqual(['sort']);
+	});
+});

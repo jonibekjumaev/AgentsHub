@@ -12,24 +12,33 @@ import {
 	MyBriefsInquiry,
 } from '../../libs/dto/brief/brief.input';
 import { BriefUpdate } from '../../libs/dto/brief/brief.update';
-import { BriefBudgetType, BriefStatus } from '../../libs/enums/brief.enum';
+import { BriefBudgetType, BriefStatus, visibleBriefStatuses } from '../../libs/enums/brief.enum';
 import { AgentCategory } from '../../libs/enums/agent-category.enum';
 import { Direction, Message } from '../../libs/enums/common.enum';
-import { escapeRegex, lookupMember, shapeInToMongoObjectId, unwindKeepingItem } from '../../libs/config';
+import {
+	canSaveBriefs,
+	escapeRegex,
+	lookupAuthMemberSaved,
+	lookupMember,
+	shapeInToMongoObjectId,
+	unwindKeepingItem,
+} from '../../libs/config';
 import { ViewGroup } from '../../libs/enums/view.enum';
 import { ObjectId, StatisticModifier, T } from '../../libs/types/common';
 import { ViewInput } from '../../libs/dto/view/view.input';
 import { MemberService } from '../member/member.service';
 import { ViewService } from '../view/view.service';
+import { SaveService } from '../save/save.service';
 import { describeDbError } from '../../libs/utils';
 import { MemberType } from '../../libs/enums/member.enum';
+import { OrdinaryInquiry } from '../../libs/dto/common.input';
 
 type FacetRow = { _id: string; count: number };
 
 const countOf = (rows: FacetRow[], value: string): number => rows.find((row) => row._id === value)?.count ?? 0;
 
 /** The statuses the public lists and counts show (D-30); DELETE never. */
-const listedStatuses = [BriefStatus.OPEN, BriefStatus.CLOSED];
+const listedStatuses = visibleBriefStatuses;
 
 /** D-44: a deadline has passed when it is not later than now (the D-05 rule, turned around). */
 const notPastDeadline = (now: Date): T => ({ briefDeadline: { $not: { $lte: now } } });
@@ -43,6 +52,7 @@ export class BriefService {
 		@InjectModel('Brief') private readonly briefModel: Model<Brief>,
 		private memberService: MemberService,
 		private viewService: ViewService,
+		private saveService: SaveService,
 	) {}
 
 	public async createBrief(input: BriefInput): Promise<Brief> {
@@ -88,6 +98,12 @@ export class BriefService {
 			}
 		}
 
+		// D-47: meSaved for a USER or CREATOR (never their own brief: it can't be saved); null for guests and admins
+		if (memberId && canSaveBriefs(viewerType)) {
+			const isOwnBrief = memberId.equals(targetBrief.memberId);
+			targetBrief.meSaved = isOwnBrief ? false : await this.saveService.isBriefSaved(memberId, briefId);
+		}
+
 		targetBrief.memberData = (await this.memberService.getAuthorData(targetBrief.memberId)) ?? undefined; // D-38
 		return targetBrief;
 	}
@@ -96,8 +112,11 @@ export class BriefService {
 		return await this.applyBriefUpdate({ _id: input._id, memberId: memberId }, input);
 	}
 
-	/** D-30: the public list (also another member's profile) shows OPEN by default, or CLOSED on request; never DELETE. */
-	public async getBriefs(input: BriefsInquiry): Promise<Briefs> {
+	/**
+	 * D-30: the public list (also another member's profile) shows OPEN by default, or CLOSED on request; never DELETE.
+	 * `saverId` (D-47): a USER or CREATOR caller, whose `meSaved` is filled on each brief; null leaves it null.
+	 */
+	public async getBriefs(input: BriefsInquiry, saverId: ObjectId | null = null): Promise<Briefs> {
 		const { briefStatus } = input.search;
 		if (briefStatus === BriefStatus.DELETE) throw new BadRequestException(Message.NO_DATA_FOUND);
 
@@ -107,7 +126,7 @@ export class BriefService {
 		if (input.search.hidePastDeadline && match.briefStatus === BriefStatus.OPEN) {
 			Object.assign(match, notPastDeadline(new Date()));
 		}
-		return await this.aggregateBriefs(match, input);
+		return await this.aggregateBriefs(match, input, saverId ? lookupAuthMemberSaved(saverId) : []);
 	}
 
 	/**
@@ -221,7 +240,43 @@ export class BriefService {
 	public async removeBriefByAdmin(briefId: ObjectId): Promise<Brief> {
 		const result = await this.briefModel.findOneAndDelete({ _id: briefId, briefStatus: BriefStatus.DELETE }).exec();
 		if (!result) throw new NotFoundException(Message.REMOVE_FAILED);
+
+		// D-47: the brief's saves go with it. A failure here doesn't undo the removal: a save without its brief is
+		// already invisible (getSavedBriefs joins the brief), so it is logged, not reported as a failed remove
+		try {
+			await this.saveService.removeSavesOfBrief(briefId);
+		} catch (err) {
+			console.log('Error: removeSavesOfBrief', describeDbError(err));
+		}
 		return result;
+	}
+
+	/**
+	 * D-47: save a brief for later. Only a brief anyone can read (OPEN, CLOSED; D-30), never your own (the owner has
+	 * "My briefs"; D-22 principle). Idempotent: saving a saved brief changes nothing. Returns the brief with meSaved.
+	 */
+	public async saveBrief(memberId: ObjectId, briefId: ObjectId): Promise<Brief> {
+		const brief = await this.findSaveTarget(briefId);
+		if (memberId.equals(brief.memberId)) throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
+
+		await this.saveService.saveBrief(memberId, briefId);
+		return { ...brief, meSaved: true };
+	}
+
+	/**
+	 * D-47: the save is removed first, whatever the brief's state, so a bookmark of a brief deleted since can still be
+	 * cleared; then the answer follows saveBrief (NOT_FOUND for a brief nobody can read). Idempotent.
+	 */
+	public async unsaveBrief(memberId: ObjectId, briefId: ObjectId): Promise<Brief> {
+		await this.saveService.unsaveBrief(memberId, briefId);
+
+		const brief = await this.findSaveTarget(briefId);
+		return { ...brief, meSaved: false };
+	}
+
+	/** D-47: the caller's saved briefs (OPEN and CLOSED), latest saved first. */
+	public async getSavedBriefs(memberId: ObjectId, input: OrdinaryInquiry): Promise<Briefs> {
+		return await this.saveService.getSavedBriefs(memberId, input);
 	}
 
 	public async briefStatsEditor(input: StatisticModifier): Promise<Brief> {
@@ -246,6 +301,15 @@ export class BriefService {
 	 */
 	public isBriefVisible(brief: Pick<Brief, 'briefStatus'>): boolean {
 		return brief.briefStatus !== BriefStatus.DELETE;
+	}
+
+	/** D-47: the brief a save or unsave answers with: readable by anyone (D-30), with its author, and no view recorded. */
+	private async findSaveTarget(briefId: ObjectId): Promise<Brief> {
+		const brief = await this.briefModel.findOne({ _id: briefId }).lean().exec();
+		if (!brief || !this.isBriefVisible(brief)) throw new NotFoundException(Message.NO_DATA_FOUND);
+
+		brief.memberData = (await this.memberService.getAuthorData(brief.memberId)) ?? undefined; // D-38
+		return brief;
 	}
 
 	/** The search filters shared by the brief lists. Empty lists mean "no filter". */
@@ -311,10 +375,14 @@ export class BriefService {
 		return [{ $sort: { [sort]: direction, _id: -1 } }];
 	}
 
-	/** $match before $facet, so metaCounter counts only the matched statuses (D-16 principle). */
+	/**
+	 * $match before $facet, so metaCounter counts only the matched statuses (D-16 principle). `pageStages` run on the
+	 * page only, after $limit (e.g. the D-47 meSaved lookup).
+	 */
 	private async aggregateBriefs(
 		match: T,
 		input: { page: number; limit: number; sort?: string; direction?: Direction },
+		pageStages: PipelineStage.FacetPipelineStage[] = [],
 	): Promise<Briefs> {
 		const result = await this.briefModel
 			.aggregate([
@@ -325,6 +393,7 @@ export class BriefService {
 						list: [
 							{ $skip: (input.page - 1) * input.limit },
 							{ $limit: input.limit },
+							...pageStages,
 							lookupMember,
 							unwindKeepingItem('$memberData'),
 						],

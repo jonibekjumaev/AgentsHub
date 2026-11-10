@@ -14,6 +14,7 @@ import { MemberType } from '../../libs/enums/member.enum';
 import { StatisticModifier } from '../../libs/types/common';
 import { MemberService } from '../member/member.service';
 import { ViewService } from '../view/view.service';
+import { SaveService } from '../save/save.service';
 import { BriefService } from './brief.service';
 
 const { OPEN, CLOSED, DELETE } = BriefStatus;
@@ -45,6 +46,13 @@ describe('BriefService', () => {
 		getAuthorData: jest.Mock;
 	};
 	let viewService: { recordView: jest.Mock };
+	let saveService: {
+		saveBrief: jest.Mock;
+		unsaveBrief: jest.Mock;
+		isBriefSaved: jest.Mock;
+		removeSavesOfBrief: jest.Mock;
+		getSavedBriefs: jest.Mock;
+	};
 
 	beforeEach(async () => {
 		briefModel = createMockModel();
@@ -54,6 +62,13 @@ describe('BriefService', () => {
 			getAuthorData: jest.fn().mockResolvedValue({ _id: ownerId, memberNick: 'owner' }),
 		};
 		viewService = { recordView: jest.fn().mockResolvedValue(false) };
+		saveService = {
+			saveBrief: jest.fn().mockResolvedValue(undefined),
+			unsaveBrief: jest.fn().mockResolvedValue(undefined),
+			isBriefSaved: jest.fn().mockResolvedValue(false),
+			removeSavesOfBrief: jest.fn().mockResolvedValue(0),
+			getSavedBriefs: jest.fn().mockResolvedValue({ list: [], metaCounter: [] }),
+		};
 
 		const moduleRef = await Test.createTestingModule({
 			providers: [
@@ -61,6 +76,7 @@ describe('BriefService', () => {
 				{ provide: getModelToken('Brief'), useValue: briefModel },
 				{ provide: MemberService, useValue: memberService },
 				{ provide: ViewService, useValue: viewService },
+				{ provide: SaveService, useValue: saveService },
 			],
 		}).compile();
 		service = moduleRef.get(BriefService);
@@ -764,8 +780,146 @@ describe('BriefService', () => {
 			expect(memberService.memberStatsEditor).not.toHaveBeenCalled();
 		});
 
-		it('an OPEN, CLOSED or missing brief → NOT_FOUND REMOVE_FAILED', async () => {
+		it('an OPEN, CLOSED or missing brief → NOT_FOUND REMOVE_FAILED, and its saves stay', async () => {
 			await expectHttpError(service.removeBriefByAdmin(briefId), NotFoundException, Message.REMOVE_FAILED);
+			expect(saveService.removeSavesOfBrief).not.toHaveBeenCalled();
+		});
+
+		it("removes the brief's saves with it (D-47)", async () => {
+			briefModel.resolve('findOneAndDelete', fullBrief({ briefStatus: DELETE }));
+			await service.removeBriefByAdmin(briefId);
+
+			expect(saveService.removeSavesOfBrief).toHaveBeenCalledWith(briefId);
+		});
+
+		it('a failure to remove the saves does not fail the removal: a save without its brief is invisible (D-47)', async () => {
+			briefModel.resolve('findOneAndDelete', fullBrief({ briefStatus: DELETE }));
+			saveService.removeSavesOfBrief.mockRejectedValue(new Error('connection lost'));
+
+			await expect(service.removeBriefByAdmin(briefId)).resolves.toMatchObject({ _id: briefId });
+		});
+	});
+
+	describe('saved briefs (D-47)', () => {
+		describe('saveBrief', () => {
+			it.each([OPEN, CLOSED])('saves a %s brief and returns it with meSaved: true and its author', async (status) => {
+				briefModel.resolve('findOne', fullBrief({ briefStatus: status }));
+				const result = await service.saveBrief(otherId, briefId);
+
+				expect(saveService.saveBrief).toHaveBeenCalledWith(otherId, briefId);
+				expect(result).toMatchObject({ _id: briefId, briefStatus: status, meSaved: true });
+				expect(result.memberData).toEqual({ _id: ownerId, memberNick: 'owner' });
+			});
+
+			it('records no view: saving is not opening the brief', async () => {
+				briefModel.resolve('findOne', fullBrief());
+				await service.saveBrief(otherId, briefId);
+
+				expect(viewService.recordView).not.toHaveBeenCalled();
+				expect(briefModel.findByIdAndUpdate).not.toHaveBeenCalled();
+			});
+
+			it.each([
+				['a deleted brief (D-30)', fullBrief({ briefStatus: DELETE })],
+				['a missing brief', null],
+			])('%s → NOT_FOUND NO_DATA_FOUND, nothing saved', async (_label, stored) => {
+				briefModel.resolve('findOne', stored);
+
+				await expectHttpError(service.saveBrief(otherId, briefId), NotFoundException, Message.NO_DATA_FOUND);
+				expect(saveService.saveBrief).not.toHaveBeenCalled();
+			});
+
+			it('your own brief → BAD_REQUEST NOT_ALLOWED_REQUEST, nothing saved (D-22 principle)', async () => {
+				briefModel.resolve('findOne', fullBrief());
+
+				await expectHttpError(service.saveBrief(ownerId, briefId), BadRequestException, Message.NOT_ALLOWED_REQUEST);
+				expect(saveService.saveBrief).not.toHaveBeenCalled();
+			});
+		});
+
+		describe('unsaveBrief', () => {
+			it('removes the save and returns the brief with meSaved: false', async () => {
+				briefModel.resolve('findOne', fullBrief({ briefStatus: CLOSED }));
+				const result = await service.unsaveBrief(otherId, briefId);
+
+				expect(saveService.unsaveBrief).toHaveBeenCalledWith(otherId, briefId);
+				expect(result).toMatchObject({ _id: briefId, meSaved: false });
+			});
+
+			it('a brief deleted since it was saved: the save is still removed, then NOT_FOUND', async () => {
+				briefModel.resolve('findOne', fullBrief({ briefStatus: DELETE }));
+
+				await expectHttpError(service.unsaveBrief(otherId, briefId), NotFoundException, Message.NO_DATA_FOUND);
+				expect(saveService.unsaveBrief).toHaveBeenCalledWith(otherId, briefId);
+			});
+		});
+
+		it("getSavedBriefs returns the caller's saved list", async () => {
+			const input = { page: 1, limit: 10 };
+			await service.getSavedBriefs(otherId, input);
+
+			expect(saveService.getSavedBriefs).toHaveBeenCalledWith(otherId, input);
+		});
+
+		describe('meSaved on getBrief', () => {
+			it.each([MemberType.USER, MemberType.CREATOR])('a %s gets their own saved state', async (viewerType) => {
+				briefModel.resolve('findOne', fullBrief()).resolve('findOne', fullBrief());
+				saveService.isBriefSaved.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+				expect((await service.getBrief(otherId, briefId, viewerType)).meSaved).toBe(true);
+				expect((await service.getBrief(otherId, briefId, viewerType)).meSaved).toBe(false);
+				expect(saveService.isBriefSaved).toHaveBeenCalledWith(otherId, briefId);
+			});
+
+			it('the owner gets false without a lookup: their own brief cannot be saved', async () => {
+				briefModel.resolve('findOne', fullBrief());
+				const result = await service.getBrief(ownerId, briefId, MemberType.USER);
+
+				expect(result.meSaved).toBe(false);
+				expect(saveService.isBriefSaved).not.toHaveBeenCalled();
+			});
+
+			it.each([
+				['a guest', null, null],
+				['an admin', otherId, MemberType.ADMIN],
+			])('%s gets no meSaved (null in GraphQL)', async (_label, memberId, viewerType) => {
+				briefModel.resolve('findOne', fullBrief());
+				const result = await service.getBrief(memberId, briefId, viewerType);
+
+				expect(result.meSaved).toBeUndefined();
+				expect(saveService.isBriefSaved).not.toHaveBeenCalled();
+			});
+		});
+
+		describe('meSaved on getBriefs', () => {
+			const inquiry = { page: 1, limit: 10, search: {} };
+			const pageStages = () => {
+				const stages = briefModel.aggregate.mock.calls[0][0] as Array<Record<string, unknown>>;
+				const facet = stages.find((stage) => '$facet' in stage)!.$facet as { list: object[] };
+				return facet.list;
+			};
+			const savesLookup = (stage: object) => (stage as { $lookup?: { from?: string } }).$lookup?.from === 'saves';
+
+			beforeEach(() => {
+				briefModel.resolve('aggregate', [{ list: [], metaCounter: [] }]);
+			});
+
+			it("a saver's page gets one saves lookup for their own saves, after paging", async () => {
+				await service.getBriefs(inquiry, otherId);
+
+				const list = pageStages();
+				const index = list.findIndex(savesLookup);
+				expect(index).toBeGreaterThan(list.findIndex((stage) => '$limit' in stage));
+				const lookup = (list[index] as { $lookup: { pipeline: Array<{ $match?: { memberId?: unknown } }> } }).$lookup;
+				expect(lookup.pipeline[0].$match?.memberId).toBe(otherId);
+				expect(list[index + 1]).toEqual({ $addFields: { meSaved: { $gt: [{ $size: '$_saved' }, 0] } } });
+			});
+
+			it('without a saver (guest, admin) there is no saves lookup', async () => {
+				await service.getBriefs(inquiry);
+
+				expect(pageStages().some(savesLookup)).toBe(false);
+			});
 		});
 	});
 });

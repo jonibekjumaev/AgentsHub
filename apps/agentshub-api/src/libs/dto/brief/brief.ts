@@ -54,6 +54,13 @@ export class Brief {
 
 	@Field(() => Member, { nullable: true })
 	memberData?: Member;
+
+	/**
+	 * D-47: whether the caller saved this brief. true / false for a logged-in USER or CREATOR on getBrief, getBriefs and
+	 * getSavedBriefs; null for guests, admins and the other lists.
+	 */
+	@Field(() => Boolean, { nullable: true })
+	meSaved?: boolean;
 }
 
 @ObjectType()

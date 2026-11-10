@@ -397,6 +397,96 @@ describe('AgentsHub API (e2e smoke)', () => {
 		});
 	});
 
+	// briefId is CLOSED here (the 'briefs' block closed it): closed briefs stay readable, so they can be saved (D-30)
+	describe('saved briefs (D-47)', () => {
+		type SavedBrief = { _id: string; meSaved: boolean | null };
+		const saveCall = (operation: 'saveBrief' | 'unsaveBrief', id: string, token?: string) =>
+			gql<Record<string, SavedBrief>>(
+				app,
+				`mutation ($id: String!) { ${operation}(briefId: $id) { _id meSaved } }`,
+				{ id },
+				token,
+			);
+		const savedList = async (token: string) => {
+			const response = await gql<{
+				getSavedBriefs: {
+					list: Array<{ _id: string; briefStatus: string; meSaved: boolean | null }>;
+					metaCounter: Array<{ total: number }>;
+				};
+			}>(
+				app,
+				`query { getSavedBriefs(input: { page: 1, limit: 10 }) { list { _id briefStatus meSaved } metaCounter { total } } }`,
+				{},
+				token,
+			);
+			expect(response.errors).toBeUndefined();
+			return response.data!.getSavedBriefs;
+		};
+		const meSavedOnDetail = async (token?: string) =>
+			(
+				await gql<{ getBrief: SavedBrief }>(
+					app,
+					`query ($id: String!) { getBrief(briefId: $id) { _id meSaved } }`,
+					{ id: briefId },
+					token,
+				)
+			).data!.getBrief.meSaved;
+		const meSavedInClosedList = async (token?: string) => {
+			const response = await gql<{ getBriefs: { list: SavedBrief[] } }>(
+				app,
+				`query { getBriefs(input: { page: 1, limit: 50, search: { briefStatus: CLOSED } }) { list { _id meSaved } } }`,
+				{},
+				token,
+			);
+			return response.data!.getBriefs.list.find((brief) => brief._id === briefId)?.meSaved;
+		};
+
+		it('a guest cannot save → UNAUTHENTICATED; meSaved is null for guests', async () => {
+			expect(onlyError(await saveCall('saveBrief', briefId)).code).toBe('UNAUTHENTICATED');
+			expect(await meSavedOnDetail()).toBeNull();
+			expect(await meSavedInClosedList()).toBeNull();
+		});
+
+		it('the owner cannot save their own brief → BAD_REQUEST NOT_ALLOWED_REQUEST', async () => {
+			expect(onlyError(await saveCall('saveBrief', briefId, user.token))).toEqual({
+				code: 'BAD_REQUEST',
+				message: Message.NOT_ALLOWED_REQUEST,
+			});
+			expect(await meSavedOnDetail(user.token)).toBe(false);
+		});
+
+		it('a CREATOR saves a CLOSED brief; saving again changes nothing', async () => {
+			for (let attempt = 0; attempt < 2; attempt++) {
+				const response = await saveCall('saveBrief', briefId, creator.token);
+				expect(response.errors).toBeUndefined();
+				expect(response.data?.saveBrief).toEqual({ _id: briefId, meSaved: true });
+			}
+
+			expect(await savedList(creator.token)).toEqual({
+				list: [{ _id: briefId, briefStatus: 'CLOSED', meSaved: true }],
+				metaCounter: [{ total: 1 }],
+			});
+			expect(await connection.collection('saves').countDocuments({})).toBe(1);
+			expect(await meSavedOnDetail(creator.token)).toBe(true);
+			expect(await meSavedInClosedList(creator.token)).toBe(true);
+		});
+
+		it("the save is private: the owner's own saved list stays empty", async () => {
+			expect(await savedList(user.token)).toEqual({ list: [], metaCounter: [] });
+		});
+
+		it('unsaving twice changes nothing; the list is empty again', async () => {
+			for (let attempt = 0; attempt < 2; attempt++) {
+				const response = await saveCall('unsaveBrief', briefId, creator.token);
+				expect(response.errors).toBeUndefined();
+				expect(response.data?.unsaveBrief).toEqual({ _id: briefId, meSaved: false });
+			}
+
+			expect(await savedList(creator.token)).toEqual({ list: [], metaCounter: [] });
+			expect(await meSavedOnDetail(creator.token)).toBe(false);
+		});
+	});
+
 	describe('/briefs filters, counts and live badge (D-44)', () => {
 		// After 'briefs': the first brief is CLOSED. These add three OPEN ones: one open to offers without a deadline,
 		// one with a fixed budget and a future deadline, and one whose deadline is then moved into the past.
@@ -652,6 +742,112 @@ describe('AgentsHub API (e2e smoke)', () => {
 				creators: 2,
 				agents: 1,
 				faces: [{ memberNick: 'e2e_creator', memberCategories: ['SALES'] }],
+			});
+		});
+	});
+
+	describe('/community search, topic counts and writers (D-46)', () => {
+		// e2e_user writes two articles, e2e_creator one; e2e_user likes e2e_creator's and e2e_creator comments on one of
+		// e2e_user's. Nothing later counts articles, likes on articles or article comments.
+		const ids = { tips: '', launch: '', jokes: '' };
+		type Facets = { categories: Array<{ value: string; count: number }>; all: number };
+
+		const write = async (token: string, articleCategory: string, articleTitle: string, articleContent: string) => {
+			const response = await gql<{ createBoardArticle: { _id: string } }>(
+				app,
+				`mutation ($input: BoardArticleInput!) { createBoardArticle(input: $input) { _id } }`,
+				{ input: { articleCategory, articleTitle, articleContent } },
+				token,
+			);
+			expect(response.errors).toBeUndefined();
+			return response.data!.createBoardArticle._id;
+		};
+		const titles = async (search: Record<string, unknown>, sort?: string) => {
+			const response = await gql<{ getBoardArticles: { list: Array<{ articleTitle: string }> } }>(
+				app,
+				`query ($input: BoardArticlesInquiry!) { getBoardArticles(input: $input) { list { articleTitle } } }`,
+				{ input: { page: 1, limit: 50, sort, direction: 'DESC', search } },
+			);
+			expect(response.errors).toBeUndefined();
+			return response.data!.getBoardArticles.list.map((article) => article.articleTitle);
+		};
+		const facets = async (search: Record<string, unknown>) => {
+			const response = await gql<{ getArticleFacets: Facets }>(
+				app,
+				`query ($input: BAISearch!) { getArticleFacets(input: $input) { categories { value count } all } }`,
+				{ input: search },
+			);
+			expect(response.errors).toBeUndefined();
+			return response.data!.getArticleFacets;
+		};
+
+		it('sets up three articles, a like and a comment', async () => {
+			ids.tips = await write(user.token, 'FREE', 'Prompt tips', 'Short prompts work better for support bots.');
+			ids.launch = await write(user.token, 'NEWS', 'HelpDesk launch', 'Our team shipped a new release today.');
+			ids.jokes = await write(creator.token, 'HUMOR', 'Agent jokes', 'Why did the agent cross the road?');
+
+			const like = await gql(
+				app,
+				`mutation ($id: String!) { likeTargetBoardArticle(articleId: $id) { _id } }`,
+				{ id: ids.jokes },
+				user.token,
+			);
+			expect(like.errors).toBeUndefined();
+			const comment = await gql(
+				app,
+				`mutation ($input: CommentInput!) { createComment(input: $input) { _id } }`,
+				{ input: { commentGroup: 'ARTICLE', commentRefId: ids.launch, commentContent: 'Congrats!' } },
+				creator.token,
+			);
+			expect(comment.errors).toBeUndefined();
+		});
+
+		it('the text search matches the title, the content and the author nick', async () => {
+			expect(await titles({ text: 'helpdesk' })).toEqual(['HelpDesk launch']);
+			expect(await titles({ text: 'support bots' })).toEqual(['Prompt tips']);
+			expect(await titles({ text: 'e2e_creator' })).toEqual(['Agent jokes']);
+			// the regex is escaped (S8): a "." matches only a dot
+			expect(await titles({ text: 'e2e.creator' })).toEqual([]);
+		});
+
+		it('sorts by articleComments ("most discussed"); ties keep the newest first', async () => {
+			expect(await titles({}, 'articleComments')).toEqual(['HelpDesk launch', 'Agent jokes', 'Prompt tips']);
+		});
+
+		it('getArticleFacets: every topic in order, the topic filter ignored, the others applied', async () => {
+			const counts = await facets({ articleCategory: 'NEWS' });
+			expect(counts).toEqual({
+				categories: [
+					{ value: 'FREE', count: 1 },
+					{ value: 'RECOMMEND', count: 0 },
+					{ value: 'NEWS', count: 1 },
+					{ value: 'HUMOR', count: 1 },
+				],
+				all: 3,
+			});
+			expect((await facets({ memberId: user._id, text: 'e' })).all).toBe(2);
+		});
+
+		it('getCommunityStats: articles, writers and the most liked writer first', async () => {
+			const response = await gql<{
+				getCommunityStats: {
+					articles: number;
+					writers: number;
+					topWriters: Array<{ memberData: { memberNick: string }; articles: number; likes: number }>;
+				};
+			}>(
+				app,
+				`query { getCommunityStats { articles writers topWriters { memberData { memberNick } articles likes } } }`,
+			);
+
+			expect(response.errors).toBeUndefined();
+			expect(response.data!.getCommunityStats).toEqual({
+				articles: 3,
+				writers: 2,
+				topWriters: [
+					{ memberData: { memberNick: 'e2e_creator' }, articles: 1, likes: 1 },
+					{ memberData: { memberNick: 'e2e_user' }, articles: 2, likes: 0 },
+				],
 			});
 		});
 	});

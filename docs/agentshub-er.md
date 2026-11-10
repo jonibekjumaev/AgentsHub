@@ -137,6 +137,11 @@ Suggested indexes:
 
 `articleTitle` 3–50 and `articleContent` 3–3000 characters (D-35; Nestar allowed 3–250).
 
+Indexes (D-46):
+
+- `{ articleStatus: 1, articleCategory: 1, createdAt: -1 }`: the board, with or without a topic, newest first; also the topic counts
+- `{ memberId: 1, articleStatus: 1 }`: one member's articles (profile, dashboard)
+
 ### comments
 
 | Field | Type | NN | Key | Notes |
@@ -189,6 +194,23 @@ Index `{ viewRefId: 1, viewGroup: 1, updatedAt: -1 }`: "who viewed your profile"
 | updatedAt | date | NN | |
 
 Unique index: `{ followingId: 1, followerId: 1 }`.
+
+### saves (new, D-47)
+
+A member's private bookmark of a brief ("Save brief"). Never counted, never shown to the brief's owner.
+
+| Field | Type | NN | Key | Notes |
+|---|---|---|---|---|
+| _id | ObjectId | NN | PK | |
+| memberId | ObjectId | NN | FK → members | who saved it, a USER or CREATOR |
+| briefId | ObjectId | NN | FK → briefs | the saved brief, not the member's own |
+| createdAt | date | NN | | when it was saved: the saved list is newest first |
+| updatedAt | date | NN | | |
+
+Indexes:
+
+- unique `{ memberId: 1, briefId: 1 }`: one save per member and brief; also the "is it saved" check
+- `{ memberId: 1, createdAt: -1 }`: one member's saves, latest first
 
 ### notices (unchanged)
 
@@ -256,6 +278,7 @@ All other enums (MemberStatus, MemberAuthType, article and notice enums, Notific
 | comments / likes / views | memberId | members | many → 1 |
 | comments / likes / views | *RefId + *Group | members / products / briefs / boardArticles | polymorphic |
 | follows | followingId, followerId | members | many → many (self) |
+| saves | memberId, briefId | members (USER / CREATOR), briefs | many → many (D-47) |
 | notices | memberId | members (ADMIN) | many → 1 |
 | notifications | authorId, receiverId | members | many → 1 |
 | notifications | productId / briefId / articleId | products / briefs / boardArticles | optional |
@@ -270,3 +293,5 @@ All other enums (MemberStatus, MemberAuthType, article and notice enums, Notific
 6. Filter counts (`getProductFacets`, D-43) use the same match rules as `getProducts` over `ACTIVE` products; each group (category, pricing) is counted without its own filter.
 7. A brief is past its deadline when `briefDeadline <= now`; it stays `OPEN` (D-44). Brief counts (`getBriefFacets`) follow rule 6 for category, budget type and status; the "open now" badge (`getOpenBriefStats`) counts `OPEN` briefs not past their deadline.
 8. Public creator numbers (`getCreators`, `getCreatorFacets`, `getCreatorStats`, D-45) count `ACTIVE` agents through a join; `memberProducts` (`ACTIVE` + `PAUSED`, D-16) is the owner's counter.
+9. Community counts (`getArticleFacets`, D-46) use the same match as `getBoardArticles` over `ACTIVE` articles, the topic counted without its own filter. `getCommunityStats` counts every `ACTIVE` article, but only `ACTIVE` members as writers.
+10. Saved briefs (D-47): only `USER` and `CREATOR` members save, never their own brief, only a brief `getBrief` can show (`OPEN` or `CLOSED`). `getSavedBriefs` lists `OPEN` and `CLOSED` briefs only. Saves have no counters and are visible to the member who saved only.

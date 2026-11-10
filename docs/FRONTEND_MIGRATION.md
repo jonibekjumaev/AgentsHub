@@ -250,7 +250,9 @@ Suggested labels: `CUSTOMER_SUPPORT` "Customer support", `DATA_ANALYSIS` "Data a
 | — | `createBrief`, `updateBrief`, `getMyBriefs` | USER |
 | — | `getBrief(briefId)`, `getBriefs` | everyone |
 | — | `getBriefFacets(input: BISearch): BriefFacets`, `getOpenBriefStats: OpenBriefStats` | everyone (D-44) |
+| — | `saveBrief(briefId)`, `unsaveBrief(briefId)`, `getSavedBriefs(input: OrdinaryInquiry)` | USER, CREATOR (D-47) |
 | — | `getAllBriefsByAdmin`, `updateBriefByAdmin`, `removeBriefByAdmin(briefId)` | ADMIN |
+| — | `getArticleFacets(input: BAISearch): ArticleFacets`, `getCommunityStats: CommunityStats` | everyone (D-46) |
 
 Everything else keeps its name: `signup`, `login`, `getMember`, `updateMember`, `likeTargetMember`, `getAllMembersByAdmin`, `updateMemberByAdmin`, `imageUploader`, `imagesUploader`, board article, comment and follow operations. Their rules changed in places; see the pages.
 
@@ -264,7 +266,7 @@ Everything else keeps its name: `signup`, `login`, `getMember`, `updateMember`, 
 | Creators (`getCreators`) | `createdAt`, `updatedAt`, `memberLikes`, `memberViews`, `memberRank`, `memberProducts`, `memberFollowers`, `creatorProducts`, `creatorName` (D-45) |
 | Members (`getAllMembersByAdmin`) | `createdAt`, `updatedAt`, `memberLikes`, `memberViews` |
 | Briefs (`getBriefs`, `getMyBriefs`, `getAllBriefsByAdmin`) | `createdAt`, `updatedAt`, `briefViews`, `briefComments` (D-44), `briefBudget`, `briefDeadline` |
-| Board articles | `createdAt`, `updatedAt`, `articleLikes`, `articleViews` |
+| Board articles | `createdAt`, `updatedAt`, `articleLikes`, `articleViews`, `articleComments` (D-46) |
 | Comments | `createdAt`, `updatedAt` |
 
 Old values (`propertyLikes`, `propertyViews`, `propertyRank`, `propertyPrice`, `memberProperties`) → `BAD_REQUEST`.
@@ -518,8 +520,9 @@ Briefs are new: a USER describes an AI agent they need, and creators contact the
 | `briefViews`, `briefComments` | counters |
 | `closedAt`, `deletedAt` | nullable dates |
 | `memberData` | the user who posted it; contacts `null` for guests |
+| `meSaved` | D-47: `true` / `false` for a logged-in `USER` or `CREATOR` on `getBrief`, `getBriefs` and `getSavedBriefs`; `null` for guests, admins and the other lists |
 
-Briefs have no likes (`meLiked` doesn't exist on `Brief`).
+Briefs have no likes (`meLiked` doesn't exist on `Brief`); members save them instead (D-47, see 3.9).
 
 **Visibility (D-30)**
 
@@ -668,6 +671,15 @@ On update: leave a field out to keep it; `null` clears `briefBudget` / `briefDea
 - A brief stays `OPEN` after its deadline (nothing closes it yet). Send `hidePastDeadline: true` with the Open tab by default, and show the "past deadline" state from `briefDeadline` when it is off.
 - Send `getBriefs`, `getBriefFacets` and `getOpenBriefStats` as separate queries: the counts don't depend on `page` or `sort`, and the badge doesn't depend on any filter.
 
+**Saved briefs (D-47)**
+
+- `saveBrief(briefId)` and `unsaveBrief(briefId)`: `USER` and `CREATOR` only (an admin → `FORBIDDEN`). Both return the brief with `meSaved`; select `_id meSaved` and Apollo updates every list and the detail page that show it. Not a toggle: saving a saved brief or unsaving an unsaved one changes nothing and is not an error, so a double click is harmless.
+- `saveBrief` on a deleted or missing brief → `NOT_FOUND` `"No data found!"`; on your own brief → `BAD_REQUEST` `"Not Allowed Request!"` (hide the button for the owner). `CLOSED` briefs can be saved.
+- `unsaveBrief` removes the save even when the brief is gone, then answers `NOT_FOUND` for a deleted brief: drop it from the list either way.
+- `getSavedBriefs(input: { page, limit })` → `Briefs`: the caller's saved briefs, latest saved first, `meSaved: true`. Only `OPEN` and `CLOSED` briefs: a deleted brief disappears and `metaCounter` matches. Show the "Closed" badge on closed ones. It changes when the member saves elsewhere: ask the server when the page opens (`cache-and-network`).
+- Guests: the button asks them to log in first; there is nothing to send.
+- Saves are private: no counter anywhere, and the brief's owner never learns who saved it.
+
 **Filters, counts and the hero line for /creators (D-45)**
 
 - `getCreatorFacets(input: CRISearch)` → `{ categories { value count } all withoutAgents following }`. Public (`following` needs the token). Same input object as `getCreators(input: { search })`.
@@ -703,6 +715,16 @@ Unchanged operations: `createBoardArticle`, `getBoardArticle(articleId)`, `getBo
 - `articleTitle` 3–50, `articleContent` 3–3000 characters (since Step 13a, D-35; was 3–250). `articleImage` optional; upload with `target: "article"`.
 - Update: `null` on `articleTitle`, `articleContent`, `articleStatus` → `BAD_REQUEST`; `null` on `articleImage` clears it (B11).
 - `getBoardArticles`: `search.text` max 100; a malformed `search.memberId` → `BAD_REQUEST` (B16).
+- Since D-46, `search.text` matches the title, the content, or the author's nick / full name; blank text is no filter. Ties in every sort go to the newest article, so pages never repeat one.
+- `sort: "articleComments"` = "Most discussed" (D-46).
+
+**Topic counts, the hero and "Active writers" for /community (D-46)**
+
+- `getArticleFacets(input: BAISearch)` → `{ categories { value count } all }`. Public. Same search object as `getBoardArticles(input: { search })`. All 4 topics in enum order, `0` when nothing matches; the counts ignore `articleCategory` itself. `all` is the "All" tab.
+- `getCommunityStats` → `{ articles writers topWriters { memberData { ...Member } articles likes } }`. Public, no input. `articles`: every listed article; `writers`: ACTIVE members with an article; `topWriters`: the 5 most liked writers (then most articles). Hide the sidebar when `topWriters` is empty.
+- The hero's latest article: `getBoardArticles(input: { page: 1, limit: 1, search: {} })`.
+- Send the list, the counts and the stats as separate queries: the counts don't depend on `page` or `sort`, the stats on nothing.
+- The chat's online number is the socket's `totalClients`: it counts every open connection, guests included. Say "N online", not "N members"; there is no list of who is online.
 - `getBoardArticle` on a missing or deleted article → `NOT_FOUND` `"No data found!"`.
 - `updateBoardArticle` on a missing, someone else's, or deleted article → `NOT_FOUND` `"Update failed!"`.
 - Article content is plain text: render it as text, not HTML.
@@ -843,6 +865,7 @@ Calling remove on an active / open / closed / paused or missing item → `NOT_FO
 - [ ] "Post a brief" / "My briefs" only for `USER` members.
 - [ ] Create / edit form: budget > 0 or empty, future-only deadline picker.
 - [ ] Close / reopen / delete buttons; reopen asks for a new deadline (or none) when the deadline has passed, and sends it with the status change (D-31).
+- [ ] Save button on the list and the detail page for `USER` / `CREATOR` (not on your own brief), login prompt for guests, none for admins; "Saved briefs" in the dashboard (D-47).
 
 ### Comments, likes, follows
 
@@ -900,6 +923,7 @@ The `message` strings the UI may need to match. Codes are those the API returns 
 | `Deadline must be in the future!` | `BAD_REQUEST` | brief create / update / reopen |
 | `Brief status can only change between OPEN and CLOSED, or to DELETE!` | `BAD_REQUEST` | brief update |
 | `Self subscription is denied!` | `BAD_REQUEST` | `subscribe` |
+| `Not Allowed Request!` | `BAD_REQUEST` | liking yourself or your own product, saving your own brief (D-47) |
 | `Please provide jpg, jpeg or png images!` | `BAD_REQUEST` | image upload |
 | `Image must be at most 10 MB!` | `BAD_REQUEST` | image upload (Step 13a, D-41) |
 | `The file is not a readable image!` | `BAD_REQUEST` | image upload (D-41) |

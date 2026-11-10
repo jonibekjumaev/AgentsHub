@@ -18,6 +18,8 @@ const queryMethods = [
 	'findByIdAndDelete',
 	'updateOne',
 	'updateMany',
+	'deleteOne',
+	'deleteMany',
 	'exists',
 	'aggregate',
 	'countDocuments',

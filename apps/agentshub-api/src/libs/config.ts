@@ -1,7 +1,7 @@
 import { Types } from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
-import { MemberStatus } from './enums/member.enum';
+import { MemberStatus, MemberType } from './enums/member.enum';
 import { ProductPricing } from './enums/product.enum';
 import { ObjectId } from './types/common';
 
@@ -43,7 +43,10 @@ export const aviableBriefSorts = [
 /** D-42: "Who viewed your profile" lists the visits of the last N days (each visit refreshes the view's updatedAt, B24). */
 export const profileVisitorsWindowDays = 90;
 
-export const aviableBoardArticleSorts = ['createdAt', 'updatedAt', 'articleLikes', 'articleViews'];
+export const aviableBoardArticleSorts = ['createdAt', 'updatedAt', 'articleLikes', 'articleViews', 'articleComments'];
+
+/** D-46: how many writers the community sidebar shows ("Active writers") */
+export const communityTopWritersLimit = 5;
 
 export const availableCommentSorts = ['createdAt', 'updatedAt'];
 
@@ -75,6 +78,11 @@ export const briefTitleMinLength = 3;
 export const briefTitleMaxLength = 100;
 export const briefContentMinLength = 20;
 export const briefContentMaxLength = 3000;
+
+/** D-47: the members who save briefs. An ADMIN moderates and has no library (D-40 principle). */
+export const briefSaverTypes: MemberType[] = [MemberType.USER, MemberType.CREATOR];
+export const canSaveBriefs = (memberType: MemberType | null | undefined): boolean =>
+	!!memberType && briefSaverTypes.includes(memberType);
 
 /**  TEXT LIMITS (D-35)  **/
 
@@ -270,6 +278,38 @@ export const lookupFavorite = {
 		foreignField: '_id',
 		pipeline: [excludeDeletedMember, excludeMemberSecrets],
 		as: 'favoriteProduct.memberData',
+	},
+};
+
+/**
+ * D-47: `meSaved` on each brief of a list, for the caller (`saverId`): one indexed lookup into `saves`
+ * (`{ memberId, briefId }`), turned into a Boolean. Used only for a USER or CREATOR caller; others get null.
+ */
+export const lookupAuthMemberSaved = (saverId: ObjectId) => [
+	{
+		$lookup: {
+			from: 'saves',
+			let: { localBriefId: '$_id' },
+			pipeline: [
+				{ $match: { memberId: saverId, $expr: { $eq: ['$briefId', '$$localBriefId'] } } },
+				{ $limit: 1 },
+				{ $project: { _id: 1 } },
+			],
+			as: '_saved',
+		},
+	},
+	{ $addFields: { meSaved: { $gt: [{ $size: '$_saved' }, 0] } } },
+	{ $unset: '_saved' },
+];
+
+/** D-47: the author of a saved brief, as lookupFavorite does for a liked product (D-38: a deleted author is null). */
+export const lookupSavedBriefAuthor = {
+	$lookup: {
+		from: 'members',
+		localField: 'savedBrief.memberId',
+		foreignField: '_id',
+		pipeline: [excludeDeletedMember, excludeMemberSecrets],
+		as: 'savedBrief.memberData',
 	},
 };
 

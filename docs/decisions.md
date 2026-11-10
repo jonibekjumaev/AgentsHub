@@ -1038,3 +1038,42 @@
 - **Reason:** No new counter that can drift; the numbers on the cards come from the same `ACTIVE` products `/agents` lists. One request renders a full card.
 - **Consequence:** The creators list joins products for every `ACTIVE` creator before paging: fine at MVP size, served by `{ memberId: 1, productStatus: 1 }`. If creators grow into the thousands, revisit with a stored counter (option B) or a materialized view. Search over agent titles is a regex; semantic search replaces it later (D-11).
 
+## D-46 — /community: wider search, "most discussed", topic counts and writers
+
+**Status:** Proposed
+
+- **Context:** The new `/community` page has a topic bar with live counts, a "Most discussed" sort, a search over the title, the text and the author, a hero with the number of articles and writers, and an "Active writers" sidebar. `getBoardArticles` searched `articleTitle` only, `articleComments` was not a sort, and nothing counted articles or writers. Ties in a counter sort (most articles have 0 likes or comments) had no tie-breaker, so a page could repeat or skip an article.
+- **Options for the author search:**
+  - **A. Two steps:** find the matching member ids first (nick, full name), then match `memberId: { $in }` next to the title and content.
+  - **B. Join every article's author** (`$lookup`) before the `$match`.
+- **Decision:** Option A.
+  - `BAISearch.text` matches `articleTitle`, `articleContent`, or an author (not deleted) whose `memberNick` or `memberFullName` contains it. Escaped, case-insensitive regex (S8); blank text is no filter. `MemberService.findMemberIdsByName` returns the ids.
+  - `articleComments` joins `aviableBoardArticleSorts` ("most discussed"). `getBoardArticles` breaks every sort's ties by the newest `_id`.
+  - `getArticleFacets(input: BAISearch): ArticleFacets { categories [{ value count }], all }`, public. Every topic in enum order, `0` when nothing matches; the counts ignore `articleCategory` itself and apply `memberId` and `text` (D-43 rule). An article has one topic, so `all` is the sum.
+  - `getCommunityStats: CommunityStats { articles, writers, topWriters [{ memberData articles likes }] }`, public, site-wide. `articles`: every `ACTIVE` article (what the unfiltered feed lists; D-38 keeps a deleted or blocked author's articles listed). `writers` and `topWriters`: `ACTIVE` members only, so a blocked or deleted member is never promoted. Ranked by the likes on their `ACTIVE` articles, then the number of articles, then the newest article; 5 writers (`communityTopWritersLimit`).
+- **Reason:** One shared match builder (`articleSearchMatch`) for the list and the counts, so they never disagree. Option A keeps the `$match` first and needs no join per article; the member query is small.
+- **Consequence:** No schema change, no migration. The content search is a regex over up to 3000 characters per article: fine at MVP size, replaced by semantic search later (D-11). `boardArticles` had no index; it now has `{ articleStatus: 1, articleCategory: 1, createdAt: -1 }` (the board and the topic counts) and `{ memberId: 1, articleStatus: 1 }` (a member's articles), as briefs do. Mongoose builds them on start (`autoIndex`); the regex search still scans the matched articles. The hero's latest article is `getBoardArticles` with `limit: 1`; the online count stays the socket's `totalClients` (it counts guests too, and there is no presence list on purpose).
+
+## D-47 — Saved briefs ("Save brief")
+
+**Status:** Proposed
+
+- **Context:** The new `/briefs` mockup (`AgentsHub-client/docs/design/agentshub-briefs.html`) gives every brief a bookmark button: a creator looking for work keeps the briefs worth answering and comes back to them. The detail page gets the same button, and the dashboard a "Saved briefs" list. Nothing stores this yet: briefs have no likes (`LikeGroup` has no `BRIEF`), and products' "favorites" are likes.
+- **Options for the storage:**
+  - **A. Reuse `likes`** with `LikeGroup.BRIEF`, as `getFavorities` does for products.
+    - Pro: no new collection; the unique index `{ memberId, likeRefId }` already exists.
+    - Con: a like is a public signal (counters, ranking: `productLikes`, `memberLikes`, D-22); a save is a private bookmark the brief's owner never sees. One collection with two meanings makes every like query remember to leave the private rows out.
+  - **B. A new `saves` collection** `{ memberId, briefId }`, no counters.
+    - Pro: the meaning and the privacy rule are visible in the schema; likes stay untouched.
+    - Con: one more schema, module and set of tests.
+- **Decision:** Option B. Saves point to briefs only (`briefId`, not a polymorphic `saveRefId` + `saveGroup`): products already have favorites, and nothing else needs saving yet.
+  - **Who:** `USER` and `CREATOR` (`RolesGuard`). An `ADMIN` moderates and has no library (D-40 principle) → `FORBIDDEN`. Guests get no button action: the client asks them to log in first.
+  - **What can be saved:** a brief `getBrief` can show (D-30 `isBriefVisible()`: `OPEN` or `CLOSED`). A `DELETE` or missing brief → `NOT_FOUND` `NO_DATA_FOUND`. Your own brief → `BAD_REQUEST` `NOT_ALLOWED_REQUEST` (the owner has "My briefs"; D-22 principle).
+  - **Operations:** two idempotent mutations instead of a toggle: `saveBrief(briefId): Brief` and `unsaveBrief(briefId): Brief`, both returning the brief with `meSaved`. Saving a saved brief, or unsaving an unsaved one, is no change, not an error. A toggle flips back on a double click or a retried request; "make it saved" does not.
+    - `unsaveBrief` removes the save first, then answers like `saveBrief` (`NOT_FOUND` for a brief that is gone), so a bookmark of a deleted brief can still be cleared.
+  - **`Brief.meSaved: Boolean`:** `true` / `false` for a logged-in `USER` or `CREATOR` on `getBrief`, `getBriefs` and `getSavedBriefs`; `null` for guests, admins and the other brief lists (the owner's and the admin's lists).
+  - **List:** `getSavedBriefs(input: OrdinaryInquiry): Briefs`, `USER` and `CREATOR`. The caller's saves, latest saved first, `OPEN` and `CLOSED` briefs only: a `DELETE` brief drops out and `metaCounter` matches (as `getFavorities` does for paused products, D-16). A closed brief stays listed with its status, so the client shows its "Closed" badge (D-30 keeps closed briefs readable for exactly this).
+  - **No counters:** no `briefSaves`, no `memberSaves`. A save never reaches the brief's owner, ranking, or the public numbers.
+  - **Cleanup:** `removeBriefByAdmin` (hard delete of a `DELETE` brief) also removes its saves.
+- **Reason:** A private bookmark is a different thing from a public like, even when the two rows look alike; keeping them apart keeps the like rules (counters, ranking, D-22) and the privacy rule each in one place.
+- **Consequence:** New collection `saves` with a unique index `{ memberId: 1, briefId: 1 }` (one save per member and brief; also the "is it saved" check) and `{ memberId: 1, createdAt: -1 }` (one member's saves, latest first). `SaveModule` (service only, like `LikeModule`) is used by `BriefService`; the resolver methods live in `BriefResolver`. The saves of a deleted member stay (nobody can read them, D-38); the saves of a soft-deleted brief stay until the admin removes the brief. No migration.

@@ -16,8 +16,9 @@ import {
 	MyBriefsInquiry,
 } from '../../libs/dto/brief/brief.input';
 import { BriefUpdate } from '../../libs/dto/brief/brief.update';
-import { shapeInToMongoObjectId } from '../../libs/config';
+import { briefSaverTypes, canSaveBriefs, shapeInToMongoObjectId } from '../../libs/config';
 import { ObjectIdPipe } from '../../libs/pipes/object-id.pipe';
+import { OrdinaryInquiry } from '../../libs/dto/common.input';
 
 @Resolver()
 export class BriefResolver {
@@ -46,9 +47,15 @@ export class BriefResolver {
 
 	@UseGuards(WithoutGuard)
 	@Query(() => Briefs)
-	public async getBriefs(@Args('input') input: BriefsInquiry): Promise<Briefs> {
+	public async getBriefs(
+		@Args('input') input: BriefsInquiry,
+		@AuthMember('_id') memberId: ObjectId | null,
+		@AuthMember('memberType') memberType: MemberType | null,
+	): Promise<Briefs> {
 		console.log('Query: getBriefs');
-		return await this.briefService.getBriefs(input);
+		// D-47: meSaved only for a USER or CREATOR; guests and admins get null
+		const saverId = memberId && canSaveBriefs(memberType) ? memberId : null;
+		return await this.briefService.getBriefs(input, saverId);
 	}
 
 	/** D-44: live counts for the /briefs filters; the same search object as getBriefs. */
@@ -85,6 +92,43 @@ export class BriefResolver {
 		console.log('Mutation: updateBrief');
 		input._id = shapeInToMongoObjectId(input._id);
 		return await this.briefService.updateBrief(memberId, input);
+	}
+
+	/** D-47: saved briefs, for USER and CREATOR members (an admin has no library). Not a toggle: both are idempotent */
+
+	@Roles(...briefSaverTypes)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Brief)
+	public async saveBrief(
+		@Args('briefId', ObjectIdPipe) input: string,
+		@AuthMember('_id') memberId: ObjectId,
+	): Promise<Brief> {
+		console.log('Mutation: saveBrief');
+		const briefId = shapeInToMongoObjectId(input);
+		return await this.briefService.saveBrief(memberId, briefId);
+	}
+
+	@Roles(...briefSaverTypes)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Brief)
+	public async unsaveBrief(
+		@Args('briefId', ObjectIdPipe) input: string,
+		@AuthMember('_id') memberId: ObjectId,
+	): Promise<Brief> {
+		console.log('Mutation: unsaveBrief');
+		const briefId = shapeInToMongoObjectId(input);
+		return await this.briefService.unsaveBrief(memberId, briefId);
+	}
+
+	@Roles(...briefSaverTypes)
+	@UseGuards(RolesGuard)
+	@Query(() => Briefs)
+	public async getSavedBriefs(
+		@Args('input') input: OrdinaryInquiry,
+		@AuthMember('_id') memberId: ObjectId,
+	): Promise<Briefs> {
+		console.log('Query: getSavedBriefs');
+		return await this.briefService.getSavedBriefs(memberId, input);
 	}
 
 	/** ADMIN */

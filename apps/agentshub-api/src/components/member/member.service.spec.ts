@@ -544,4 +544,19 @@ describe('MemberService', () => {
 			]);
 		});
 	});
+
+	describe('findMemberIdsByName (D-46: the community search by author)', () => {
+		it('matches the nick or the full name, escaped, case-insensitive, never a deleted member; ids only', async () => {
+			const id = new Types.ObjectId();
+			memberModel.resolve('find', [{ _id: id }]);
+
+			expect(await service.findMemberIdsByName('a.b')).toEqual([id]);
+			expect(memberModel.find).toHaveBeenCalledWith({
+				memberStatus: { $ne: MemberStatus.DELETE },
+				$or: [{ memberNick: /a\.b/i }, { memberFullName: /a\.b/i }],
+			});
+			const query = memberModel.find.mock.results[0].value as { select: jest.Mock };
+			expect(query.select).toHaveBeenCalledWith('_id');
+		});
+	});
 });
