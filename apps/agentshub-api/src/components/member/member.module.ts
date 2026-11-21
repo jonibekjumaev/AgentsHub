@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MemberResolver } from './member.resolver';
 import { MemberContactResolver } from './member-contact.resolver';
 import { MemberService } from './member.service';
+import { LoginThrottle } from './login-throttle';
 import { MongooseModule } from '@nestjs/mongoose';
 import MemberSchema from '../../schemas/Member.model';
 import { AuthModule } from '../auth/auth.module';
@@ -27,7 +28,7 @@ import FollowSchema from '../../schemas/Follow.model';
 		ViewModule,
 		LikeModule,
 	], //Step -3
-	providers: [MemberResolver, MemberContactResolver, MemberService],
+	providers: [MemberResolver, MemberContactResolver, MemberService, LoginThrottle],
 	exports: [MemberService],
 })
 export class MemberModule {}

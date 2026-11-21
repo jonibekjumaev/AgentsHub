@@ -4,6 +4,8 @@ import { Test } from '@nestjs/testing';
 import { Types } from 'mongoose';
 import { expectHttpError } from '../../../test/utils/http-error';
 import { createMockModel, MockModel } from '../../../test/utils/mock-model';
+import { createNotificationMock, NotificationMock } from '../../../test/utils/notification-mock';
+import { NotificationService } from '../notification/notification.service';
 import { Message } from '../../libs/enums/common.enum';
 import { MemberType } from '../../libs/enums/member.enum';
 import { MemberService } from '../member/member.service';
@@ -16,13 +18,16 @@ describe('follows and admins (D-40)', () => {
 	let service: FollowService;
 	let followModel: MockModel;
 	let memberService: { getMember: jest.Mock; memberStatsEditor: jest.Mock };
+	let notifications: NotificationMock;
 
 	beforeEach(async () => {
+		notifications = createNotificationMock();
 		followModel = createMockModel();
 		memberService = { getMember: jest.fn(), memberStatsEditor: jest.fn().mockResolvedValue({}) };
 		const moduleRef = await Test.createTestingModule({
 			providers: [
 				FollowService,
+				{ provide: NotificationService, useValue: notifications },
 				{ provide: getModelToken('Follow'), useValue: followModel },
 				{ provide: MemberService, useValue: memberService },
 			],
@@ -36,6 +41,7 @@ describe('follows and admins (D-40)', () => {
 		await expectHttpError(service.subscribe(followerId, targetId), NotFoundException, Message.NO_DATA_FOUND);
 		expect(followModel.create).not.toHaveBeenCalled();
 		expect(memberService.memberStatsEditor).not.toHaveBeenCalled();
+		expect(notifications.notifyFollow).not.toHaveBeenCalled();
 	});
 
 	it('a USER or CREATOR target can be followed as before', async () => {
@@ -44,6 +50,7 @@ describe('follows and admins (D-40)', () => {
 
 		await service.subscribe(followerId, targetId);
 		expect(memberService.memberStatsEditor).toHaveBeenCalledTimes(2);
+		expect(notifications.notifyFollow).toHaveBeenCalledWith(followerId, targetId); // D-50
 	});
 
 	it('an admin can not follow anyone: subscribe is for USER and CREATOR only', () => {

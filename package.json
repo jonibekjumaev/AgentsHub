@@ -27,7 +27,8 @@
     "migrate:legacy": "ts-node --transpile-only -P tsconfig.json scripts/migrate-legacy.ts",
     "clean:uploads": "ts-node --transpile-only -P tsconfig.json scripts/clean-uploads.ts",
     "cleanup:follows": "ts-node --transpile-only -P tsconfig.json scripts/cleanup-follows.ts",
-    "optimize:uploads": "ts-node --transpile-only -P tsconfig.json scripts/optimize-uploads.ts"
+    "optimize:uploads": "ts-node --transpile-only -P tsconfig.json scripts/optimize-uploads.ts",
+    "create-search-indexes": "ts-node --transpile-only -P tsconfig.json scripts/create-search-indexes.ts"
   },
   "dependencies": {
     "@apollo/server": "^4.9.5",
@@ -36,6 +37,7 @@
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.1.1",
     "@nestjs/core": "^10.0.0",
+    "@nestjs/event-emitter": "^2.1.1",
     "@nestjs/graphql": "^12.0.10",
     "@nestjs/jwt": "^10.2.0",
     "@nestjs/mongoose": "^10.0.2",

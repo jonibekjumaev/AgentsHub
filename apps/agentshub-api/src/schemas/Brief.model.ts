@@ -1,4 +1,5 @@
 import { Schema } from 'mongoose';
+import { EmbeddingStatus } from '../libs/enums/embedding.enum';
 import { BriefStatus } from '../libs/enums/brief.enum';
 import { AgentCategory } from '../libs/enums/agent-category.enum';
 
@@ -46,6 +47,12 @@ const BriefSchema = new Schema(
 			default: 0,
 		},
 
+		// D-48: PENDING + ACCEPTED offers. Changed only by OfferService; a brief stored before D-48 has none (read as 0)
+		briefOffers: {
+			type: Number,
+			default: 0,
+		},
+
 		memberId: {
 			type: Schema.Types.ObjectId,
 			required: true,
@@ -59,11 +66,51 @@ const BriefSchema = new Schema(
 		deletedAt: {
 			type: Date,
 		},
+
+		// D-52: the vector of the search text (title, category, tags/description), for $vectorSearch. Never selected by
+		// default and never in GraphQL; written only by EmbeddingSyncService, without touching updatedAt
+		embedding: {
+			type: [Number],
+			select: false,
+			default: undefined,
+		},
+
+		embeddingStatus: {
+			type: String,
+			enum: EmbeddingStatus,
+			default: EmbeddingStatus.PENDING,
+		},
+
+		// the model that made `embedding`; a different configured model makes the document PENDING again
+		embeddingModel: {
+			type: String,
+		},
+
+		// sha256 of the text the vector was made from: the same text is never sent twice
+		embeddingHash: {
+			type: String,
+		},
+
+		embeddingAttempts: {
+			type: Number,
+			default: 0,
+		},
+
+		embeddedAt: {
+			type: Date,
+		},
 	},
 	{ timestamps: true, collection: 'briefs' },
 );
 
 BriefSchema.index({ memberId: 1, briefStatus: 1 });
 BriefSchema.index({ briefCategory: 1, briefStatus: 1, createdAt: -1 });
+// D-52: the reconcile job's lookup of documents without a current vector
+BriefSchema.index({ embeddingStatus: 1 });
+// D-53: the keyword half of the hybrid search ($text). A collection can have one text index; a title word weighs most
+BriefSchema.index(
+	{ briefTitle: 'text', briefContent: 'text' },
+	{ name: 'brief_text', weights: { briefTitle: 10, briefContent: 1 } },
+);
 
 export default BriefSchema;

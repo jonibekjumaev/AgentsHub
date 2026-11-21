@@ -9,6 +9,11 @@ import { Test } from '@nestjs/testing';
 import { Types } from 'mongoose';
 import { expectHttpError } from '../../../test/utils/http-error';
 import { createMockModel, MockModel } from '../../../test/utils/mock-model';
+import { withoutEmbedding } from '../../libs/config';
+import { EmbeddingKind, EmbeddingStatus } from '../../libs/enums/embedding.enum';
+import { createEmbeddingMocks, EmbeddingMocks } from '../../../test/utils/embedding-mock';
+import { EmbeddingQueue } from '../embedding/embedding-queue';
+import { HybridSearchService } from '../embedding/hybrid-search.service';
 import { ProductInput } from '../../libs/dto/product/product.input';
 import { ProductUpdate } from '../../libs/dto/product/product.update';
 import { AgentCategory } from '../../libs/enums/agent-category.enum';
@@ -56,8 +61,10 @@ describe('ProductService', () => {
 	};
 	let viewService: { recordView: jest.Mock };
 	let likeService: { checkLikeExistence: jest.Mock; toggleLike: jest.Mock };
+	let embedding: EmbeddingMocks;
 
 	beforeEach(async () => {
+		embedding = createEmbeddingMocks();
 		productModel = createMockModel();
 		memberService = {
 			memberStatsEditor: jest.fn<Promise<unknown>, [StatisticModifier]>().mockResolvedValue({}),
@@ -74,6 +81,8 @@ describe('ProductService', () => {
 				{ provide: MemberService, useValue: memberService },
 				{ provide: ViewService, useValue: viewService },
 				{ provide: LikeService, useValue: likeService },
+				{ provide: EmbeddingQueue, useValue: embedding.embeddingQueue },
+				{ provide: HybridSearchService, useValue: embedding.hybridSearch },
 			],
 		}).compile();
 		service = moduleRef.get(ProductService);
@@ -538,7 +547,11 @@ describe('ProductService', () => {
 
 	describe('product lists', () => {
 		const inquiry = { page: 1, limit: 10, search: {} };
-		const pipeline = () => productModel.aggregate.mock.calls[0][0] as Array<Record<string, unknown>>;
+		// D-52: the stage that drops the vector is checked once below; the other assertions read the pipeline without it
+		const pipeline = () =>
+			(productModel.aggregate.mock.calls[0][0] as Array<Record<string, unknown>>).filter(
+				(stage) => stage !== (withoutEmbedding as unknown),
+			);
 		const match = () => pipeline()[0].$match as Record<string, unknown>;
 
 		beforeEach(() => {
@@ -626,7 +639,11 @@ describe('ProductService', () => {
 	});
 
 	describe('getProductFacets (D-43)', () => {
-		const pipeline = () => productModel.aggregate.mock.calls[0][0] as Array<Record<string, unknown>>;
+		// D-52: the stage that drops the vector is checked once below; the other assertions read the pipeline without it
+		const pipeline = () =>
+			(productModel.aggregate.mock.calls[0][0] as Array<Record<string, unknown>>).filter(
+				(stage) => stage !== (withoutEmbedding as unknown),
+			);
 		const facets = () => pipeline()[1].$facet as Record<string, Array<Record<string, unknown>>>;
 		const countBy = (field: string) => ({ $group: { _id: `$${field}`, count: { $sum: 1 } } });
 
@@ -723,6 +740,126 @@ describe('ProductService', () => {
 
 		it('an ACTIVE, PAUSED or missing product → NOT_FOUND REMOVE_FAILED', async () => {
 			await expectHttpError(service.removeProductByAdmin(productId), NotFoundException, Message.REMOVE_FAILED);
+		});
+	});
+
+	describe('D-52: vectors and semantic search', () => {
+		const semanticIds = [new Types.ObjectId(), new Types.ObjectId()];
+		const inquiry = { page: 1, limit: 10, search: { text: 'phone answering' } };
+		const stages = () => productModel.aggregate.mock.calls[0][0] as Array<Record<string, unknown>>;
+
+		it('a new product is queued for its vector, in the background', async () => {
+			productModel.create.mockResolvedValue({ _id: productId, memberId: ownerId });
+			await service.createProduct({
+				productCategory: AgentCategory.SALES,
+				productPricing: FREE,
+				productTitle: 'Bot',
+				productImages: ['uploads/product/a.png'],
+				productDesc: 'Answers calls.',
+				memberId: ownerId,
+			});
+			expect(embedding.embeddingQueue.requestSync).toHaveBeenCalledWith(EmbeddingKind.PRODUCT, productId);
+		});
+
+		it.each([
+			[{ productTitle: 'New' }],
+			[{ productDesc: 'New description text' }],
+			[{ productCategory: AgentCategory.SALES }],
+			[{ productTags: ['phone'] }],
+		])('a text change %p makes the vector PENDING in the same write and queues it', async (change) => {
+			productModel
+				.resolve('findOne', storedProduct())
+				.resolve('findOneAndUpdate', { _id: productId, memberId: ownerId });
+			await service.updateProduct(ownerId, { _id: productId, ...change });
+
+			expect(productModel.findOneAndUpdate.mock.calls[0][1]).toMatchObject({
+				embeddingStatus: EmbeddingStatus.PENDING,
+				embeddingAttempts: 0,
+			});
+			expect(embedding.embeddingQueue.requestSync).toHaveBeenCalledWith(EmbeddingKind.PRODUCT, productId);
+		});
+
+		it('a change that is not text (status, price) leaves the vector alone', async () => {
+			productModel
+				.resolve('findOne', storedProduct())
+				.resolve('findOneAndUpdate', { _id: productId, memberId: ownerId });
+			await service.updateProduct(ownerId, { _id: productId, productStatus: PAUSED });
+
+			expect(productModel.findOneAndUpdate.mock.calls[0][1]).not.toHaveProperty('embeddingStatus');
+			expect(embedding.embeddingQueue.requestSync).not.toHaveBeenCalled();
+		});
+
+		it('the public list asks for ACTIVE products close in meaning, and matches them or a title containing the text', async () => {
+			embedding.hybridSearch.rankedIds.mockResolvedValue(semanticIds);
+			productModel.resolve('aggregate', [{ list: [], metaCounter: [] }]);
+
+			await service.getProducts(otherId, inquiry);
+
+			expect(embedding.hybridSearch.rankedIds).toHaveBeenCalledWith(EmbeddingKind.PRODUCT, 'phone answering', {
+				productStatus: ACTIVE,
+			});
+			expect(stages()[0].$match).toEqual({
+				productStatus: ACTIVE,
+				$or: [{ _id: { $in: semanticIds } }, { productTitle: { $regex: /phone answering/i } }],
+			});
+			// the vector is dropped right after the match, before anything sorts or joins
+			expect(stages()[1]).toBe(withoutEmbedding);
+		});
+
+		it('orders by relevance by default: title matches first, then the semantic order', async () => {
+			embedding.hybridSearch.rankedIds.mockResolvedValue(semanticIds);
+			productModel.resolve('aggregate', [{ list: [], metaCounter: [] }]);
+
+			await service.getProducts(otherId, inquiry);
+
+			expect(stages()[2]).toEqual({
+				$addFields: {
+					_relevance: {
+						$cond: [
+							{ $regexMatch: { input: '$productTitle', regex: 'phone answering', options: 'i' } },
+							-1,
+							{ $indexOfArray: [semanticIds, '$_id'] },
+						],
+					},
+				},
+			});
+			expect(stages()[3]).toEqual({ $sort: { _relevance: 1, _id: -1 } });
+		});
+
+		it('an explicit sort still wins over relevance', async () => {
+			embedding.hybridSearch.rankedIds.mockResolvedValue(semanticIds);
+			productModel.resolve('aggregate', [{ list: [], metaCounter: [] }]);
+
+			await service.getProducts(otherId, { ...inquiry, sort: 'productLikes' });
+
+			expect(stages()[2]).toEqual({ $sort: { productLikes: Direction.DESC, _id: -1 } });
+		});
+
+		it('without semantic search the text matches titles as before, and relevance means newest', async () => {
+			productModel.resolve('aggregate', [{ list: [], metaCounter: [] }]);
+
+			await service.getProducts(otherId, { ...inquiry, sort: 'relevance' });
+
+			expect(stages()[0].$match).toEqual({ productStatus: ACTIVE, productTitle: { $regex: /phone answering/i } });
+			expect(stages()[2]).toEqual({ $sort: { createdAt: Direction.DESC, _id: -1 } });
+		});
+
+		it('no text, no semantic search; creator and admin lists never use it', async () => {
+			productModel
+				.resolve('aggregate', [{ list: [], metaCounter: [] }])
+				.resolve('aggregate', [{ list: [], metaCounter: [] }]);
+			await service.getProducts(otherId, { page: 1, limit: 10, search: {} });
+			await service.getCreatorProducts(ownerId, { page: 1, limit: 10, search: { text: 'bot' } });
+			expect(embedding.hybridSearch.rankedIds).not.toHaveBeenCalled();
+		});
+
+		it('the filter counts follow the same semantic matches', async () => {
+			embedding.hybridSearch.rankedIds.mockResolvedValue(semanticIds);
+			productModel.resolve('aggregate', [{ categories: [], pricing: [] }]);
+
+			await service.getProductFacets({ text: 'phone answering' });
+
+			expect(stages()[0].$match).toMatchObject({ $or: [{ _id: { $in: semanticIds } }, expect.anything()] });
 		});
 	});
 });

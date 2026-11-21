@@ -15,6 +15,7 @@ export enum Message {
 
 	USED_MEMBER_NICK_OR_PHONE = 'Already used member nick or phone',
 	INVALID_CREDENTIALS = 'Wrong member nick or password!',
+	TOO_MANY_LOGIN_ATTEMPTS = 'Too many failed logins. Try again in a few minutes!',
 	BLOCKED_USER = 'You have been blocked!',
 	WRONG_PASSWORD = 'Wrong password, try again!',
 	SAME_PASSWORD = 'New password must be different from the current password!',
@@ -40,6 +41,19 @@ export enum Message {
 	INVALID_BUDGET = 'Budget must be greater than 0!',
 	DEADLINE_IN_PAST = 'Deadline must be in the future!',
 	INVALID_BRIEF_STATUS_CHANGE = 'Brief status can only change between OPEN and CLOSED, or to DELETE!',
+
+	BRIEF_NOT_OPEN = 'This brief is not open for offers!',
+	INVALID_OFFER_PRICE = 'Price must be greater than 0!',
+	INVALID_OFFER_PRODUCT = 'The agent must be one of your active agents!',
+	INVALID_OFFER_STATUS_CHANGE = 'This offer can no longer be changed this way!',
+	OFFER_ALREADY_PENDING = 'You already have a pending offer on this brief: edit it instead!',
+	OFFER_EXPIRED = 'This offer has expired!',
+	OFFER_DAILY_LIMIT = 'You can send at most 20 offers in 24 hours!',
+	INVITE_DAILY_LIMIT = 'You can send at most 20 invites in 24 hours!',
+	INVALID_INVITE_TARGET = 'Only an active creator can be invited!',
+
+	CONVERSATION_NOT_ALLOWED = 'A conversation can only be opened on a pending or accepted offer!',
+	CONVERSATION_READ_ONLY = 'This conversation is read-only!',
 }
 
 /**

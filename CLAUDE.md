@@ -10,7 +10,7 @@ This repo is a **copy of Nestar** (a real estate platform), and it is being conv
 - **USER** members publish **Briefs**, which describe a business need for a custom agent.
 - Contact happens off-platform: email/WhatsApp on the profile, shown to logged-in members only (D-07, D-08).
 
-**`docs/agentshub-er.md` is the source of truth** for every schema, DTO, enum and GraphQL type. `docs/decisions.md` records the reasons (D-01 … D-47). If code and the ER doc disagree, fix one of them on purpose and record why in `docs/decisions.md`. New decisions start as **Proposed**. Never delete a decision; mark it **Superseded by D-XX** instead.
+**`docs/agentshub-er.md` is the source of truth** for every schema, DTO, enum and GraphQL type. `docs/decisions.md` records the reasons (D-01 … D-53). If code and the ER doc disagree, fix one of them on purpose and record why in `docs/decisions.md`. New decisions start as **Proposed**. Never delete a decision; mark it **Superseded by D-XX** instead.
 
 The code is still almost entirely Nestar. Main conversions:
 
@@ -88,7 +88,11 @@ apps/
     app.setup.ts          configureApp(app): global ValidationPipe + LoggingInterceptor, shared with the e2e tests
     app.module.ts         GraphQLModule (custom formatError), ComponentsModule, DatabaseModule, SocketModule
     components/<name>/    <name>.module.ts, <name>.resolver.ts, <name>.service.ts
-                          auth, member, product, brief, board-article, comment, like, view, follow, save
+                          auth, member, product, brief, board-article, comment, like, view, follow, save,
+                          offer (offers + invites, D-48; reads briefs/products through their models, since
+                          BriefModule imports OfferModule), chat (1:1 conversations on offers, D-49), notification (D-50),
+                          embedding (vectors + semantic search for products and briefs, D-52; the batch app runs its
+                          reconcile job; hybrid ranking with the $text index, D-53)
                           (all registered in components.module.ts)
     schemas/<Name>.model.ts   plain mongoose Schema, default export, { timestamps: true, collection }
                               Notice and Notification schemas exist but have no module yet
@@ -104,15 +108,16 @@ apps/
     libs/process-handlers.ts  logs unhandled promise rejections instead of exiting (B22, D-34); first call in both main.ts
     libs/upload.ts        saveUpload / removeUploads: the image upload rules and error codes (D-36); every upload is
                           re-encoded with sharp to a WebP of at most 1600px without metadata (D-41)
-    socket/               raw `ws` gateway: public broadcast chat, last 5 messages kept in memory
-                          (note: D-08 says no in-platform chat in the MVP)
+    socket/               raw `ws` gateway: public broadcast chat, last 5 messages kept in memory (D-19);
+                          also the MemberPublisher (D-49, D-50): pushes chat:* / notification:* events to a member's sockets
   agentshub-api/test/
     utils/                mock-model.ts (fake Mongoose model), validate-dto.ts, http-error.ts,
                           uuid.ts (Jest stand-in for the ESM-only uuid package)
     e2e/                  global-setup/-teardown (in-memory mongod), e2e-env.ts (env + localhost check),
                           e2e-app.ts (createE2eApp, gql helpers)
     app.e2e-spec.ts       API smoke suite
-  agentshub-batch/src/    @nestjs/schedule: one nightly cron at 01:00:00 runs rollback → products → creators in sequence
+  agentshub-batch/src/    @nestjs/schedule: one nightly cron at 01:00:00 runs rollback → products → creators in sequence;
+                          a separate cron at 01:30:00 stores EXPIRED on expired offers (D-48)
                           AgentsHubBatchModule; imports schemas, DTOs and enums directly from ../../agentshub-api/src/...
 uploads/{member,product,article}/    local image storage (gitignored); the folders must exist on each machine,
                                      uploads into a missing folder fail

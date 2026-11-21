@@ -1,5 +1,6 @@
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import type { Request } from 'express';
+import { ForbiddenException, HttpException, UnauthorizedException } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { AuthService } from '../auth/auth.service';
 import { AuthGuard } from '../auth/guards/auth.guard';
@@ -9,6 +10,7 @@ import type { Member } from '../../libs/dto/member/member';
 import { MemberContactResolver } from './member-contact.resolver';
 import { MemberResolver } from './member.resolver';
 import { MemberService } from './member.service';
+import { LoginThrottle } from './login-throttle';
 
 describe('MemberResolver.getMe (D-33)', () => {
 	it('is behind AuthGuard: guests get UNAUTHENTICATED, blocked members FORBIDDEN (B17)', () => {
@@ -24,7 +26,7 @@ describe('MemberResolver.getMe (D-33)', () => {
 		const memberId = new Types.ObjectId();
 		const member = { _id: memberId, memberNick: 'alice' };
 		const memberService = { getMe: jest.fn().mockResolvedValue(member) };
-		const resolver = new MemberResolver(memberService as unknown as MemberService);
+		const resolver = new MemberResolver(memberService as unknown as MemberService, new LoginThrottle());
 		jest.spyOn(console, 'log').mockImplementation(() => undefined);
 
 		await expect(resolver.getMe(memberId)).resolves.toBe(member);
@@ -50,7 +52,7 @@ describe('MemberResolver.getProfileVisitors (D-42)', () => {
 		const memberId = new Types.ObjectId();
 		const page = { list: [], metaCounter: [], privateCount: 0 };
 		const memberService = { getProfileVisitors: jest.fn().mockResolvedValue(page) };
-		const resolver = new MemberResolver(memberService as unknown as MemberService);
+		const resolver = new MemberResolver(memberService as unknown as MemberService, new LoginThrottle());
 		jest.spyOn(console, 'log').mockImplementation(() => undefined);
 
 		await expect(resolver.getProfileVisitors({ page: 1, limit: 10 }, memberId)).resolves.toBe(page);
@@ -86,5 +88,59 @@ describe('MemberContactResolver.memberBrowsePrivately (D-42)', () => {
 			resolverFor(new Types.ObjectId()).memberBrowsePrivately(member, request('Bearer t')),
 		).resolves.toBeNull();
 		await expect(resolverFor(null).memberBrowsePrivately(member, request())).resolves.toBeNull();
+	});
+});
+
+describe('MemberResolver.login: failed logins are throttled per address and nick (D-51)', () => {
+	const req = (ip: string) => ({ ip }) as Request;
+	const input = { memberNick: 'Alice', memberPassword: 'wrong' };
+	const setup = () => {
+		const memberService = { login: jest.fn() };
+		const resolver = new MemberResolver(memberService as unknown as MemberService, new LoginThrottle());
+		jest.spyOn(console, 'log').mockImplementation(() => undefined);
+		return { memberService, resolver };
+	};
+	const failTimes = async (resolver: MemberResolver, times: number, ip = '1.2.3.4', memberNick = 'Alice') => {
+		for (let i = 0; i < times; i++) {
+			await resolver.login({ ...input, memberNick }, req(ip)).catch(() => undefined);
+		}
+	};
+
+	it('after 10 wrong passwords the 11th try is refused with 429 before the password is checked', async () => {
+		const { memberService, resolver } = setup();
+		memberService.login.mockRejectedValue(new UnauthorizedException('Wrong member nick or password!'));
+		await failTimes(resolver, 10);
+		expect(memberService.login).toHaveBeenCalledTimes(10);
+
+		const error = await resolver.login(input, req('1.2.3.4')).catch((err: unknown) => err);
+		expect(error).toBeInstanceOf(HttpException);
+		expect((error as HttpException).getStatus()).toBe(429);
+		expect(memberService.login).toHaveBeenCalledTimes(10);
+	});
+
+	it('the nick is matched case-insensitively, but another address or nick is not affected', async () => {
+		const { memberService, resolver } = setup();
+		memberService.login.mockRejectedValue(new UnauthorizedException('x'));
+		await failTimes(resolver, 10, '1.2.3.4', 'alice');
+
+		await expect(resolver.login({ ...input, memberNick: 'ALICE' }, req('1.2.3.4'))).rejects.toBeInstanceOf(
+			HttpException,
+		);
+		memberService.login.mockResolvedValue({ memberNick: 'Alice' });
+		await expect(resolver.login(input, req('5.6.7.8'))).resolves.toEqual({ memberNick: 'Alice' });
+		await expect(resolver.login({ ...input, memberNick: 'bob' }, req('1.2.3.4'))).resolves.toBeDefined();
+	});
+
+	it('a success clears the count; a blocked member (FORBIDDEN) is not counted', async () => {
+		const { memberService, resolver } = setup();
+		memberService.login.mockRejectedValue(new UnauthorizedException('x'));
+		await failTimes(resolver, 9);
+		memberService.login.mockResolvedValueOnce({ memberNick: 'Alice' });
+		await resolver.login(input, req('1.2.3.4'));
+
+		memberService.login.mockRejectedValue(new ForbiddenException('blocked'));
+		await failTimes(resolver, 20);
+		memberService.login.mockResolvedValue({ memberNick: 'Alice' });
+		await expect(resolver.login(input, req('1.2.3.4'))).resolves.toBeDefined();
 	});
 });

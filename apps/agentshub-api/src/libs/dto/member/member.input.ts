@@ -6,11 +6,13 @@ import {
 	IsByteLength,
 	IsEnum,
 	IsIn,
+	IsInt,
 	IsNotEmpty,
 	IsOptional,
 	IsString,
 	Length,
 	Matches,
+	Max,
 	MaxLength,
 	Min,
 	MinLength,
@@ -24,6 +26,7 @@ import {
 	aviableCreatorSorts,
 	aviableMemberSorts,
 	e164PhoneRegex,
+	listPageMax,
 	passwordMaxBytes,
 	passwordMinLength,
 	searchTextMaxLength,
@@ -119,13 +122,16 @@ export class CRISearch {
 
 @InputType()
 export class CreatorsInquiry {
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
 	@Field(() => Int)
 	page!: number;
 
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
+	@Max(listPageMax)
 	@Field(() => Int)
 	limit!: number;
 
@@ -163,13 +169,16 @@ class MISearch {
 
 @InputType()
 export class MembersInquiry {
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
 	@Field(() => Int)
 	page!: number;
 
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
+	@Max(listPageMax)
 	@Field(() => Int)
 	limit!: number;
 

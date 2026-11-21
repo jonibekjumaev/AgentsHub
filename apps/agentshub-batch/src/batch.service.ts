@@ -5,12 +5,17 @@ import { Model } from 'mongoose';
 import { Member } from '../../agentshub-api/src/libs/dto/member/member';
 import { ProductStatus } from '../../agentshub-api/src/libs/enums/product.enum';
 import { MemberStatus, MemberType } from '../../agentshub-api/src/libs/enums/member.enum';
+import { Offer } from '../../agentshub-api/src/libs/dto/offer/offer';
+import { Brief } from '../../agentshub-api/src/libs/dto/brief/brief';
+import { OfferStatus } from '../../agentshub-api/src/libs/enums/offer.enum';
 
 @Injectable()
 export class BatchService {
 	constructor(
 		@InjectModel('Product') private readonly productModel: Model<Product>,
 		@InjectModel('Member') private readonly memberModel: Model<Member>,
+		@InjectModel('Offer') private readonly offerModel: Model<Offer>,
+		@InjectModel('Brief') private readonly briefModel: Model<Brief>,
 	) {}
 	/** Returns how many products and members were reset (for `npm run batch:run`; the crons ignore it). */
 	public async batchRollback(): Promise<{ products: number; members: number }> {
@@ -75,6 +80,37 @@ export class BatchService {
 			'memberRank',
 		);
 		return creators.length;
+	}
+
+	/**
+	 * D-48: stores EXPIRED on PENDING offers past their expiry and lowers their brief's briefOffers. Reads already treat
+	 * them as expired, so this only makes the stored status and the counter match.
+	 *
+	 * One conditional write per offer, pinned to the expiry that was read: an offer re-sent or edited since (a new
+	 * expiresAt) or accepted in between matches nothing and keeps its counter. Each brief is decremented exactly once per
+	 * offer that really changed. Returns how many offers expired.
+	 */
+	public async expireOffers(now: Date = new Date()): Promise<number> {
+		const due = await this.offerModel
+			.find({ offerStatus: OfferStatus.PENDING, expiresAt: { $lte: now } })
+			.select('_id briefId expiresAt')
+			.lean<Pick<Offer, '_id' | 'briefId' | 'expiresAt'>[]>()
+			.exec();
+
+		let expired = 0;
+		for (const offer of due ?? []) {
+			const result = await this.offerModel
+				.updateOne(
+					{ _id: offer._id, offerStatus: OfferStatus.PENDING, expiresAt: offer.expiresAt },
+					{ $set: { offerStatus: OfferStatus.EXPIRED, closedAt: now }, $unset: { expiresAt: 1 } },
+				)
+				.exec();
+			if (result.modifiedCount !== 1) continue;
+
+			await this.briefModel.updateOne({ _id: offer.briefId }, { $inc: { briefOffers: -1 } }).exec();
+			expired++;
+		}
+		return expired;
 	}
 
 	/**

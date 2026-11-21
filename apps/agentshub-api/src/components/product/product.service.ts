@@ -36,13 +36,41 @@ import {
 	paidProductPricings,
 	shapeInToMongoObjectId,
 	unwindKeepingItem,
+	withoutEmbedding,
 } from '../../libs/config';
 import { LikeService, withMeLiked } from '../like/like.service';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { describeDbError, isDuplicateKeyError, normalizeTags } from '../../libs/utils';
+import { EmbeddingKind, EmbeddingStatus } from '../../libs/enums/embedding.enum';
+import { EmbeddingQueue } from '../embedding/embedding-queue';
+import { HybridSearchService } from '../embedding/hybrid-search.service';
+import { productTextKeys } from '../embedding/embedding-text';
 
 type FacetRow = { _id: string; count: number };
+
+/**
+ * D-52/D-53: the order of a ranked text search. A title containing the text comes first (rank -1: the member typed a
+ * name), then the hybrid order (the index in `ids`, best first); ties by the newest _id.
+ */
+export const relevanceSortStages = (
+	titleField: string,
+	semantic: { ids: ObjectId[]; text?: string },
+): PipelineStage[] => [
+	{
+		$addFields: {
+			_relevance: {
+				$cond: [
+					{ $regexMatch: { input: `$${titleField}`, regex: escapeRegex(semantic.text ?? ''), options: 'i' } },
+					-1,
+					{ $indexOfArray: [semantic.ids, '$_id'] },
+				],
+			},
+		},
+	},
+	{ $sort: { _relevance: 1, _id: -1 } },
+	{ $unset: '_relevance' },
+];
 
 const countOf = (rows: FacetRow[], value: string): number => rows.find((row) => row._id === value)?.count ?? 0;
 
@@ -56,6 +84,8 @@ export class ProductService {
 		private memberService: MemberService,
 		private viewService: ViewService,
 		private likeService: LikeService,
+		private embeddingQueue: EmbeddingQueue,
+		private hybridSearch: HybridSearchService,
 	) {}
 
 	public async createProduct(input: ProductInput): Promise<Product> {
@@ -77,6 +107,7 @@ export class ProductService {
 			targetKey: 'memberProducts',
 			modifier: 1,
 		});
+		this.embeddingQueue.requestSync(EmbeddingKind.PRODUCT, result._id); // D-52, in the background
 		return result;
 	}
 
@@ -116,15 +147,25 @@ export class ProductService {
 		return await this.applyProductUpdate({ _id: input._id, memberId: memberId }, input);
 	}
 
+	/**
+	 * The public list. D-52/D-53: with a search text, the best matches by meaning and by words come first (sort
+	 * `relevance`, the default then); when neither ranking can answer, the text matches titles as before.
+	 */
 	public async getProducts(memberId: ObjectId, input: ProductsInquiry): Promise<Products> {
 		const match: T = { productStatus: ProductStatus.ACTIVE };
+		const semantic = await this.semanticIds(input.search.text);
 
-		this.shapeMatchQuery(match, input.search);
+		this.shapeMatchQuery(match, input.search, semantic);
 
 		const result = await this.productModel
 			.aggregate([
 				{ $match: match },
-				...this.shapeSortStages(input.sort, input.direction),
+				withoutEmbedding,
+				...this.shapeSortStages(
+					input.sort,
+					input.direction,
+					semantic ? { ids: semantic, text: input.search.text } : null,
+				),
 				{
 					$facet: {
 						list: [
@@ -155,7 +196,9 @@ export class ProductService {
 	 */
 	public async getProductFacets(search: PIsearch): Promise<ProductFacets> {
 		const shared: T = { productStatus: ProductStatus.ACTIVE };
-		this.shapeMatchQuery(shared, { ...search, categoryList: undefined, pricingList: undefined });
+		// D-52: the same products getProducts lists for this text (its query vector is cached by then)
+		const semantic = await this.semanticIds(search.text);
+		this.shapeMatchQuery(shared, { ...search, categoryList: undefined, pricingList: undefined }, semantic);
 
 		// The full match without one group's own list; only the other group's field differs from `shared`.
 		const forCategories: T = {};
@@ -187,10 +230,21 @@ export class ProductService {
 		};
 	}
 
-	/** The search filters shared by the three product lists (Step 6 part 13). Empty lists mean "no filter". */
+	/** D-53: the ACTIVE products matching the text by meaning and by words, best first; null without a text or ranking. */
+	private async semanticIds(text: string | undefined): Promise<ObjectId[] | null> {
+		if (!text) return null;
+		return await this.hybridSearch.rankedIds(EmbeddingKind.PRODUCT, text, { productStatus: ProductStatus.ACTIVE });
+	}
+
+	/**
+	 * The search filters shared by the three product lists (Step 6 part 13). Empty lists mean "no filter".
+	 * D-52/D-53: with `semantic` (hybrid-ranked) ids the text matches those products or a title containing it (an exact
+	 * name or a part of a word is never missed); without, only the title, as before.
+	 */
 	private shapeMatchQuery(
 		match: T,
 		search: ProductFilters & { memberId?: ObjectId; periodsRange?: PeriodsRange },
+		semantic: ObjectId[] | null = null,
 	): void {
 		const { memberId, periodsRange, pricesRange, categoryList, pricingList, tagList, text } = search;
 
@@ -210,14 +264,26 @@ export class ProductService {
 
 		if (tagList?.length) match.productTags = { $all: normalizeTags(tagList) };
 		if (periodsRange) match.createdAt = { $gte: periodsRange.start, $lte: periodsRange.end };
-		if (text) match.productTitle = { $regex: new RegExp(escapeRegex(text), 'i') };
+		if (text) {
+			const byTitle: T = { productTitle: { $regex: new RegExp(escapeRegex(text), 'i') } };
+			if (semantic) match.$or = [{ _id: { $in: semantic } }, byTitle];
+			else Object.assign(match, byTitle);
+		}
 	}
 
 	/**
 	 * The $sort stages of the product lists. Ties are broken by the newest _id, so skip/limit pages stay stable.
 	 * Sorting by productPrice puts products without a price (FREE / CUSTOM, D-03) last in both directions.
+	 * D-52/D-53: `relevance` (the default when there is a ranked search) puts title matches first, then the hybrid
+	 * order; without a ranked search it is createdAt.
 	 */
-	private shapeSortStages(sort: string = 'createdAt', direction: Direction = Direction.DESC): PipelineStage[] {
+	private shapeSortStages(
+		sort: string | undefined,
+		direction: Direction = Direction.DESC,
+		semantic: { ids: ObjectId[]; text?: string } | null = null,
+	): PipelineStage[] {
+		if (semantic && (sort === undefined || sort === 'relevance')) return relevanceSortStages('productTitle', semantic);
+		if (sort === undefined || sort === 'relevance') sort = 'createdAt';
 		if (sort === 'productPrice') {
 			return [
 				{ $addFields: { _hasPrice: { $cond: [{ $isNumber: '$productPrice' }, 1, 0] } } },
@@ -249,6 +315,7 @@ export class ProductService {
 		const result = await this.productModel
 			.aggregate([
 				{ $match: match },
+				withoutEmbedding,
 				...this.shapeSortStages(input.sort, input.direction),
 				{
 					$facet: {
@@ -297,6 +364,7 @@ export class ProductService {
 		const result = await this.productModel
 			.aggregate([
 				{ $match: match },
+				withoutEmbedding,
 				...this.shapeSortStages(input.sort, input.direction),
 				{
 					$facet: {
@@ -388,6 +456,9 @@ export class ProductService {
 		const isDeleting = this.checkStatusChange(stored.productStatus, input.productStatus);
 		if (isDeleting) input.deletedAt = moment().toDate();
 		const update = this.shapePricingUpdate(stored, input);
+		// D-52: a text change makes the vector stale at once (the reconcile job sees it even if the sync below is lost)
+		const textChanged = productTextKeys.some((key) => input[key] !== undefined);
+		if (textChanged) Object.assign(update, { embeddingStatus: EmbeddingStatus.PENDING, embeddingAttempts: 0 });
 
 		let result: HydratedDocument<Product> | null;
 		try {
@@ -408,6 +479,7 @@ export class ProductService {
 				modifier: -1,
 			});
 		}
+		if (textChanged && !isDeleting) this.embeddingQueue.requestSync(EmbeddingKind.PRODUCT, result._id);
 		return result;
 	}
 

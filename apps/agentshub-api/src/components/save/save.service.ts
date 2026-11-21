@@ -7,7 +7,7 @@ import { TotalCounter } from '../../libs/dto/member/member';
 import { OrdinaryInquiry } from '../../libs/dto/common.input';
 import { visibleBriefStatuses } from '../../libs/enums/brief.enum';
 import { Message } from '../../libs/enums/common.enum';
-import { lookupSavedBriefAuthor, unwindKeepingItem } from '../../libs/config';
+import { lookupSavedBriefAuthor, unwindKeepingItem, withoutEmbedding } from '../../libs/config';
 import { describeDbError, isDuplicateKeyError } from '../../libs/utils';
 import type { ObjectId } from '../../libs/types/common';
 
@@ -67,6 +67,7 @@ export class SaveService {
 						from: 'briefs',
 						localField: 'briefId',
 						foreignField: '_id',
+						pipeline: [withoutEmbedding], // D-52
 						as: 'savedBrief',
 					},
 				},

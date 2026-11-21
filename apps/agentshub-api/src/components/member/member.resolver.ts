@@ -1,5 +1,6 @@
-import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
+import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { MemberService } from './member.service';
+import { LoginThrottle } from './login-throttle';
 import {
 	ChangePasswordInput,
 	CreatorsInquiry,
@@ -9,7 +10,14 @@ import {
 	MembersInquiry,
 } from '../../libs/dto/member/member.input';
 import { CreatorFacets, CreatorStats, Member, Members } from '../../libs/dto/member/member';
-import { BadRequestException, HttpException, InternalServerErrorException, UseGuards } from '@nestjs/common';
+import {
+	BadRequestException,
+	HttpException,
+	InternalServerErrorException,
+	UnauthorizedException,
+	UseGuards,
+} from '@nestjs/common';
+import type { Request } from 'express';
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { AuthMember } from '../auth/decorators/authMember.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -29,7 +37,10 @@ import { OrdinaryInquiry } from '../../libs/dto/common.input';
 
 @Resolver()
 export class MemberResolver {
-	constructor(private readonly memberService: MemberService) {}
+	constructor(
+		private readonly memberService: MemberService,
+		private readonly loginThrottle: LoginThrottle,
+	) {}
 
 	@Mutation(() => Member)
 	public async signup(@Args('input') input: MemberInput): Promise<Member> {
@@ -38,9 +49,20 @@ export class MemberResolver {
 	}
 
 	@Mutation(() => Member)
-	public async login(@Args('input') input: LoginInput): Promise<Member> {
+	public async login(@Args('input') input: LoginInput, @Context('req') req?: Request): Promise<Member> {
 		console.log('Mutation: login');
-		return await this.memberService.login(input);
+		// D-51: the client address as Express sees it (behind a proxy, set TRUST_PROXY so this is the real client)
+		const address = req?.ip ?? 'unknown';
+		this.loginThrottle.assertAllowed(address, input.memberNick);
+		try {
+			const member = await this.memberService.login(input);
+			this.loginThrottle.recordSuccess(address, input.memberNick);
+			return member;
+		} catch (err) {
+			// only a wrong nick or password counts; a blocked member knew the password (D-33)
+			if (err instanceof UnauthorizedException) this.loginThrottle.recordFailure(address, input.memberNick);
+			throw err;
+		}
 	}
 
 	/** The logged-in member with their own contacts (D-33), so the client never has to decode the token */

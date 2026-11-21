@@ -4,6 +4,8 @@ import { Test } from '@nestjs/testing';
 import { Types } from 'mongoose';
 import { expectHttpError } from '../../../test/utils/http-error';
 import { createMockModel, MockModel } from '../../../test/utils/mock-model';
+import { createNotificationMock, NotificationMock } from '../../../test/utils/notification-mock';
+import { NotificationService } from '../notification/notification.service';
 import { CommentInput, CommentsInquiry } from '../../libs/dto/comment/comment.input';
 import { CommentUpdate } from '../../libs/dto/comment/comment.update';
 import { BoardArticleStatus } from '../../libs/enums/board-article.enum';
@@ -41,8 +43,10 @@ describe('CommentService', () => {
 	let service: CommentService;
 	let models: Record<'comment' | 'product' | 'brief' | 'boardArticle' | 'member', MockModel>;
 	let editors: Record<CommentGroup, StatsEditor>;
+	let notifications: NotificationMock;
 
 	beforeEach(async () => {
+		notifications = createNotificationMock();
 		models = {
 			comment: createMockModel(),
 			product: createMockModel(),
@@ -61,6 +65,7 @@ describe('CommentService', () => {
 		const moduleRef = await Test.createTestingModule({
 			providers: [
 				CommentService,
+				{ provide: NotificationService, useValue: notifications },
 				{ provide: getModelToken('Comment'), useValue: models.comment },
 				{ provide: getModelToken('Product'), useValue: models.product },
 				{ provide: getModelToken('Brief'), useValue: models.brief },
@@ -134,6 +139,8 @@ describe('CommentService', () => {
 				// for MEMBER, the member commented on gets +1, not the author (B6)
 				expect(editors[group]).toHaveBeenCalledWith({ _id: targetId.toHexString(), targetKey, modifier: 1 });
 				expect(allEditorCalls()).toHaveLength(1);
+				// D-50: the target's owner hears about it (NotificationService finds who that is)
+				expect(notifications.notifyComment).toHaveBeenCalledWith(authorId, group, targetId.toHexString(), 'Nice!');
 			},
 		);
 
@@ -145,6 +152,7 @@ describe('CommentService', () => {
 			);
 			expect(models.comment.create).not.toHaveBeenCalled();
 			expect(allEditorCalls()).toEqual([]);
+			expect(notifications.notifyComment).not.toHaveBeenCalled();
 		});
 
 		it('a malformed commentRefId → BAD_REQUEST, without a database query', async () => {

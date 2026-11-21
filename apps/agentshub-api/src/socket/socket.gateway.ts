@@ -17,7 +17,8 @@ import { Message } from '../libs/enums/common.enum';
 import type { ObjectId } from '../libs/types/common';
 import * as url from 'url';
 import type { IncomingMessage } from 'http';
-import { chatMessageMaxLength } from '../libs/config';
+import { chatMessageMaxLength, wsMaxPayloadBytes } from '../libs/config';
+import { MemberEvent, MemberPublisher } from './member.publisher';
 
 /** Only these member fields may reach chat clients (D-19, D-07). Guests get null. */
 interface PublicMember {
@@ -53,8 +54,9 @@ const toPublicMember = (member: PublicMember | null | undefined): PublicMember |
 	return { _id, memberNick, memberImage, memberType };
 };
 
-@WebSocketGateway({ transports: ['websocket'], secure: false })
-export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
+// D-51: maxPayload bounds what one client frame may cost in memory
+@WebSocketGateway({ transports: ['websocket'], secure: false, maxPayload: wsMaxPayloadBytes })
+export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, MemberPublisher {
 	private logger: Logger = new Logger('SocketEventsGateways');
 	private summaryClient: number = 0;
 	private clientsAuthMap = new Map<WebSocket, PublicMember | null>();
@@ -199,6 +201,19 @@ export class SocketGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 	private pruneLastSentAt(now: number) {
 		this.lastSentAtMap.forEach((sentAt, memberId) => {
 			if (now - sentAt >= MESSAGE_RATE_LIMIT_MS) this.lastSentAtMap.delete(memberId);
+		});
+	}
+
+	/**
+	 * D-49 / D-50: pushes a chat or notification event to every open socket of these members (all their tabs), nobody else. The message is
+	 * already stored; a member without an open socket catches up with getMessages. Sockets are matched by the member
+	 * they were opened with, so a member must reconnect after login to receive pushes (as for the community chat).
+	 */
+	public publish(memberIds: ObjectId[], event: MemberEvent, data: unknown): void {
+		const ids = new Set(memberIds.map(String));
+		const frame = JSON.stringify({ event, data });
+		this.clientsAuthMap.forEach((member, client) => {
+			if (member && ids.has(String(member._id)) && client.readyState === WebSocket.OPEN) client.send(frame);
 		});
 	}
 

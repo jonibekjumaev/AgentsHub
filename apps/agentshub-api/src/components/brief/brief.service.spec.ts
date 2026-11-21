@@ -4,6 +4,11 @@ import { Test } from '@nestjs/testing';
 import { Types } from 'mongoose';
 import { expectHttpError } from '../../../test/utils/http-error';
 import { createMockModel, MockModel } from '../../../test/utils/mock-model';
+import { withoutEmbedding } from '../../libs/config';
+import { EmbeddingKind, EmbeddingStatus } from '../../libs/enums/embedding.enum';
+import { createEmbeddingMocks, EmbeddingMocks } from '../../../test/utils/embedding-mock';
+import { EmbeddingQueue } from '../embedding/embedding-queue';
+import { HybridSearchService } from '../embedding/hybrid-search.service';
 import { BriefInput } from '../../libs/dto/brief/brief.input';
 import { BriefUpdate } from '../../libs/dto/brief/brief.update';
 import { AgentCategory } from '../../libs/enums/agent-category.enum';
@@ -15,6 +20,8 @@ import { StatisticModifier } from '../../libs/types/common';
 import { MemberService } from '../member/member.service';
 import { ViewService } from '../view/view.service';
 import { SaveService } from '../save/save.service';
+import { OfferService } from '../offer/offer.service';
+import { InviteService } from '../offer/invite.service';
 import { BriefService } from './brief.service';
 
 const { OPEN, CLOSED, DELETE } = BriefStatus;
@@ -53,8 +60,16 @@ describe('BriefService', () => {
 		removeSavesOfBrief: jest.Mock;
 		getSavedBriefs: jest.Mock;
 	};
+	let offerService: {
+		findOfferOf: jest.Mock;
+		declinePendingOffersOfBrief: jest.Mock;
+		removeOffersOfBrief: jest.Mock;
+	};
+	let inviteService: { isInvited: jest.Mock; removeInvitesOfBrief: jest.Mock };
+	let embedding: EmbeddingMocks;
 
 	beforeEach(async () => {
+		embedding = createEmbeddingMocks();
 		briefModel = createMockModel();
 		memberService = {
 			memberStatsEditor: jest.fn<Promise<unknown>, [StatisticModifier]>().mockResolvedValue({}),
@@ -69,6 +84,15 @@ describe('BriefService', () => {
 			removeSavesOfBrief: jest.fn().mockResolvedValue(0),
 			getSavedBriefs: jest.fn().mockResolvedValue({ list: [], metaCounter: [] }),
 		};
+		offerService = {
+			findOfferOf: jest.fn().mockResolvedValue(null),
+			declinePendingOffersOfBrief: jest.fn().mockResolvedValue(0),
+			removeOffersOfBrief: jest.fn().mockResolvedValue(0),
+		};
+		inviteService = {
+			isInvited: jest.fn().mockResolvedValue(false),
+			removeInvitesOfBrief: jest.fn().mockResolvedValue(0),
+		};
 
 		const moduleRef = await Test.createTestingModule({
 			providers: [
@@ -77,6 +101,10 @@ describe('BriefService', () => {
 				{ provide: MemberService, useValue: memberService },
 				{ provide: ViewService, useValue: viewService },
 				{ provide: SaveService, useValue: saveService },
+				{ provide: OfferService, useValue: offerService },
+				{ provide: InviteService, useValue: inviteService },
+				{ provide: EmbeddingQueue, useValue: embedding.embeddingQueue },
+				{ provide: HybridSearchService, useValue: embedding.hybridSearch },
 			],
 		}).compile();
 		service = moduleRef.get(BriefService);
@@ -493,7 +521,11 @@ describe('BriefService', () => {
 
 	describe('brief lists (D-30)', () => {
 		const inquiry = { page: 1, limit: 10, search: {} };
-		const pipeline = () => briefModel.aggregate.mock.calls[0][0] as Array<Record<string, unknown>>;
+		// D-52: the stage that drops the vector is checked once below; the other assertions read the pipeline without it
+		const pipeline = () =>
+			(briefModel.aggregate.mock.calls[0][0] as Array<Record<string, unknown>>).filter(
+				(stage) => stage !== (withoutEmbedding as unknown),
+			);
 		const match = () => pipeline()[0].$match as Record<string, unknown>;
 
 		beforeEach(() => {
@@ -652,7 +684,11 @@ describe('BriefService', () => {
 	});
 
 	describe('getBriefFacets (D-44)', () => {
-		const pipeline = () => briefModel.aggregate.mock.calls[0][0] as Array<Record<string, unknown>>;
+		// D-52: the stage that drops the vector is checked once below; the other assertions read the pipeline without it
+		const pipeline = () =>
+			(briefModel.aggregate.mock.calls[0][0] as Array<Record<string, unknown>>).filter(
+				(stage) => stage !== (withoutEmbedding as unknown),
+			);
 		const facets = () => pipeline()[1].$facet as Record<string, Array<Record<string, unknown>>>;
 		const group = (by: unknown) => ({ $group: { _id: by, count: { $sum: 1 } } });
 		const byBudgetType = {
@@ -920,6 +956,143 @@ describe('BriefService', () => {
 
 				expect(pageStages().some(savesLookup)).toBe(false);
 			});
+		});
+	});
+
+	describe('offers of a brief (D-48)', () => {
+		const runUpdate = (stored: object, input: Partial<BriefUpdate>, result: object = {}) => {
+			briefModel.resolve('findOne', stored);
+			briefModel.resolve('findOneAndUpdate', { _id: briefId, memberId: ownerId, briefOffers: 3, ...result });
+			return service.updateBrief(ownerId, { _id: briefId, ...input });
+		};
+
+		it.each([CLOSED, DELETE])('a brief set to %s declines its PENDING offers', async (next) => {
+			offerService.declinePendingOffersOfBrief.mockResolvedValueOnce(2);
+			const result = await runUpdate(storedBrief(), { briefStatus: next });
+
+			expect(offerService.declinePendingOffersOfBrief).toHaveBeenCalledWith(briefId);
+			expect(result.briefOffers).toBe(1); // the answer shows the counter after the decline
+		});
+
+		it.each([
+			['a reopen', { briefStatus: CLOSED }, { briefStatus: OPEN }],
+			['a field edit', {}, { briefTitle: 'New title' }],
+			['the same status', {}, { briefStatus: OPEN }],
+		])('%s declines nothing', async (_label, stored, input) => {
+			await runUpdate(storedBrief(stored), input);
+			expect(offerService.declinePendingOffersOfBrief).not.toHaveBeenCalled();
+		});
+
+		it('a failure to decline the offers does not fail the brief update (accept also checks the brief)', async () => {
+			offerService.declinePendingOffersOfBrief.mockRejectedValueOnce(new Error('connection lost'));
+			await expect(runUpdate(storedBrief(), { briefStatus: CLOSED })).resolves.toMatchObject({ _id: briefId });
+		});
+
+		it('removeBriefByAdmin removes its offers and invites with it', async () => {
+			briefModel.resolve('findOneAndDelete', fullBrief({ briefStatus: DELETE }));
+			await service.removeBriefByAdmin(briefId);
+
+			expect(offerService.removeOffersOfBrief).toHaveBeenCalledWith(briefId);
+			expect(inviteService.removeInvitesOfBrief).toHaveBeenCalledWith(briefId);
+		});
+
+		it('an OPEN brief is not removed, and its offers stay', async () => {
+			await expectHttpError(service.removeBriefByAdmin(briefId), NotFoundException, Message.REMOVE_FAILED);
+			expect(offerService.removeOffersOfBrief).not.toHaveBeenCalled();
+		});
+
+		describe('meOffer and meInvited on getBrief', () => {
+			it('a CREATOR gets their own offer and whether they were invited', async () => {
+				const offer = { _id: new Types.ObjectId(), offerStatus: 'PENDING' };
+				briefModel.resolve('findOne', fullBrief());
+				offerService.findOfferOf.mockResolvedValueOnce(offer);
+				inviteService.isInvited.mockResolvedValueOnce(true);
+
+				const result = await service.getBrief(otherId, briefId, MemberType.CREATOR);
+
+				expect(offerService.findOfferOf).toHaveBeenCalledWith(otherId, briefId);
+				expect(inviteService.isInvited).toHaveBeenCalledWith(briefId, otherId);
+				expect(result.meOffer).toBe(offer);
+				expect(result.meInvited).toBe(true);
+			});
+
+			it.each([
+				['a guest', null, null],
+				['a USER', otherId, MemberType.USER],
+				['an admin', otherId, MemberType.ADMIN],
+			])('%s gets neither (null in GraphQL)', async (_label, memberId, viewerType) => {
+				briefModel.resolve('findOne', fullBrief());
+				const result = await service.getBrief(memberId, briefId, viewerType);
+
+				expect(result.meOffer).toBeUndefined();
+				expect(result.meInvited).toBeUndefined();
+				expect(offerService.findOfferOf).not.toHaveBeenCalled();
+			});
+		});
+	});
+
+	describe('D-52: vectors and semantic search', () => {
+		const semanticIds = [new Types.ObjectId(), new Types.ObjectId()];
+		const stages = () => briefModel.aggregate.mock.calls[0][0] as Array<Record<string, unknown>>;
+
+		it('a new brief is queued for its vector', async () => {
+			briefModel.create.mockResolvedValue({ _id: briefId, memberId: ownerId });
+			await service.createBrief({
+				briefCategory: AgentCategory.AUTOMATION,
+				briefTitle: 'Booking bot',
+				briefContent: 'For a dental clinic.',
+				memberId: ownerId,
+			});
+			expect(embedding.embeddingQueue.requestSync).toHaveBeenCalledWith(EmbeddingKind.BRIEF, briefId);
+		});
+
+		it('a text change makes the vector PENDING and queues it; a status change does not; DELETE never queues', async () => {
+			briefModel.resolve('findOne', storedBrief()).resolve('findOneAndUpdate', { _id: briefId, memberId: ownerId });
+			await service.updateBrief(ownerId, { _id: briefId, briefContent: 'Now for two clinics.' });
+			expect(briefModel.findOneAndUpdate.mock.calls[0][1]).toMatchObject({ embeddingStatus: EmbeddingStatus.PENDING });
+			expect(embedding.embeddingQueue.requestSync).toHaveBeenCalledTimes(1);
+
+			briefModel.resolve('findOne', storedBrief()).resolve('findOneAndUpdate', { _id: briefId, memberId: ownerId });
+			await service.updateBrief(ownerId, { _id: briefId, briefStatus: CLOSED });
+			expect(briefModel.findOneAndUpdate.mock.calls[1][1]).not.toHaveProperty('embeddingStatus');
+
+			briefModel.resolve('findOne', storedBrief()).resolve('findOneAndUpdate', { _id: briefId, memberId: ownerId });
+			await service.updateBrief(ownerId, { _id: briefId, briefStatus: DELETE, briefTitle: 'x' });
+			expect(embedding.embeddingQueue.requestSync).toHaveBeenCalledTimes(1);
+		});
+
+		it('the public list asks for briefs of the listed status and orders by relevance by default', async () => {
+			embedding.hybridSearch.rankedIds.mockResolvedValue(semanticIds);
+			briefModel.resolve('aggregate', [{ list: [], metaCounter: [] }]);
+
+			await service.getBriefs({ page: 1, limit: 10, search: { text: 'clinic', briefStatus: CLOSED } });
+
+			expect(embedding.hybridSearch.rankedIds).toHaveBeenCalledWith(EmbeddingKind.BRIEF, 'clinic', {
+				briefStatus: CLOSED,
+			});
+			expect(stages()[0].$match).toEqual({
+				briefStatus: CLOSED,
+				$or: [{ _id: { $in: semanticIds } }, { briefTitle: { $regex: /clinic/i } }],
+			});
+			expect(stages()[1]).toBe(withoutEmbedding);
+			expect(stages()[3]).toEqual({ $sort: { _relevance: 1, _id: -1 } });
+		});
+
+		it('the filter counts ask for both listed statuses', async () => {
+			embedding.hybridSearch.rankedIds.mockResolvedValue(semanticIds);
+			briefModel.resolve('aggregate', [{ categories: [], budgetTypes: [], statuses: [] }]);
+
+			await service.getBriefFacets({ text: 'clinic' });
+
+			expect(embedding.hybridSearch.rankedIds).toHaveBeenCalledWith(EmbeddingKind.BRIEF, 'clinic', {
+				briefStatus: { $in: [OPEN, CLOSED] },
+			});
+		});
+
+		it('my briefs and the admin list keep the keyword search', async () => {
+			briefModel.resolve('aggregate', [{ list: [], metaCounter: [] }]);
+			await service.getMyBriefs(ownerId, { page: 1, limit: 10, search: { text: 'clinic' } });
+			expect(embedding.hybridSearch.rankedIds).not.toHaveBeenCalled();
 		});
 	});
 });

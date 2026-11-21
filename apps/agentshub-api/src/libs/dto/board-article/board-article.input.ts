@@ -2,10 +2,12 @@ import { Field, InputType, Int } from '@nestjs/graphql';
 import {
 	IsEnum,
 	IsIn,
+	IsInt,
 	IsMongoId,
 	IsNotEmpty,
 	IsOptional,
 	Length,
+	Max,
 	MaxLength,
 	Min,
 	ValidateNested,
@@ -19,6 +21,7 @@ import {
 	articleContentMaxLength,
 	articleContentMinLength,
 	aviableBoardArticleSorts,
+	listPageMax,
 	searchTextMaxLength,
 } from '../../config';
 
@@ -65,13 +68,16 @@ export class BAISearch {
 
 @InputType()
 export class BoardArticlesInquiry {
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
 	@Field(() => Int)
 	page!: number;
 
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
+	@Max(listPageMax)
 	@Field(() => Int)
 	limit!: number;
 
@@ -104,13 +110,16 @@ class ABAISearch {
 
 @InputType()
 export class AllBoardArticlesInquiry {
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
 	@Field(() => Int)
 	page!: number;
 
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
+	@Max(listPageMax)
 	@Field(() => Int)
 	limit!: number;
 

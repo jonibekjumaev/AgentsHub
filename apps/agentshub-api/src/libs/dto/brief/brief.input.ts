@@ -6,12 +6,14 @@ import {
 	IsDate,
 	IsEnum,
 	IsIn,
+	IsInt,
 	IsMongoId,
 	IsNotEmpty,
 	IsNumber,
 	IsOptional,
 	IsPositive,
 	Length,
+	Max,
 	MaxLength,
 	Min,
 	ValidateNested,
@@ -27,6 +29,7 @@ import {
 	briefContentMinLength,
 	briefTitleMaxLength,
 	briefTitleMinLength,
+	listPageMax,
 	searchTextMaxLength,
 } from '../../config';
 
@@ -111,13 +114,16 @@ export class BISearch extends BriefFilters {
 
 @InputType()
 export class BriefsInquiry {
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
 	@Field(() => Int)
 	page!: number;
 
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
+	@Max(listPageMax)
 	@Field(() => Int)
 	limit!: number;
 
@@ -150,13 +156,16 @@ class MBISearch extends BriefFilters {
 
 @InputType()
 export class MyBriefsInquiry {
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
 	@Field(() => Int)
 	page!: number;
 
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
+	@Max(listPageMax)
 	@Field(() => Int)
 	limit!: number;
 
@@ -192,13 +201,16 @@ class ALBISearch extends BriefFilters {
 
 @InputType()
 export class AllBriefsInquiry {
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
 	@Field(() => Int)
 	page!: number;
 
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
+	@Max(listPageMax)
 	@Field(() => Int)
 	limit!: number;
 

@@ -1031,4 +1031,733 @@ describe('AgentsHub API (e2e smoke)', () => {
 			expect(product.data?.getProduct.memberData).toMatchObject({ memberEmail: null, memberWhatsapp: null });
 		});
 	});
+	// own members and brief: the blocks above count briefs and members, and the creator is blocked by now
+	describe('offers on briefs and invites (D-48)', () => {
+		const owner = { _id: '', token: '' };
+		const maker = { _id: '', token: '' };
+		const rival = { _id: '', token: '' };
+		let offerBriefId = '';
+		let makerOfferId = '';
+		let rivalOfferId = '';
+
+		type OfferView = { _id: string; offerStatus: string; offerMessage: string; expiresAt: string | null };
+		const OFFER = '_id offerStatus offerMessage expiresAt';
+
+		const sendOffer = (token: string, fields: Record<string, unknown> = {}) =>
+			gql<{ createOffer: OfferView }>(
+				app,
+				`mutation ($input: OfferInput!) { createOffer(input: $input) { ${OFFER} } }`,
+				{
+					input: {
+						briefId: offerBriefId,
+						offerPrice: 300,
+						offerDeliveryDays: 7,
+						offerMessage: '   I built three support bots like this one.   ',
+						...fields,
+					},
+				},
+				token,
+			);
+		const moveOffer = (operation: 'acceptOffer' | 'declineOffer' | 'withdrawOffer', id: string, token: string) =>
+			gql<Record<string, OfferView>>(
+				app,
+				`mutation ($id: String!) { ${operation}(offerId: $id) { ${OFFER} } }`,
+				{ id },
+				token,
+			);
+		const getOffer = (id: string, token: string) =>
+			gql<{ getOffer: OfferView }>(app, `query ($id: String!) { getOffer(offerId: $id) { ${OFFER} } }`, { id }, token);
+		const briefView = async (token?: string) => {
+			const response = await gql<{
+				getBrief: {
+					briefOffers: number;
+					meInvited: boolean | null;
+					meOffer: { _id: string; offerStatus: string } | null;
+				};
+			}>(
+				app,
+				`query ($id: String!) { getBrief(briefId: $id) { briefOffers meInvited meOffer { _id offerStatus } } }`,
+				{ id: offerBriefId },
+				token,
+			);
+			expect(response.errors).toBeUndefined();
+			return response.data!.getBrief;
+		};
+		const briefOffers = async () => (await briefView()).briefOffers;
+		const ownerList = async () => {
+			const response = await gql<{
+				getBriefOffers: {
+					list: Array<{ _id: string; offerStatus: string; invited: boolean }>;
+					metaCounter: Array<{ total: number }>;
+				};
+			}>(
+				app,
+				`query ($id: String!) { getBriefOffers(input: { page: 1, limit: 10, search: { briefId: $id } }) { list { _id offerStatus invited } metaCounter { total } } }`,
+				{ id: offerBriefId },
+				owner.token,
+			);
+			expect(response.errors).toBeUndefined();
+			return response.data!.getBriefOffers;
+		};
+		const setBriefStatus = (briefStatus: string) =>
+			gql(
+				app,
+				`mutation ($input: BriefUpdate!) { updateBrief(input: $input) { briefStatus } }`,
+				{ input: { _id: offerBriefId, briefStatus } },
+				owner.token,
+			);
+
+		beforeAll(async () => {
+			for (const [member, nick, type, phone] of [
+				[owner, 'e2e_offer_owner', 'USER', '+998900000031'],
+				[maker, 'e2e_offer_maker', 'CREATOR', '+998900000032'],
+				[rival, 'e2e_offer_rival', 'CREATOR', '+998900000033'],
+			] as const) {
+				const response = await signup(nick, type, phone);
+				member._id = response.data!.signup._id;
+				member.token = response.data!.signup.accessToken;
+			}
+			const brief = await gql<{ createBrief: { _id: string } }>(
+				app,
+				`mutation ($input: BriefInput!) { createBrief(input: $input) { _id } }`,
+				{
+					input: {
+						briefCategory: 'CUSTOMER_SUPPORT',
+						briefTitle: 'E2E offers brief',
+						briefContent: 'A support bot for a bakery, in Uzbek and Russian.',
+					},
+				},
+				owner.token,
+			);
+			offerBriefId = brief.data!.createBrief._id;
+		});
+
+		it('a brief stored without briefOffers answers 0', async () => {
+			await connection
+				.collection('briefs')
+				.updateOne({ _id: new Types.ObjectId(offerBriefId) }, { $unset: { briefOffers: '' } });
+			expect(await briefOffers()).toBe(0);
+		});
+
+		it('a USER cannot send an offer → FORBIDDEN', async () => {
+			expect(onlyError(await sendOffer(owner.token))).toEqual({
+				code: 'FORBIDDEN',
+				message: Message.ONLY_SPECIFIC_ROLES_ALLOWED,
+			});
+		});
+
+		it('a CREATOR sends one: PENDING, trimmed, 14 days to answer; briefOffers 1', async () => {
+			const response = await sendOffer(maker.token);
+
+			expect(response.errors).toBeUndefined();
+			const offer = response.data!.createOffer;
+			makerOfferId = offer._id;
+			expect(offer.offerStatus).toBe('PENDING');
+			expect(offer.offerMessage).toBe('I built three support bots like this one.');
+			const days = (new Date(offer.expiresAt!).getTime() - Date.now()) / (24 * 60 * 60 * 1000);
+			expect(days).toBeGreaterThan(13.9);
+			expect(days).toBeLessThanOrEqual(14);
+			expect(await briefOffers()).toBe(1);
+		});
+
+		it('sending again while PENDING → OFFER_ALREADY_PENDING; still one document', async () => {
+			expect(onlyError(await sendOffer(maker.token))).toEqual({
+				code: 'BAD_REQUEST',
+				message: Message.OFFER_ALREADY_PENDING,
+			});
+			expect(await connection.collection('offers').countDocuments({})).toBe(1);
+		});
+
+		it('the creator sees their own offer on the brief; another creator sees none', async () => {
+			expect((await briefView(maker.token)).meOffer).toEqual({ _id: makerOfferId, offerStatus: 'PENDING' });
+			expect((await briefView(rival.token)).meOffer).toBeNull();
+			expect((await briefView(owner.token)).meOffer).toBeNull();
+		});
+
+		it('only its creator and the brief owner read an offer; another creator gets NOT_FOUND', async () => {
+			expect((await getOffer(makerOfferId, owner.token)).errors).toBeUndefined();
+			expect((await getOffer(makerOfferId, maker.token)).errors).toBeUndefined();
+			expect(onlyError(await getOffer(makerOfferId, rival.token)).message).toBe(Message.NO_DATA_FOUND);
+		});
+
+		it('the owner invites a creator; inviting again changes nothing', async () => {
+			const invite = () =>
+				gql<{ inviteCreator: { _id: string } }>(
+					app,
+					`mutation ($b: String!, $c: String!) { inviteCreator(briefId: $b, creatorId: $c) { _id } }`,
+					{ b: offerBriefId, c: rival._id },
+					owner.token,
+				);
+			const first = await invite();
+			const second = await invite();
+
+			expect(first.errors).toBeUndefined();
+			expect(second.data?.inviteCreator._id).toBe(first.data?.inviteCreator._id);
+			expect((await briefView(rival.token)).meInvited).toBe(true);
+			expect((await briefView(maker.token)).meInvited).toBe(false);
+
+			const invites = await gql<{ getMyInvites: { list: Array<{ briefId: string }> } }>(
+				app,
+				`query { getMyInvites(input: { page: 1, limit: 10 }) { list { briefId } } }`,
+				{},
+				rival.token,
+			);
+			expect(invites.data?.getMyInvites.list).toEqual([{ briefId: offerBriefId }]);
+		});
+
+		it('the invited creator sends an offer; the owner sees both, the invited one marked', async () => {
+			const response = await sendOffer(rival.token, { offerPrice: 250 });
+			rivalOfferId = response.data!.createOffer._id;
+
+			const list = await ownerList();
+			expect(list.metaCounter).toEqual([{ total: 2 }]);
+			expect(list.list).toEqual([
+				{ _id: rivalOfferId, offerStatus: 'PENDING', invited: true },
+				{ _id: makerOfferId, offerStatus: 'PENDING', invited: false },
+			]);
+			expect(await briefOffers()).toBe(2);
+		});
+
+		it('withdraw, then send again: the same document; briefOffers 1, then 2', async () => {
+			const withdrawn = await moveOffer('withdrawOffer', makerOfferId, maker.token);
+			expect(withdrawn.data?.withdrawOffer).toMatchObject({ offerStatus: 'WITHDRAWN', expiresAt: null });
+			expect(await briefOffers()).toBe(1);
+
+			const again = await sendOffer(maker.token);
+			expect(again.data?.createOffer).toMatchObject({ _id: makerOfferId, offerStatus: 'PENDING' });
+			expect(await briefOffers()).toBe(2);
+			expect(await connection.collection('offers').countDocuments({})).toBe(2);
+		});
+
+		it('only the brief owner accepts; ACCEPTED is final and stays counted', async () => {
+			expect(onlyError(await moveOffer('acceptOffer', makerOfferId, maker.token)).code).toBe('FORBIDDEN');
+
+			const accepted = await moveOffer('acceptOffer', makerOfferId, owner.token);
+			expect(accepted.data?.acceptOffer.offerStatus).toBe('ACCEPTED');
+			expect(onlyError(await moveOffer('acceptOffer', makerOfferId, owner.token))).toEqual({
+				code: 'BAD_REQUEST',
+				message: Message.INVALID_OFFER_STATUS_CHANGE,
+			});
+			expect(await briefOffers()).toBe(2);
+		});
+
+		it('closing the brief declines its PENDING offers; reopening lets their creators send again', async () => {
+			expect((await setBriefStatus('CLOSED')).errors).toBeUndefined();
+			const declined = await getOffer(rivalOfferId, rival.token);
+			expect(declined.data?.getOffer.offerStatus).toBe('DECLINED');
+			expect(await briefOffers()).toBe(1); // the accepted one
+			expect(onlyError(await sendOffer(rival.token))).toEqual({ code: 'BAD_REQUEST', message: Message.BRIEF_NOT_OPEN });
+
+			expect((await setBriefStatus('OPEN')).errors).toBeUndefined();
+			const again = await sendOffer(rival.token);
+			expect(again.data?.createOffer).toMatchObject({ _id: rivalOfferId, offerStatus: 'PENDING' });
+			expect(await briefOffers()).toBe(2);
+		});
+
+		it('a PENDING offer past its expiry reads as EXPIRED before the job runs, and cannot be accepted', async () => {
+			await connection
+				.collection('offers')
+				.updateOne({ _id: new Types.ObjectId(rivalOfferId) }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+
+			expect((await getOffer(rivalOfferId, owner.token)).data?.getOffer).toMatchObject({
+				offerStatus: 'EXPIRED',
+				expiresAt: null,
+			});
+			expect(onlyError(await moveOffer('acceptOffer', rivalOfferId, owner.token))).toEqual({
+				code: 'BAD_REQUEST',
+				message: Message.OFFER_EXPIRED,
+			});
+
+			// sending it again: it was still counted, so briefOffers doesn't move
+			expect((await sendOffer(rival.token)).data?.createOffer.offerStatus).toBe('PENDING');
+			expect(await briefOffers()).toBe(2);
+		});
+
+		it('the owner declines: briefOffers 1; a declined offer cannot be sent again', async () => {
+			expect((await moveOffer('declineOffer', rivalOfferId, owner.token)).data?.declineOffer.offerStatus).toBe(
+				'DECLINED',
+			);
+			expect(await briefOffers()).toBe(1);
+			expect(onlyError(await sendOffer(rival.token))).toEqual({
+				code: 'BAD_REQUEST',
+				message: Message.INVALID_OFFER_STATUS_CHANGE,
+			});
+		});
+	});
+	// own members, brief and offer, like the offers block
+	describe('1:1 chat on an offer (D-49)', () => {
+		const owner = { _id: '', token: '' };
+		const maker = { _id: '', token: '' };
+		const stranger = { _id: '', token: '' };
+		let offerId = '';
+		let conversationId = '';
+		const uuid = (n: number) => `0b6e9c2e-8a9d-4f1b-9a8e-${String(n).padStart(12, '0')}`;
+
+		type ConversationView = { _id: string; canWrite: boolean; readOnlyReason: string | null; meUnread: number | null };
+		const CONVERSATION = '_id canWrite readOnlyReason meUnread lastMessagePreview';
+
+		const open = (token: string) =>
+			gql<{ openConversation: ConversationView }>(
+				app,
+				`mutation ($id: String!) { openConversation(offerId: $id) { ${CONVERSATION} } }`,
+				{ id: offerId },
+				token,
+			);
+		const getConversation = (token: string) =>
+			gql<{ getConversation: ConversationView }>(
+				app,
+				`query ($id: String!) { getConversation(conversationId: $id) { ${CONVERSATION} } }`,
+				{ id: conversationId },
+				token,
+			);
+		const send = (token: string, messageText: string, clientMessageId: string) =>
+			gql<{ sendMessage: { _id: string; messageText: string } }>(
+				app,
+				`mutation ($input: SendMessageInput!) { sendMessage(input: $input) { _id messageText } }`,
+				{ input: { conversationId, messageText, clientMessageId } },
+				token,
+			);
+		const unread = async (token: string) =>
+			(await gql<{ getChatUnreadCount: number }>(app, `query { getChatUnreadCount }`, {}, token)).data!
+				.getChatUnreadCount;
+		const history = (token: string, extra: Record<string, unknown> = {}) =>
+			gql<{ getMessages: { list: Array<{ _id: string; messageText: string }>; hasMore: boolean } }>(
+				app,
+				`query ($input: MessagesInquiry!) { getMessages(input: $input) { list { _id messageText } hasMore } }`,
+				{ input: { conversationId, limit: 1, ...extra } },
+				token,
+			);
+		const waitPastRateLimit = () => new Promise((resolve) => setTimeout(resolve, 1100));
+
+		beforeAll(async () => {
+			for (const [member, nick, type, phone] of [
+				[owner, 'e2e_chat_owner', 'USER', '+998900000041'],
+				[maker, 'e2e_chat_maker', 'CREATOR', '+998900000042'],
+				[stranger, 'e2e_chat_other', 'CREATOR', '+998900000043'],
+			] as const) {
+				const response = await signup(nick, type, phone);
+				member._id = response.data!.signup._id;
+				member.token = response.data!.signup.accessToken;
+			}
+			const brief = await gql<{ createBrief: { _id: string } }>(
+				app,
+				`mutation ($input: BriefInput!) { createBrief(input: $input) { _id } }`,
+				{
+					input: {
+						briefCategory: 'CUSTOMER_SUPPORT',
+						briefTitle: 'E2E chat brief',
+						briefContent: 'A support bot for a flower shop, in Uzbek.',
+					},
+				},
+				owner.token,
+			);
+			const offer = await gql<{ createOffer: { _id: string } }>(
+				app,
+				`mutation ($input: OfferInput!) { createOffer(input: $input) { _id } }`,
+				{
+					input: {
+						briefId: brief.data!.createBrief._id,
+						offerPrice: 200,
+						offerDeliveryDays: 5,
+						offerMessage: 'I have built a bot like this for a florist.',
+					},
+				},
+				maker.token,
+			);
+			offerId = offer.data!.createOffer._id;
+		});
+
+		it('only the brief owner opens it; opening again returns the same conversation', async () => {
+			expect(onlyError(await open(maker.token)).code).toBe('FORBIDDEN');
+
+			const first = await open(owner.token);
+			expect(first.errors).toBeUndefined();
+			conversationId = first.data!.openConversation._id;
+			expect(first.data!.openConversation).toMatchObject({ canWrite: true, readOnlyReason: null, meUnread: 0 });
+			expect((await open(owner.token)).data?.openConversation._id).toBe(conversationId);
+			expect(await connection.collection('conversations').countDocuments({})).toBe(1);
+		});
+
+		it('only its two members read it', async () => {
+			expect((await getConversation(maker.token)).errors).toBeUndefined();
+			expect(onlyError(await getConversation(stranger.token)).message).toBe(Message.NO_DATA_FOUND);
+		});
+
+		it('a message is stored trimmed, once per clientMessageId, and counted unread for the other side', async () => {
+			const first = await send(owner.token, '  When can you start?  ', uuid(1));
+			const retry = await send(owner.token, '  When can you start?  ', uuid(1));
+
+			expect(first.data?.sendMessage.messageText).toBe('When can you start?');
+			expect(retry.data?.sendMessage._id).toBe(first.data?.sendMessage._id);
+			expect(await connection.collection('messages').countDocuments({})).toBe(1);
+			expect(await unread(maker.token)).toBe(1);
+			expect(await unread(owner.token)).toBe(0);
+		});
+
+		it('a second message within a second → CHAT_RATE_LIMITED', async () => {
+			expect(onlyError(await send(owner.token, 'Also, which CRM?', uuid(2)))).toEqual({
+				code: 'BAD_REQUEST',
+				message: Message.CHAT_RATE_LIMITED,
+			});
+		});
+
+		it('reading zeroes the reader’s count; the other side answers', async () => {
+			const read = await gql<{ markConversationRead: ConversationView }>(
+				app,
+				`mutation ($id: String!) { markConversationRead(conversationId: $id) { meUnread } }`,
+				{ id: conversationId },
+				maker.token,
+			);
+			expect(read.data?.markConversationRead.meUnread).toBe(0);
+
+			expect((await send(maker.token, 'Monday works.', uuid(3))).errors).toBeUndefined();
+			expect(await unread(owner.token)).toBe(1);
+		});
+
+		it('history pages by cursor, oldest first', async () => {
+			const latest = (await history(owner.token)).data!.getMessages;
+			expect(latest.list.map((message) => message.messageText)).toEqual(['Monday works.']);
+			expect(latest.hasMore).toBe(true);
+
+			const older = (await history(owner.token, { before: latest.list[0]._id })).data!.getMessages;
+			expect(older.list.map((message) => message.messageText)).toEqual(['When can you start?']);
+			expect(older.hasMore).toBe(false);
+		});
+
+		it('declining the offer makes the conversation read-only', async () => {
+			await gql(app, `mutation ($id: String!) { declineOffer(offerId: $id) { _id } }`, { id: offerId }, owner.token);
+			expect((await getConversation(owner.token)).data?.getConversation).toMatchObject({
+				canWrite: false,
+				readOnlyReason: 'OFFER_CLOSED',
+			});
+
+			await waitPastRateLimit();
+			expect(onlyError(await send(owner.token, 'One more thing', uuid(4)))).toEqual({
+				code: 'BAD_REQUEST',
+				message: Message.CONVERSATION_READ_ONLY,
+			});
+		});
+
+		it('an admin lists conversations without their messages, filters by lock and locks one', async () => {
+			// admins are created by script only (D-14): promote a member in the DB, then log in for an ADMIN token
+			await signup('e2e_chat_admin', 'USER', '+998900000044');
+			await connection
+				.collection('members')
+				.updateOne({ memberNick: 'e2e_chat_admin' }, { $set: { memberType: 'ADMIN' } });
+			const adminToken = (await login('e2e_chat_admin')).data!.login.accessToken;
+
+			type AdminRow = {
+				_id: string;
+				lastMessagePreview: string | null;
+				lastMessageAt: string | null;
+				lockedByAdmin: boolean;
+			};
+			const adminList = async (lockedByAdmin?: boolean) =>
+				(
+					await gql<{ getConversationsByAdmin: { list: AdminRow[] } }>(
+						app,
+						`query ($input: ConversationsAdminInquiry!) { getConversationsByAdmin(input: $input) {
+							list { _id lastMessagePreview lastMessageAt lockedByAdmin } } }`,
+						{ input: { page: 1, limit: 20, ...(lockedByAdmin !== undefined && { lockedByAdmin }) } },
+						adminToken,
+					)
+				).data!.getConversationsByAdmin.list;
+			const lock = (locked: boolean) =>
+				gql(
+					app,
+					`mutation ($id: String!, $locked: Boolean!) { lockConversationByAdmin(conversationId: $id, locked: $locked) { _id lockedByAdmin } }`,
+					{ id: conversationId, locked },
+					adminToken,
+				);
+
+			const [row] = await adminList();
+			expect(row).toMatchObject({ _id: conversationId, lastMessagePreview: null, lockedByAdmin: false });
+			expect(row.lastMessageAt).not.toBeNull();
+			expect((await lock(true)).errors).toBeUndefined();
+
+			expect((await adminList(true)).map((item) => item._id)).toEqual([conversationId]);
+			expect(await adminList(false)).toEqual([]);
+			expect((await getConversation(owner.token)).data?.getConversation.readOnlyReason).toBe('LOCKED_BY_ADMIN');
+
+			await lock(false);
+			expect((await getConversation(owner.token)).data?.getConversation.readOnlyReason).toBe('OFFER_CLOSED');
+			// a member can't lock
+			expect(
+				onlyError(
+					await gql(
+						app,
+						`mutation ($id: String!) { lockConversationByAdmin(conversationId: $id, locked: true) { _id } }`,
+						{ id: conversationId },
+						owner.token,
+					),
+				).code,
+			).toBe('FORBIDDEN');
+		});
+	});
+
+	describe('notifications (D-50)', () => {
+		const owner = { _id: '', token: '' };
+		const maker = { _id: '', token: '' };
+		let briefId = '';
+		let offerId = '';
+
+		type NotificationView = {
+			_id: string;
+			notificationType: string;
+			notificationStatus: string;
+			notificationTitle: string;
+			notificationDesc: string | null;
+			briefId: string | null;
+			authorData: { memberNick: string } | null;
+		};
+		const list = async (token: string, unreadOnly = false) =>
+			(
+				await gql<{ getMyNotifications: { list: NotificationView[]; metaCounter: Array<{ total: number }> } }>(
+					app,
+					`query ($input: NotificationsInquiry!) { getMyNotifications(input: $input) {
+						list { _id notificationType notificationStatus notificationTitle notificationDesc briefId authorData { memberNick } }
+						metaCounter { total } } }`,
+					{ input: { page: 1, limit: 20, unreadOnly } },
+					token,
+				)
+			).data!.getMyNotifications;
+		const unread = async (token: string) =>
+			(await gql<{ getNotificationUnreadCount: number }>(app, `query { getNotificationUnreadCount }`, {}, token)).data!
+				.getNotificationUnreadCount;
+
+		beforeAll(async () => {
+			for (const [member, nick, type, phone] of [
+				[owner, 'e2e_notif_owner', 'USER', '+998900000051'],
+				[maker, 'e2e_notif_maker', 'CREATOR', '+998900000052'],
+			] as const) {
+				const response = await signup(nick, type, phone);
+				member._id = response.data!.signup._id;
+				member.token = response.data!.signup.accessToken;
+			}
+			const brief = await gql<{ createBrief: { _id: string } }>(
+				app,
+				`mutation ($input: BriefInput!) { createBrief(input: $input) { _id } }`,
+				{
+					input: {
+						briefCategory: 'CUSTOMER_SUPPORT',
+						briefTitle: 'E2E notification brief',
+						briefContent: 'A booking bot for a dental clinic.',
+					},
+				},
+				owner.token,
+			);
+			briefId = brief.data!.createBrief._id;
+		});
+
+		it('an invite reaches the creator once, however often the owner invites', async () => {
+			for (let i = 0; i < 2; i++) {
+				await gql(
+					app,
+					`mutation ($briefId: String!, $creatorId: String!) { inviteCreator(briefId: $briefId, creatorId: $creatorId) { _id } }`,
+					{ briefId, creatorId: maker._id },
+					owner.token,
+				);
+			}
+			const { list: received } = await list(maker.token);
+			expect(received.map((n) => n.notificationType)).toEqual(['INVITE']);
+			expect(received[0]).toMatchObject({
+				notificationTitle: 'E2E notification brief',
+				briefId,
+				notificationStatus: 'WAIT',
+				authorData: { memberNick: 'e2e_notif_owner' },
+			});
+		});
+
+		it('an offer reaches the owner; accepting it reaches the creator', async () => {
+			const offer = await gql<{ createOffer: { _id: string } }>(
+				app,
+				`mutation ($input: OfferInput!) { createOffer(input: $input) { _id } }`,
+				{ input: { briefId, offerPrice: 150, offerDeliveryDays: 4, offerMessage: 'I built one for a clinic.' } },
+				maker.token,
+			);
+			offerId = offer.data!.createOffer._id;
+			expect((await list(owner.token)).list.map((n) => n.notificationType)).toEqual(['OFFER_RECEIVED']);
+
+			await gql(app, `mutation ($id: String!) { acceptOffer(offerId: $id) { _id } }`, { id: offerId }, owner.token);
+			expect((await list(maker.token)).list.map((n) => n.notificationType)).toEqual(['OFFER_ACCEPTED', 'INVITE']);
+		});
+
+		it('a comment on the brief reaches its owner with the start of the text; their own comment does not', async () => {
+			const comment = (token: string, commentContent: string) =>
+				gql(
+					app,
+					`mutation ($input: CommentInput!) { createComment(input: $input) { _id } }`,
+					{ input: { commentGroup: 'BRIEF', commentRefId: briefId, commentContent } },
+					token,
+				);
+			await comment(maker.token, 'Do you need Russian too?');
+			await comment(owner.token, 'Uzbek and Russian, yes.');
+
+			const { list: received } = await list(owner.token);
+			expect(received.map((n) => n.notificationType)).toEqual(['COMMENT', 'OFFER_RECEIVED']);
+			expect(received[0].notificationDesc).toBe('Do you need Russian too?');
+		});
+
+		it('a follow reaches the member once, even after unfollowing and following again', async () => {
+			for (const mutation of ['subscribe', 'unsubscribe', 'subscribe']) {
+				await gql(app, `mutation ($id: String!) { ${mutation}(input: $id) { _id } }`, { id: maker._id }, owner.token);
+			}
+			const follows = (await list(maker.token)).list.filter((n) => n.notificationType === 'FOLLOW');
+			expect(follows).toHaveLength(1);
+		});
+
+		it('reading one and then all; nobody else can read them', async () => {
+			expect(await unread(maker.token)).toBe(3);
+			const [latest] = (await list(maker.token)).list;
+
+			const foreign = await gql(
+				app,
+				`mutation ($id: String!) { markNotificationRead(notificationId: $id) { _id } }`,
+				{ id: latest._id },
+				owner.token,
+			);
+			expect(onlyError(foreign).message).toBe(Message.NO_DATA_FOUND);
+
+			await gql(
+				app,
+				`mutation ($id: String!) { markNotificationRead(notificationId: $id) { _id } }`,
+				{ id: latest._id },
+				maker.token,
+			);
+			expect(await unread(maker.token)).toBe(2);
+			expect((await list(maker.token, true)).list).toHaveLength(2);
+
+			const all = await gql<{ markAllNotificationsRead: number }>(
+				app,
+				`mutation { markAllNotificationsRead }`,
+				{},
+				maker.token,
+			);
+			expect(all.data?.markAllNotificationsRead).toBe(2);
+			expect(await unread(maker.token)).toBe(0);
+		});
+	});
+
+	describe('hardening (D-51)', () => {
+		it('a list page takes at most 100 items, in whole numbers', async () => {
+			const briefs = (limit: number) =>
+				gql(app, `query ($limit: Int!) { getBriefs(input: { page: 1, limit: $limit, search: {} }) { list { _id } } }`, {
+					limit,
+				});
+			expect((await briefs(100)).errors).toBeUndefined();
+			expect(onlyError(await briefs(101)).code).toBe('BAD_REQUEST');
+		});
+
+		it('an operation nested deeper than 8 fields is refused before it runs (Brief.meOffer ↔ Offer.briefData)', async () => {
+			const nested = (levels: number) => {
+				let selection = '_id';
+				for (let i = 0; i < levels; i++) selection = i % 2 ? `briefData { ${selection} }` : `meOffer { ${selection} }`;
+				return `query { getBrief(briefId: "6ac7992dd87bde19b9216d01") { ${selection} } }`;
+			};
+			// getBrief + 6 nested + _id = 8 levels: runs (and finds no such brief)
+			expect(onlyError(await gql(app, nested(6))).code).toBe('NOT_FOUND');
+			// one more level: refused by validation, nothing runs
+			expect(onlyError(await gql(app, nested(7)))).toEqual({
+				code: 'GRAPHQL_VALIDATION_FAILED',
+				message: 'Query is too deep: at most 8 levels are allowed!',
+			});
+		});
+
+		it('10 wrong passwords from one address lock that nick there for a while: TOO_MANY_REQUESTS', async () => {
+			const wrongLogin = () =>
+				gql(app, `mutation ($input: LoginInput!) { login(input: $input) { _id } }`, {
+					input: { memberNick: 'e2e_guess', memberPassword: 'wrong-password' },
+				});
+			for (let i = 0; i < 10; i++) expect(onlyError(await wrongLogin()).code).toBe('UNAUTHENTICATED');
+			expect(onlyError(await wrongLogin())).toEqual({
+				code: 'TOO_MANY_REQUESTS',
+				message: Message.TOO_MANY_LOGIN_ATTEMPTS,
+			});
+		});
+	});
+
+	describe('semantic search (D-52)', () => {
+		it('without a provider, a text search with sort "relevance" still answers (no match → empty list)', async () => {
+			const products = await gql<{ getProducts: { list: unknown[] } }>(
+				app,
+				`query { getProducts(input: { page: 1, limit: 5, sort: "relevance", search: { text: "zzz-no-such-title" } }) {
+					list { _id } } }`,
+			);
+			expect(products.errors).toBeUndefined();
+			expect(products.data?.getProducts.list).toEqual([]);
+
+			const briefs = await gql<{ getBriefs: { list: unknown[] } }>(
+				app,
+				`query { getBriefs(input: { page: 1, limit: 5, sort: "relevance", search: { text: "zzz-no-such-title" } }) {
+					list { _id } } }`,
+			);
+			expect(briefs.errors).toBeUndefined();
+		});
+
+		it('without a provider a product is stored PENDING and gets no vector (the reconcile job embeds it later)', async () => {
+			const stored = await connection.collection('products').findOne({}, { sort: { _id: -1 } });
+			expect(stored?.embeddingStatus).toBe('PENDING');
+			expect(stored).not.toHaveProperty('embedding');
+		});
+	});
+
+	describe('hybrid search: the keyword half (D-53)', () => {
+		const ids = <K extends string>(response: { data?: Record<K, { list: Array<{ _id: string }> }> | null }, key: K) =>
+			(response.data?.[key].list ?? []).map((item) => item._id);
+
+		beforeAll(async () => {
+			// Mongoose builds the schema indexes in the background at startup; wait for the text indexes.
+			await Promise.all([connection.models.Product.init(), connection.models.Brief.init()]);
+		});
+
+		it('finds a product by a word of its description (title matching alone missed it), stemmed', async () => {
+			const { insertedId } = await connection.collection('products').insertOne({
+				productCategory: 'DATA_ANALYSIS',
+				productStatus: 'ACTIVE',
+				productPricing: 'FREE',
+				productTitle: 'E2E books helper',
+				productImages: ['uploads/product/e2e.png'],
+				productDesc: 'Reconciles quarterly ledgers and flags odd invoices.',
+				productTags: [],
+				memberId: new Types.ObjectId(creator._id),
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			});
+
+			const response = await gql<{ getProducts: { list: Array<{ _id: string }> } }>(
+				app,
+				`query { getProducts(input: { page: 1, limit: 5, search: { text: "ledger" } }) { list { _id } } }`,
+			);
+			expect(response.errors).toBeUndefined();
+			expect(ids(response, 'getProducts')).toEqual([String(insertedId)]);
+		});
+
+		it('finds a brief by a word of its content, best match first', async () => {
+			const base = { briefCategory: 'OTHER', briefStatus: 'OPEN', memberId: new Types.ObjectId(user._id) };
+			const now = Date.now();
+			const { insertedIds } = await connection.collection('briefs').insertMany([
+				// newer, but the word is only in the content once
+				{
+					...base,
+					briefTitle: 'E2E shop helper',
+					briefContent: 'A bot for our greenhouse orders.',
+					createdAt: new Date(now),
+				},
+				// older, the word in the title weighs more
+				{
+					...base,
+					briefTitle: 'E2E greenhouse bot',
+					briefContent: 'Answers questions.',
+					createdAt: new Date(now - 60_000),
+				},
+			]);
+
+			const response = await gql<{ getBriefs: { list: Array<{ _id: string }> } }>(
+				app,
+				`query { getBriefs(input: { page: 1, limit: 5, search: { text: "greenhouses" } }) { list { _id } } }`,
+			);
+			expect(response.errors).toBeUndefined();
+			expect(ids(response, 'getBriefs')).toEqual([String(insertedIds[1]), String(insertedIds[0])]);
+		});
+	});
 });

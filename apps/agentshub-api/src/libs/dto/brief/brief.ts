@@ -4,6 +4,7 @@ import { BriefBudgetType, BriefStatus } from '../../enums/brief.enum';
 import { AgentCategory } from '../../enums/agent-category.enum';
 import { Member, TotalCounter } from '../member/member';
 import { CategoryFacet } from '../facet';
+import { Offer } from '../offer/offer';
 
 @ObjectType()
 export class Brief {
@@ -35,6 +36,10 @@ export class Brief {
 	@Field(() => Int)
 	briefComments!: number;
 
+	/** D-48: PENDING + ACCEPTED offers. A brief stored before D-48 has no field: BriefFieldsResolver answers 0 */
+	@Field(() => Int)
+	briefOffers!: number;
+
 	@Field(() => String)
 	memberId!: ObjectId;
 
@@ -61,6 +66,14 @@ export class Brief {
 	 */
 	@Field(() => Boolean, { nullable: true })
 	meSaved?: boolean;
+
+	/** D-48: the caller's own offer on this brief, for a CREATOR on getBrief; null for everyone else and every list */
+	@Field(() => Offer, { nullable: true })
+	meOffer?: Offer;
+
+	/** D-48: whether the brief's owner invited the caller, for a CREATOR on getBrief; null otherwise */
+	@Field(() => Boolean, { nullable: true })
+	meInvited?: boolean;
 }
 
 @ObjectType()

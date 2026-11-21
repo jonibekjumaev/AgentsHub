@@ -15,6 +15,7 @@ import {
 	lookupVisit,
 	profileVisitorsWindowDays,
 	unwindKeepingItem,
+	withoutEmbedding,
 } from '../../libs/config';
 import { isDuplicateKeyError } from '../../libs/utils';
 import { Model } from 'mongoose';
@@ -115,6 +116,7 @@ export class ViewService {
 						from: 'products',
 						localField: 'viewRefId',
 						foreignField: '_id',
+						pipeline: [withoutEmbedding], // D-52
 						as: 'visitedProduct',
 					},
 				},

@@ -22,6 +22,7 @@ import {
 	lookupMember,
 	shapeInToMongoObjectId,
 	unwindKeepingItem,
+	withoutEmbedding,
 } from '../../libs/config';
 import { ViewGroup } from '../../libs/enums/view.enum';
 import { ObjectId, StatisticModifier, T } from '../../libs/types/common';
@@ -29,9 +30,16 @@ import { ViewInput } from '../../libs/dto/view/view.input';
 import { MemberService } from '../member/member.service';
 import { ViewService } from '../view/view.service';
 import { SaveService } from '../save/save.service';
+import { OfferService } from '../offer/offer.service';
+import { InviteService } from '../offer/invite.service';
 import { describeDbError } from '../../libs/utils';
 import { MemberType } from '../../libs/enums/member.enum';
 import { OrdinaryInquiry } from '../../libs/dto/common.input';
+import { EmbeddingKind, EmbeddingStatus } from '../../libs/enums/embedding.enum';
+import { EmbeddingQueue } from '../embedding/embedding-queue';
+import { HybridSearchService } from '../embedding/hybrid-search.service';
+import { briefTextKeys } from '../embedding/embedding-text';
+import { relevanceSortStages } from '../product/product.service';
 
 type FacetRow = { _id: string; count: number };
 
@@ -53,6 +61,10 @@ export class BriefService {
 		private memberService: MemberService,
 		private viewService: ViewService,
 		private saveService: SaveService,
+		private offerService: OfferService,
+		private inviteService: InviteService,
+		private embeddingQueue: EmbeddingQueue,
+		private hybridSearch: HybridSearchService,
 	) {}
 
 	public async createBrief(input: BriefInput): Promise<Brief> {
@@ -75,6 +87,7 @@ export class BriefService {
 			targetKey: 'memberBriefs',
 			modifier: 1,
 		});
+		this.embeddingQueue.requestSync(EmbeddingKind.BRIEF, result._id); // D-52, in the background
 		return result;
 	}
 
@@ -104,6 +117,12 @@ export class BriefService {
 			targetBrief.meSaved = isOwnBrief ? false : await this.saveService.isBriefSaved(memberId, briefId);
 		}
 
+		// D-48: a creator sees their own offer on the brief and whether its owner invited them
+		if (memberId && viewerType === MemberType.CREATOR) {
+			targetBrief.meOffer = (await this.offerService.findOfferOf(memberId, briefId)) ?? undefined;
+			targetBrief.meInvited = await this.inviteService.isInvited(briefId, memberId);
+		}
+
 		targetBrief.memberData = (await this.memberService.getAuthorData(targetBrief.memberId)) ?? undefined; // D-38
 		return targetBrief;
 	}
@@ -120,13 +139,21 @@ export class BriefService {
 		const { briefStatus } = input.search;
 		if (briefStatus === BriefStatus.DELETE) throw new BadRequestException(Message.NO_DATA_FOUND);
 
-		const match: T = { briefStatus: briefStatus ?? BriefStatus.OPEN };
-		this.shapeMatchQuery(match, input.search);
+		const status = briefStatus ?? BriefStatus.OPEN;
+		const match: T = { briefStatus: status };
+		// D-52: with a text, the briefs closest in meaning (the order of `relevance`, the default then)
+		const semantic = await this.semanticIds(input.search.text, { briefStatus: status });
+		this.shapeMatchQuery(match, input.search, semantic);
 		// D-44: only OPEN briefs can be past their deadline in a useful sense; CLOSED ones are listed as they are
 		if (input.search.hidePastDeadline && match.briefStatus === BriefStatus.OPEN) {
 			Object.assign(match, notPastDeadline(new Date()));
 		}
-		return await this.aggregateBriefs(match, input, saverId ? lookupAuthMemberSaved(saverId) : []);
+		return await this.aggregateBriefs(
+			match,
+			input,
+			saverId ? lookupAuthMemberSaved(saverId) : [],
+			semantic ? { ids: semantic, text: input.search.text } : null,
+		);
 	}
 
 	/**
@@ -144,7 +171,9 @@ export class BriefService {
 		const now = new Date();
 		const status = briefStatus ?? BriefStatus.OPEN;
 		const shared: T = { briefStatus: { $in: listedStatuses } };
-		this.shapeMatchQuery(shared, { memberId: search.memberId, text: search.text });
+		// D-52: the same briefs getBriefs lists for this text, in either status (the status counts need both)
+		const semantic = await this.semanticIds(search.text, { briefStatus: { $in: listedStatuses } });
+		this.shapeMatchQuery(shared, { memberId: search.memberId, text: search.text }, semantic);
 
 		// Each group's own filter, as shapeMatchQuery would write it; {} when it is not set.
 		const byCategory: T = {};
@@ -248,6 +277,13 @@ export class BriefService {
 		} catch (err) {
 			console.log('Error: removeSavesOfBrief', describeDbError(err));
 		}
+		// D-48: its offers and invites too, by the same rule (nobody can reach them without the brief)
+		try {
+			await this.offerService.removeOffersOfBrief(briefId);
+			await this.inviteService.removeInvitesOfBrief(briefId);
+		} catch (err) {
+			console.log('Error: removeOffersOfBrief', describeDbError(err));
+		}
 		return result;
 	}
 
@@ -312,8 +348,21 @@ export class BriefService {
 		return brief;
 	}
 
-	/** The search filters shared by the brief lists. Empty lists mean "no filter". */
-	private shapeMatchQuery(match: T, search: BriefFilters & { memberId?: ObjectId }): void {
+	/** D-53: the briefs matching the text by meaning and by words, best first; null without a text or ranking. */
+	private async semanticIds(text: string | undefined, filter: T): Promise<ObjectId[] | null> {
+		if (!text) return null;
+		return await this.hybridSearch.rankedIds(EmbeddingKind.BRIEF, text, filter);
+	}
+
+	/**
+	 * The search filters shared by the brief lists. Empty lists mean "no filter". D-52/D-53: with `semantic`
+	 * (hybrid-ranked) ids the text matches those briefs or a title containing it; without, only the title, as before.
+	 */
+	private shapeMatchQuery(
+		match: T,
+		search: BriefFilters & { memberId?: ObjectId },
+		semantic: ObjectId[] | null = null,
+	): void {
 		const { memberId, categoryList, budgetTypeList, text } = search;
 
 		if (memberId) match.memberId = shapeInToMongoObjectId(memberId);
@@ -323,7 +372,11 @@ export class BriefService {
 		if (budgetTypes.size === 1) {
 			match.briefBudget = budgetTypes.has(BriefBudgetType.FIXED) ? { $type: 'number' } : { $not: { $type: 'number' } };
 		}
-		if (text) match.briefTitle = { $regex: new RegExp(escapeRegex(text), 'i') };
+		if (text) {
+			const byTitle: T = { briefTitle: { $regex: new RegExp(escapeRegex(text), 'i') } };
+			if (semantic) match.$or = [{ _id: { $in: semantic } }, byTitle];
+			else Object.assign(match, byTitle);
+		}
 	}
 
 	/**
@@ -335,7 +388,14 @@ export class BriefService {
 	 * upcoming deadlines first (soonest first), then the passed ones (most recently passed first), then briefs without
 	 * one: a plain ascending date would put long-passed deadlines on top.
 	 */
-	private shapeSortStages(sort: string = 'createdAt', direction: Direction = Direction.DESC): PipelineStage[] {
+	private shapeSortStages(
+		sort: string | undefined,
+		direction: Direction = Direction.DESC,
+		semantic: { ids: ObjectId[]; text?: string } | null = null,
+	): PipelineStage[] {
+		// D-52/D-53: `relevance` (the default with a ranked search) follows the hybrid order; without one it is createdAt
+		if (semantic && (sort === undefined || sort === 'relevance')) return relevanceSortStages('briefTitle', semantic);
+		if (sort === undefined || sort === 'relevance') sort = 'createdAt';
 		if (sort === 'briefComments') {
 			return [{ $sort: { briefComments: direction, briefViews: direction, _id: -1 } }];
 		}
@@ -383,11 +443,13 @@ export class BriefService {
 		match: T,
 		input: { page: number; limit: number; sort?: string; direction?: Direction },
 		pageStages: PipelineStage.FacetPipelineStage[] = [],
+		semantic: { ids: ObjectId[]; text?: string } | null = null,
 	): Promise<Briefs> {
 		const result = await this.briefModel
 			.aggregate([
 				{ $match: match },
-				...this.shapeSortStages(input.sort, input.direction),
+				withoutEmbedding,
+				...this.shapeSortStages(input.sort, input.direction, semantic),
 				{
 					$facet: {
 						list: [
@@ -457,6 +519,9 @@ export class BriefService {
 		if (nextStatus === BriefStatus.OPEN) unset.closedAt = 1;
 		if (nextStatus === BriefStatus.DELETE) update.deletedAt = moment().toDate();
 		if (Object.keys(unset).length) update.$unset = unset;
+		// D-52: a text change makes the vector stale at once (the reconcile job sees it even if the sync below is lost)
+		const textChanged = briefTextKeys.some((key) => input[key as keyof BriefUpdate] !== undefined);
+		if (textChanged) Object.assign(update, { embeddingStatus: EmbeddingStatus.PENDING, embeddingAttempts: 0 });
 
 		const result = await this.briefModel
 			.findOneAndUpdate({ ...search, briefStatus: stored.briefStatus }, update, { new: true })
@@ -470,6 +535,20 @@ export class BriefService {
 				targetKey: 'memberBriefs',
 				modifier: -1,
 			});
+		}
+
+		if (textChanged && nextStatus !== BriefStatus.DELETE)
+			this.embeddingQueue.requestSync(EmbeddingKind.BRIEF, result._id);
+
+		// D-48: a closed or deleted brief declines its PENDING offers. The brief has changed already, so a failure here
+		// is logged, not reported as a failed update: acceptOffer and createOffer also refuse a brief that isn't OPEN
+		if (nextStatus === BriefStatus.CLOSED || nextStatus === BriefStatus.DELETE) {
+			try {
+				const declined = await this.offerService.declinePendingOffersOfBrief(result._id);
+				if (declined) result.briefOffers = Math.max(0, (result.briefOffers ?? 0) - declined);
+			} catch (err) {
+				console.log('Error: declinePendingOffersOfBrief', describeDbError(err));
+			}
 		}
 		return result;
 	}

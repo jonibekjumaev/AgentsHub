@@ -3,19 +3,22 @@ import { ConfigModule } from '@nestjs/config';
 import { Connection } from 'mongoose';
 import { BatchJobsModule } from '../apps/agentshub-batch/src/batch-jobs.module';
 import { BatchService } from '../apps/agentshub-batch/src/batch.service';
+import { EmbeddingSyncService } from '../apps/agentshub-api/src/components/embedding/embedding-sync.service';
 import { DatabaseModule } from '../apps/agentshub-batch/src/database/database.module';
 import { createScriptContext, isProduction, requireEnv, runScript, ScriptError } from './script-utils';
 
 /**
  * Dev only: runs the batch ranking jobs once by hand, without the scheduler (no crons start), to check them
- * in Compass. Usage: `npm run batch:run -- rollback | products | creators | all` (default: all, in the nightly order).
+ * in Compass. Usage: `npm run batch:run -- rollback | products | creators | offers | embeddings | all` (default: all:
+ * the nightly ranking order, then the offer expiry, D-48). `embeddings` (D-52, not part of all) embeds everything without
+ * a current vector, the backfill, in one go (up to 100 000 documents per collection); it needs VOYAGE_API_KEY.
  */
 @Module({
 	imports: [ConfigModule.forRoot(), DatabaseModule, BatchJobsModule],
 })
 class BatchScriptModule {}
 
-const jobs = ['rollback', 'products', 'creators', 'all'] as const;
+const jobs = ['rollback', 'products', 'creators', 'offers', 'embeddings', 'all'] as const;
 type Job = (typeof jobs)[number];
 
 async function printTop(connection: Connection): Promise<void> {
@@ -62,6 +65,15 @@ async function main(): Promise<void> {
 		}
 		if (job === 'creators' || job === 'all') {
 			console.log(`batch:run: ranked ${await batchService.batchCreators()} creators`);
+		}
+		if (job === 'offers' || job === 'all') {
+			console.log(`batch:run: expired ${await batchService.expireOffers()} offers (D-48)`);
+		}
+		if (job === 'embeddings') {
+			const reports = await app.get(EmbeddingSyncService).syncPending(100_000);
+			console.log('batch:run: embeddings (D-52)');
+			console.table(reports);
+			return;
 		}
 
 		await printTop(connection);

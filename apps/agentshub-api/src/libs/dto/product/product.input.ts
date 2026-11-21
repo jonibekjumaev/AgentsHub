@@ -5,6 +5,7 @@ import {
 	IsArray,
 	IsEnum,
 	IsIn,
+	IsInt,
 	IsMongoId,
 	IsNotEmpty,
 	IsNumber,
@@ -13,6 +14,7 @@ import {
 	IsUrl,
 	Length,
 	Matches,
+	Max,
 	MaxLength,
 	Min,
 	ValidateNested,
@@ -23,6 +25,7 @@ import { AgentCategory } from '../../enums/agent-category.enum';
 import type { ObjectId } from '../../types/common';
 import {
 	aviableProductSorts,
+	listPageMax,
 	productDemoUrlMaxLength,
 	productDescMaxLength,
 	productDescMinLength,
@@ -162,13 +165,16 @@ export class PIsearch extends ProductFilters {
 
 @InputType()
 export class ProductsInquiry {
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
 	@Field(() => Int)
 	page!: number;
 
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
+	@Max(listPageMax)
 	@Field(() => Int)
 	limit!: number;
 
@@ -199,13 +205,16 @@ class CPISearch extends ProductFilters {
 
 @InputType()
 export class CreatorProductsInquiry {
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
 	@Field(() => Int)
 	page!: number;
 
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
+	@Max(listPageMax)
 	@Field(() => Int)
 	limit!: number;
 
@@ -243,13 +252,16 @@ class ALPISearch extends ProductFilters {
 
 @InputType()
 export class AllProductsInquiry {
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
 	@Field(() => Int)
 	page!: number;
 
+	@IsInt()
 	@IsNotEmpty()
 	@Min(1)
+	@Max(listPageMax)
 	@Field(() => Int)
 	limit!: number;
 

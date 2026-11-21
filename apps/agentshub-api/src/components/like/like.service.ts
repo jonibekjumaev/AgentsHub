@@ -10,7 +10,7 @@ import { Product, Products } from '../../libs/dto/product/product';
 import { TotalCounter } from '../../libs/dto/member/member';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { ProductStatus } from '../../libs/enums/product.enum';
-import { lookupFavorite, unwindKeepingItem } from '../../libs/config';
+import { lookupFavorite, unwindKeepingItem, withoutEmbedding } from '../../libs/config';
 import { describeDbError } from '../../libs/utils';
 
 /**
@@ -72,6 +72,7 @@ export class LikeService {
 						from: 'products',
 						localField: 'likeRefId',
 						foreignField: '_id',
+						pipeline: [withoutEmbedding], // D-52
 						as: 'favoriteProduct',
 					},
 				},

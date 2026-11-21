@@ -8,6 +8,7 @@ import BriefSchema from '../../schemas/Brief.model';
 import BoardArticleSchema from '../../schemas/BoardArticle.model';
 import MemberSchema from '../../schemas/Member.model';
 import { AuthModule } from '../auth/auth.module';
+import { NotificationModule } from '../notification/notification.module';
 import { MemberModule } from '../member/member.module';
 import { ViewModule } from '../view/view.module';
 import { BoardArticleModule } from '../board-article/board-article.module';
@@ -44,6 +45,7 @@ import { BriefModule } from '../brief/brief.module';
 		BoardArticleModule,
 		ProductModule,
 		BriefModule,
+		NotificationModule,
 	],
 	providers: [CommentResolver, CommentService],
 	exports: [CommentService],

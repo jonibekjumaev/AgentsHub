@@ -23,3 +23,6 @@ process.env.NODE_ENV = 'test'; // never 'production': DatabaseModule would use M
 process.env.MONGODB_DEV = uri;
 process.env.MONGODB_PROD = uri; // in case anything still asks for production
 process.env.SECRET_TOKEN = 'e2e-throwaway-secret'; // only this test run knows it; never the real SECRET_TOKEN
+// D-52: no embedding provider in tests, even when .env has a key: nothing is sent to Voyage and every text search uses
+// the keyword fallback (the in-memory mongod has no vectorSearch index anyway)
+process.env.VOYAGE_API_KEY = '';

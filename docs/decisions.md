@@ -75,7 +75,7 @@
 
 ## D-08 — Contact happens off-platform
 
-**Status:** Accepted. **Partly superseded by D-19** (the existing community chat is kept; there are still no offers and no 1:1 chat).
+**Status:** Accepted. **Partly superseded by D-19** (the existing community chat is kept), **D-48** (offers and invites on briefs) **and D-49** (1:1 chat on an offer). Contact details and money stay off the platform.
 
 - **Decision:** No in-platform offers or chat in the MVP. Members contact each other through the email/WhatsApp shown on profiles.
 - **Reason:** Keeps the MVP at Nestar scale. Real-time chat is deferred.
@@ -830,7 +830,7 @@
 
 ## D-34 — Legacy Nestar documents and errors that outlive a request
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** In the client walk-through (Step 13a), `getAllMembersByAdmin` met Nestar-era members: `memberType: "AGENT"` and no `memberBriefs`. GraphQL answered with field errors (`Enum MemberType cannot represent value: AGENT`, `Cannot return null for non-nullable field Member.memberBriefs`), and then the whole API process exited. Cause (B22): graphql-js 16 completes list items one by one; when one item fails synchronously while other items still have async fields running, those fields' later rejections are never awaited. Node 15+ exits on an unhandled rejection. The Step 6 mongosh migrations had not reached every document (they also hard-code `getSiblingDB('agentsHub')`, so a shell connected elsewhere matches 0 documents).
 - **Options:**
@@ -855,7 +855,7 @@
 
 ## D-35 — Text limits for comments, chat, articles and member descriptions
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** The Nestar limits were short: comments 1–100, chat messages 1–500, article content 3–250, and `memberDesc` had none. In the client walk-through a 100-character comment felt too short for a review of an agent, and forum posts need room.
 - **Decision:** One place in `libs/config.ts` (`TEXT LIMITS`), used by the DTOs and the chat gateway:
@@ -873,7 +873,7 @@
 
 ## D-36 — Upload errors and orphan uploads
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** `imageUploader` / `imagesUploader` answered a file over the size limit with `INTERNAL_SERVER_ERROR` `Upload failed!`, so the client showed "something went wrong" for a user mistake. An image is uploaded before the form that uses it is saved, so a cancelled form leaves a file that nothing references, and nothing ever removed those.
 - **Decision:**
@@ -884,7 +884,7 @@
 
 ## D-37 — Rank position and the like response
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** `productRank` and `memberRank` are nightly scores (D-17, D-22). The client wants to show "#3", and only knew the position inside the page it had loaded. After a like, the client also wrote `meLiked` into its cache itself, because the like mutations returned the target without it.
 - **Decision:**
@@ -895,7 +895,7 @@
 
 ## D-38 — Comments of a deleted member
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** In the client walk-through, a member was deleted by an admin, but their comments still showed their nick and picture as a link to their profile, and that profile answers 404 (`getMember` returns only `ACTIVE` and `BLOCK` members). A link that always ends in 404 is a dead link, and the deleted member's nick and image keep being published.
 - **Options:**
@@ -916,7 +916,7 @@
 
 ## D-39 — Follows of a deleted member
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** After D-38, a deleted member still appeared in follow lists as "Deleted member", and the followers / following counts of the members on the other side still counted them. In follow lists that reads as noise: other platforms drop deleted accounts from follower lists and their counts.
 - **Decision:** When an admin sets `memberStatus: DELETE` (`updateMemberByAdmin`), `MemberService.removeAllFollowsOf` runs:
@@ -930,7 +930,7 @@
 
 ## D-40 — Admins are not part of the follow graph
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** In the client walk-through an admin could follow members, and members could follow an admin. An admin has no public profile (`/members/<admin>` is 404 in the client), so following one leads nowhere, and an admin's follows show up in members' follower lists and counts as if the admin were a regular member.
 - **Decision:**
@@ -943,7 +943,7 @@
 
 ## D-41 — Uploaded images are re-encoded on the server
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** Uploads were stored as sent. A 10 MB phone photo stayed 10 MB on disk; `next/image` had to decode it for every new size (slow first loads, a busy CPU, and in dev a laggy page); the original was served wherever `next/image` isn't used; and phone photos carry EXIF, often with the GPS position of where they were taken.
 - **Options:**
@@ -962,7 +962,7 @@
 
 ## D-42 — "Who viewed your profile", with private browsing
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** Every signed-in visit of a profile is already stored in `views` (`viewGroup: MEMBER`, `viewRefId` = profile, `memberId` = visitor), but only used to count `memberViews`. Members asked to see who visited them. A visitor does not expect to be named to the profile owner, so this is a privacy decision, not only a query.
 - **Options:**
@@ -981,7 +981,7 @@
 
 ## D-43 — Live filter counts for the agents catalog (`getProductFacets`)
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** The new `/agents` page shows a count next to every category and pricing option, and disables options with 0 results, so a visitor never filters into an empty page. `getProducts` only returns the page and one total (`metaCounter`); it cannot say how many products each option would show.
 - **Options:**
@@ -1000,7 +1000,7 @@
 
 ## D-44 — /briefs filters, live counts and the "open now" badge
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** The new `/briefs` page (an Upwork-style feed) filters by budget type and hides briefs past their deadline, sorts by "most discussed" and "deadline soonest", shows live counts next to every option (as `/agents` does, D-43), and has a hero badge: "{N} briefs open now, {total} in posted budgets". `getBriefs` has none of these filters, `briefComments` is not a sort, and nothing counts or sums briefs. A brief also stays `OPEN` after its deadline passes: nothing closes it.
 - **Options for the past-deadline problem:**
@@ -1021,7 +1021,7 @@
 
 ## D-45 — /creators: agent counts, filters, live counts and the hero line
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** The new `/creators` page shows profile cards with each creator's agent count, their 2 best agents and the categories they build in, filters by category ("builds agents for"), "only creators with agents" and "following", sorts by followers, agents and name, shows live counts on the filters, and a hero line "{N} creators, {M} agents listed" with 5 faces. `getCreators` returned members only, searched the nick only, and had none of these filters. The design also reported "14 agents on profiles, 13 on /agents".
 - **The "14 vs 13" difference is not counter drift:** `memberProducts` counts `ACTIVE` + `PAUSED` on purpose (D-16, option B), `/agents` shows `ACTIVE` only. One paused agent explains it.
@@ -1040,7 +1040,7 @@
 
 ## D-46 — /community: wider search, "most discussed", topic counts and writers
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** The new `/community` page has a topic bar with live counts, a "Most discussed" sort, a search over the title, the text and the author, a hero with the number of articles and writers, and an "Active writers" sidebar. `getBoardArticles` searched `articleTitle` only, `articleComments` was not a sort, and nothing counted articles or writers. Ties in a counter sort (most articles have 0 likes or comments) had no tie-breaker, so a page could repeat or skip an article.
 - **Options for the author search:**
@@ -1056,7 +1056,7 @@
 
 ## D-47 — Saved briefs ("Save brief")
 
-**Status:** Proposed
+**Status:** Accepted
 
 - **Context:** The new `/briefs` mockup (`AgentsHub-client/docs/design/agentshub-briefs.html`) gives every brief a bookmark button: a creator looking for work keeps the briefs worth answering and comes back to them. The detail page gets the same button, and the dashboard a "Saved briefs" list. Nothing stores this yet: briefs have no likes (`LikeGroup` has no `BRIEF`), and products' "favorites" are likes.
 - **Options for the storage:**
@@ -1077,3 +1077,185 @@
   - **Cleanup:** `removeBriefByAdmin` (hard delete of a `DELETE` brief) also removes its saves.
 - **Reason:** A private bookmark is a different thing from a public like, even when the two rows look alike; keeping them apart keeps the like rules (counters, ranking, D-22) and the privacy rule each in one place.
 - **Consequence:** New collection `saves` with a unique index `{ memberId: 1, briefId: 1 }` (one save per member and brief; also the "is it saved" check) and `{ memberId: 1, createdAt: -1 }` (one member's saves, latest first). `SaveModule` (service only, like `LikeModule`) is used by `BriefService`; the resolver methods live in `BriefResolver`. The saves of a deleted member stay (nobody can read them, D-38); the saves of a soft-deleted brief stay until the admin removes the brief. No migration.
+
+## D-48 — Offers on briefs, and invites ("Send offer")
+
+**Status:** Accepted
+
+- **Context:** D-08 kept every contact off the platform: a creator reads a brief and writes to the email/WhatsApp on the user's profile. The platform never sees whether a brief got answers, the user compares offers in their mailbox, and a creator cannot tell whether their offer was seen. The marketplace needs the step between "a brief is posted" and "two people work together", as Upwork does with proposals and offers. Chat comes after offers and is tied to them (its own decision, D-49).
+- **Scope:** offers and invites only. No payments, escrow, contracts, milestones or reviews: money still changes hands off the platform (D-08 stays for that). No notifications yet: there is no notification module (D-18); the lists and counters below are enough for the MVP, notifications get their own decision.
+- **Options for who may accept:**
+  - **A. One accepted offer closes the brief.** Simple, but a user who needs two agents (or a backup creator) has to post the brief twice.
+  - **B. Several accepted offers (Upwork).** Accepting does not close the brief; the user closes it when done.
+- **Decision:** Option B, plus invites and expiry:
+  - **Who:** only a `CREATOR` sends, edits and withdraws offers; only the brief's owner (a `USER`) accepts or declines them and sends invites. An `ADMIN` has no offers (D-40 principle). A blocked or deleted member does nothing here (D-38).
+  - **One offer per creator and brief:** one document per `{ briefId, creatorId }`, for its whole life. Sending again after `WITHDRAWN` or `EXPIRED` re-opens the same document instead of adding one, so a creator never has two offers on one brief.
+  - **States:**
+    - `PENDING` → `ACCEPTED` or `DECLINED` (the brief's owner)
+    - `PENDING` → `WITHDRAWN` (the creator)
+    - `PENDING` → `EXPIRED` (time, see below)
+    - `WITHDRAWN` / `EXPIRED` → `PENDING` (the creator sends it again)
+    - `DECLINED` with `BRIEF_CLOSED` → `PENDING` (the creator sends it again after the brief reopened)
+    - The brief becomes `CLOSED` or `DELETE` → every `PENDING` offer becomes `DECLINED` with `offerCloseReason: BRIEF_CLOSED`.
+    - `ACCEPTED` and `DECLINED` are final, except a `DECLINED` offer with `BRIEF_CLOSED`: its creator may send it again once the owner reopens the brief (otherwise reopening would lock every earlier creator out). Every other move → `BAD_REQUEST` `INVALID_OFFER_STATUS_CHANGE` (its own message, like `INVALID_BRIEF_STATUS_CHANGE`). One `assertOfferTransition()` holds the table.
+  - **What an offer says:**
+    - `offerPrice`: USD (D-06), > 0, the same rule as `briefBudget` (D-04).
+    - `offerDeliveryDays`: whole days, 1–365.
+    - `offerMessage`: 20–2000 characters after trimming (`offerMessageMinLength` / `offerMessageMaxLength`, D-35 style). Plain text.
+    - `productId` (optional): one of the creator's own `ACTIVE` agents, to show what they already built.
+  - **Sending:** only to an `OPEN` brief (also one past its deadline: it stays `OPEN`, D-44). At most **20 offers sent or re-sent per creator in 24 hours** (`offerDailyLimit`) → `BAD_REQUEST`.
+  - **Editing:** a `PENDING` offer can be edited by its creator (price, days, message, agent). Each edit restarts the expiry.
+  - **Expiry:** a `PENDING` offer expires **14 days** (`offerExpiryDays`) after it was last sent or edited (`expiresAt`). Every read treats `expiresAt <= now` as expired, and `acceptOffer` refuses it, so nothing depends on when the batch runs. A daily job in `agentshub-batch` stores `EXPIRED` and fixes the counters. (Upwork expires client offers after 7 days; our users visit less often, and 30 days would leave stale prices.)
+  - **Who sees an offer:** its creator, the brief's owner and an admin. Other creators see only the number: `Brief.briefOffers` counts `PENDING` + `ACCEPTED` offers and changes only in the service (`$inc` on each transition, ER rule 5).
+  - **Invites (Upwork "invite to job"):** the brief's owner invites a creator to send an offer: `inviteCreator(briefId, creatorId)`. An invite is a request, not an offer: the price and days still come from the creator. Only for an `OPEN` brief, an `ACTIVE` creator, once per creator and brief (idempotent like D-47), at most **20 invites per user in 24 hours**. The creator lists their invites; an invited creator's offer shows "Invited" to the owner.
+  - **API:**
+    - Creator: `createOffer(input)`, `updateOffer(input)`, `withdrawOffer(offerId)`, `getMyOffers(input)`, `getMyInvites(input)`; `Brief.meOffer` (the caller's own offer on that brief) and `Brief.meInvited`.
+    - Brief owner: `acceptOffer(offerId)`, `declineOffer(offerId)`, `getBriefOffers(input)` (by status, latest first), `inviteCreator(briefId, creatorId)`.
+    - Admin: offers and invites of a brief go with it in `removeBriefByAdmin`. No separate moderation in the MVP.
+- **Reason:** Offers are the core of a marketplace like Upwork, and they need no real-time transport, so they come first and are useful alone. Several accepted offers match how people hire (Upwork works the same way). One document per creator and brief makes "my offer on this brief" one lookup and rules out duplicates in the schema. Expiry keeps creators from waiting forever and keeps both lists honest.
+- **Consequence:**
+  - New collection `offers`: unique `{ briefId: 1, creatorId: 1 }`; `{ briefId: 1, offerStatus: 1, sentAt: -1 }` (the owner's list); `{ creatorId: 1, offerStatus: 1, sentAt: -1 }` (my offers); `{ creatorId: 1, sentAt: -1 }` (daily limit); `{ offerStatus: 1, expiresAt: 1 }` (the expiry job).
+  - New collection `invites`: unique `{ briefId: 1, creatorId: 1 }`; `{ creatorId: 1, createdAt: -1 }`; `{ userId: 1, createdAt: -1 }` (daily limit).
+  - New field `Brief.briefOffers` (default 0; existing briefs read as 0, no migration).
+  - Closing or deleting a brief now also declines its `PENDING` offers, in the same service method.
+  - D-08 is partly superseded: offers live on the platform, contact details and money still do not.
+- **Implementation notes (Phase A, backend):**
+  - **Races:** every status change is one conditional write filtered on the status (and expiry) that was checked. The loser of two simultaneous moves (accept vs withdraw, two re-sends) matches nothing and is answered from the offer as it is now. `briefOffers` changes by the counted-status difference of the write that really happened; a re-send of a stored `PENDING` offer past its expiry changes it by 0 (it was still counted).
+  - **No transactions:** the offer write and the `$inc` on the brief are two writes. If the second fails, the counter is off by one until fixed by hand; accepted for the MVP (the same as the other counters).
+  - **Accept** also checks that the brief is still `OPEN` (the decline on close is logged, not fatal, so this is the safety net) and that the creator is not deleted (D-38).
+  - **Daily limit** counts offers by `sentAt`: an offer sent again counts once, at its latest send.
+  - **`meOffer` / `meInvited`** are filled on `getBrief` only (the detail page); every list leaves them `null`, so a list never runs one lookup per brief.
+  - **Expiry job:** its own cron (01:30), separate from the nightly ranking so neither failure stops the other. One conditional write per offer, pinned to the `expiresAt` it read, then `$inc: -1` on its brief only if that write changed it.
+  - `Brief.briefOffers` of a brief stored before D-48 is answered as 0 by a field resolver (`BriefFieldsResolver`), not by a migration.
+  - New messages: `BRIEF_NOT_OPEN`, `INVALID_OFFER_PRICE`, `INVALID_OFFER_PRODUCT`, `INVALID_OFFER_STATUS_CHANGE`, `OFFER_ALREADY_PENDING`, `OFFER_EXPIRED`, `OFFER_DAILY_LIMIT`, `INVITE_DAILY_LIMIT`, `INVALID_INVITE_TARGET`.
+
+## D-49 — 1:1 chat on an offer
+
+**Status:** Accepted
+
+- **Context:** D-48 put offers on the platform, but the brief's owner and the creator still leave it to talk (D-08). The community chat (D-19) is public and keeps no history. Members need a private conversation about one offer: questions before accepting, details after. Planned with D-48: the chat is tied to an offer, not open between any two members.
+- **Options for who may start a conversation:**
+  - **A. Either side.** A creator could write to every brief owner: the same spam the offer limits stop.
+  - **B. Only the brief's owner, on an offer they received (Upwork's "interview").** The creator answers once it exists.
+- **Decision:** Option B.
+  - **One conversation per offer** (`conversations.offerId` unique), between the brief's owner (`userId`) and the offer's creator (`creatorId`). `openConversation(offerId)` is idempotent: opening it again returns the same one.
+  - **When:** the owner opens it on an offer that is `PENDING` (not past its expiry) or `ACCEPTED`. Any other offer → `BAD_REQUEST` `CONVERSATION_NOT_ALLOWED`.
+  - **Who reads:** only its two members. Anyone else (an admin included) gets the same answer as a missing one: messages are private. An admin can lock a conversation (`lockConversationByAdmin`) and sees its metadata in a list, never its messages (nor `lastMessagePreview`, which is a message's start; filter by `lockedByAdmin`).
+  - **Writing is computed, not stored:** a conversation takes new messages while its offer is `PENDING` (not expired) or `ACCEPTED`, both members are `ACTIVE`, and no admin locked it. Otherwise it is read-only with a reason (`OFFER_CLOSED`, `MEMBER_UNAVAILABLE`, `LOCKED_BY_ADMIN`), and `sendMessage` → `BAD_REQUEST` `CONVERSATION_READ_ONLY`. Computing it means no offer or member change has to update conversations.
+  - **Messages:** plain text, 1–3000 characters after trimming (D-35's `chatMessageMaxLength`), at most 1 per second per member (D-19's rule). Each carries a `clientMessageId` (a UUID made by the client): sending the same one twice stores one message (a retry after a lost connection).
+  - **Transport:** `sendMessage` is a GraphQL mutation; it stores the message, then pushes `chat:message` over the existing WebSocket to both members' open sockets. The socket never writes. A member who missed a push asks for `getMessages(after: lastId)`.
+  - **History:** cursor pages by `_id` (`before` / `after`, at most 50), not page numbers: new messages would shift numbered pages.
+  - **Unread:** one counter per side on the conversation (`userUnread`, `creatorUnread`): `+1` for the other side on each message, `0` on `markConversationRead`. `getChatUnreadCount` sums the caller's.
+- **Reason:** Tying the chat to an offer keeps every conversation about real work and lets the owner decide who may talk to them. One write path (GraphQL) keeps validation, guards and limits in one place; the socket only tells clients something changed, so a dropped socket loses nothing.
+- **Consequence:**
+  - New collection `conversations`: unique `{ offerId: 1 }`; `{ userId: 1, lastMessageAt: -1 }`; `{ creatorId: 1, lastMessageAt: -1 }`.
+  - New collection `messages`: `{ conversationId: 1, _id: -1 }` (history); unique `{ senderId: 1, clientMessageId: 1 }` (retries); `{ senderId: 1, createdAt: -1 }` (rate limit).
+  - The socket gateway keeps which member each socket belongs to and pushes to members (`ChatPublisher`, renamed `MemberPublisher` by D-50). With more than one API instance this needs Redis pub/sub behind the same interface; one instance is enough for the MVP.
+  - D-08 is superseded for members with an offer: they can talk on the platform. Contact details stay where D-07 puts them.
+  - No notification per chat message: the unread count is the signal (kept by D-50).
+
+## D-50 — Notifications
+
+**Status:** Accepted
+
+- **Context:** D-48 and D-49 moved offers and conversations onto the platform, but a member learns about a new offer, an accepted one or an invite only by opening the page. The `notifications` collection has existed since Nestar (D-18) with no module behind it. The marketplace needs the "something happened" signal Upwork gives: a bell with a count, a list, and a push while the page is open.
+- **Options for the text:**
+  - **A. Store the sentence** ("Nova Labs sent an offer on …"). Simple to render, but frozen in the language of the moment, and the site has three (en, uz, ko).
+  - **B. Store the event, word it on the client.** `notificationType` says what happened; the client translates it and fills in who (`authorData`) and what (`notificationTitle`).
+- **Decision:** Option B.
+  - **What is sent, to whom:**
+
+    | `notificationType` | When | Receiver | `notificationTitle` |
+    |---|---|---|---|
+    | `OFFER_RECEIVED` | a creator sends an offer, or sends it again | the brief's owner | brief title |
+    | `OFFER_WITHDRAWN` | the creator withdraws a `PENDING` offer | the brief's owner | brief title |
+    | `OFFER_ACCEPTED` / `OFFER_DECLINED` | the owner accepts / declines | the creator | brief title |
+    | `INVITE` | a new invite (inviting again sends nothing) | the creator | brief title |
+    | `COMMENT` | a comment on an agent, brief, article or profile | the agent's creator, the brief's / article's author, the member | that title, or the member's nick |
+    | `FOLLOW` | a member follows | the member followed, **once per follower** (unfollow + follow sends nothing new) | follower's nick |
+
+  - **Not sent:** likes (`LIKE` stays in the enum from Nestar, unused: a like is a counter, not news); chat messages (the unread badge is the signal, D-49); offers declined in bulk because the brief was closed, and offers that expire (the creator's list shows it; one notification per offer would be noise). Nobody is notified about their own action.
+  - **`notificationDesc`:** the first 140 characters of a comment, on one line; empty otherwise. Title and description are plain text.
+  - **Best effort:** the action that caused a notification has already happened, so a failure while sending one is logged, never returned as an error of that action.
+  - **Push:** each new notification goes to the receiver's open sockets as `notification:new { notificationId }`; reading pushes `notification:read {}` to the reader's other tabs. Same rule as D-49: the socket tells, GraphQL is the source of truth. The D-49 publisher becomes `MemberPublisher` (`socket/member.publisher.ts`), shared by chat and notifications.
+  - **API (USER and CREATOR; an ADMIN gets FORBIDDEN, D-40 principle):** `getMyNotifications(input: NotificationsInquiry)` (latest first, `limit` 1–50, `unreadOnly`), `getNotificationUnreadCount`, `markNotificationRead(notificationId)` (someone else's → NOT_FOUND), `markAllNotificationsRead` (returns how many changed). `authorData` is joined; null when the author is deleted (D-38).
+  - **Lifetime:** a TTL index removes a notification 90 days after it was created (`notificationTtlDays`), read or not. No batch job needed.
+- **Reason:** Storing events instead of sentences keeps notifications correct in every language and when wording changes. Covering only events a member acts on (offers, invites, comments, new followers) keeps the bell meaningful. Building it on D-49's socket path adds no new transport.
+- **Consequence:**
+  - `NotificationType` gains `FOLLOW`, `OFFER_RECEIVED`, `OFFER_ACCEPTED`, `OFFER_DECLINED`, `OFFER_WITHDRAWN`, `INVITE`.
+  - Indexes on `notifications`: `{ receiverId: 1, createdAt: -1 }` (list), `{ receiverId: 1, notificationStatus: 1 }` (count), `{ notificationType: 1, authorId: 1, receiverId: 1 }` (FOLLOW once), TTL `{ createdAt: 1 }`.
+  - `NotificationModule` reads briefs, products, articles and members through their models; Offer, Comment and Follow modules import it (the other direction would be a cycle).
+  - D-18's open question on `notificationDesc` is settled: optional.
+
+## D-51 — Hardening: list sizes, login throttle, socket frames, query depth
+
+**Status:** Accepted
+
+- **Context:** Before launch, a review of what one client can make the API do found four cheap ways to make it work hard or guess passwords:
+  1. Most list inputs had `limit ≥ 1` but no maximum and no whole-number rule: `limit: 1000000` loaded a whole collection with its joins in one request; `limit: 1.5` reached MongoDB and came back as `INTERNAL_SERVER_ERROR`.
+  2. `login` had no limit on failed attempts: a password could be guessed as fast as bcrypt answers.
+  3. The WebSocket accepted frames up to `ws`'s default of 100 MiB, buffered in memory, although no valid frame is larger than a 3000-character message.
+  4. The schema has a cycle (`Offer.briefData` → `Brief.meOffer` → `Offer` …), each level resolved with its own reads: one request could nest it as deep as it liked.
+- **Decision:**
+  1. **Lists:** every `*Inquiry` takes whole numbers (`@IsInt`) and `limit` ≤ `listPageMax` (100), unless the list already has a smaller maximum (history and notifications: 50). The client's largest page is 100 (following ids, sitemap). → `BAD_REQUEST`.
+  2. **Login throttle:** failed logins (`UNAUTHENTICATED` only; a blocked member's `FORBIDDEN` is not counted) are counted per client address and nick (lower-cased) in a sliding 15-minute window. From the 11th, `login` answers `TOO_MANY_REQUESTS` ("Too many failed logins. Try again in a few minutes!", HTTP 429) **before** checking the password, until the oldest failure leaves the window; a success clears the count. Keyed by address *and* nick so a stranger can't lock a member out everywhere. In memory, at most 10 000 keys. Behind a reverse proxy, `TRUST_PROXY` must be set (e.g. `1`) so the address is the real client's; otherwise every client shares the proxy's.
+  3. **Socket frames:** `maxPayload` 16 KiB; `ws` closes a socket that sends a bigger frame.
+  4. **Query depth:** a validation rule refuses operations nested deeper than 8 fields (`GRAPHQL_VALIDATION_FAILED`), before anything runs. Fragments count where they are spread; introspection is not counted. The client's deepest operation has 5.
+- **Reason:** Each fix is a bound on a cost the client controls, enforced where the request enters, with no new dependency.
+- **Consequence:**
+  - The throttle and the socket's publisher are per API instance; running several instances needs a shared store (Redis) behind the same interfaces (as D-49).
+  - Not covered here (later): a general request rate limit per address, and a size limit on the GraphQL request body other than uploads.
+
+## D-52 — Semantic search: embeddings and Atlas Vector Search
+
+**Status:** Accepted
+
+- **Context:** The product and brief lists searched titles only (`$regex`). A business owner describes a need in their own words ("something that answers the phone for my café") and misses the "Voice receptionist" agent that fits it; a creator looking for work misses briefs worded differently from their agent. Searching by meaning needs a vector per document and a vector index. The plan to add AI features last (semantic search first, a RAG assistant later) starts here.
+- **Options:**
+  - **Provider:** Voyage AI (`voyage-4-lite`) or OpenAI (`text-embedding-3-small`); same price per token. Voyage gives 200M free tokens, a smaller vector by default, multilingual models, and belongs to MongoDB.
+  - **Where vectors live:** in the product / brief document, or a separate `embeddings` collection. A separate collection would need the documents' status copied into it to filter by it.
+  - **When they are made:** in the request that saves the text (slower saves, a provider outage fails the save), or in the background.
+- **Decision:**
+  1. **Provider:** Voyage `voyage-4-lite`, 1024 dimensions, behind an `EmbeddingProvider` interface (abstract class: `VoyageEmbeddingProvider`, `DisabledEmbeddingProvider`, fakes in specs). `VOYAGE_API_KEY` turns it on; `EMBEDDING_MODEL` and `VOYAGE_BASE_URL` (the Voyage API by default; Atlas model API keys use `https://ai.mongodb.com/v1`) are optional. No key: nothing is embedded, every search uses keywords.
+  2. **Stored in the document:** `embedding` (never selected, never in GraphQL, dropped from every pipeline that reads products or briefs), `embeddingStatus` (`PENDING` / `READY` / `FAILED`), `embeddingModel`, `embeddingHash` (sha256 of the text), `embeddingAttempts`, `embeddedAt`.
+  3. **The text:** labelled lines: product = title, category (as words), tags, description; brief = title, category, content (`buildEmbeddingText`, one place).
+  4. **Sync:**
+     - Create, or an update that changes a text field, sets `embeddingStatus: PENDING` in the same write and emits an event (`@nestjs/event-emitter`). The listener embeds after the request has answered: saving never waits for or fails because of the provider.
+     - The same text is never sent twice (hash + model compared). Writes are compare-and-set on the text fields that were read, and don't touch `updatedAt`.
+     - A reconcile job in the batch app (every 5 minutes) embeds whatever is not READY or is of another model: lost background syncs, failures (up to 5 attempts, until the text changes), documents from before D-52 (the backfill), a model change. `npm run batch:run -- embeddings` does the same at once.
+  5. **Search:**
+     - `getProducts` / `getProductFacets` and `getBriefs` / `getBriefFacets` with a `search.text`: the text is embedded as a query (cached 10 minutes, at most 500 texts; 1.5 s timeout), then `$vectorSearch` (index `product_embedding` / `brief_embedding`, filter on status) returns the 200 closest documents scoring at least 0.6.
+     - The list matches those **or a title containing the text** (an exact name is never missed), with its other filters on top, so filters and counts work as before.
+     - New sort `relevance` (default whenever there is a semantic search): title matches first, then the semantic order. An explicit sort still wins.
+     - Any failure (no provider, timeout, no index, a local MongoDB) answers with the keyword search: a search never fails because of D-52.
+     - Creator, "my" and admin lists keep the keyword search (people look for a name there).
+  6. **Indexes:** `npm run create-search-indexes` creates (or updates) the Atlas vectorSearch indexes: `embedding` (1024, cosine) plus the status as a filter field.
+- **Reason:** Vectors next to the data keep status filtering in the same index and need no copy to sync. Background sync with a reconcile job makes saves independent of a third-party API and recovers from every failure the same way. Matching "semantic ids or title" on top of the existing pipeline keeps every filter, count and sort working, and a keyword fallback keeps search up when the provider or the index is not.
+- **Consequence:**
+  - New env: `VOYAGE_API_KEY` (and optional `EMBEDDING_MODEL`, `VOYAGE_BASE_URL`). On deploy: `npm run create-search-indexes` once per cluster, then the batch fills the vectors in.
+  - Each vector is about 8 KB in BSON; the minimum score (0.6) and the candidate counts are first guesses, to tune on real data.
+  - Atlas-only: the e2e suites run without a provider (keyword search); the semantic half is covered by unit tests and checked by hand on Atlas.
+  - Next (not here): hybrid ranking with `$rankFusion` (needs MongoDB 8.0+), and the RAG assistant on the same vectors.
+
+## D-53 — Hybrid search: vector and keyword rankings fused with RRF
+
+**Status:** Accepted
+
+- **Context:** D-52 ranks a text search by meaning only; words count only as "a title containing the text". So a description or a tag with the exact word (a product name, "Telegram", "invoice") does not raise a document, and without a provider (no key, an outage) the order is just newest first. Hybrid search ranks by meaning and by words together. The cluster is an Atlas **Free** cluster: at most 3 search/vector indexes in all, and the two vectorSearch indexes of D-52 already take two.
+- **Options:**
+  - **A. Atlas Search (`$search`) + `$rankFusion`:** the best keyword engine (BM25, fuzzy matching for typos, per-field boosts), fused in one pipeline. Needs two more search indexes (4 > 3 on Free) and MongoDB 8.0+.
+  - **B. Atlas Search, fused in code:** the same engine without the version need; still 4 indexes.
+  - **C. MongoDB text index (`$text`, textScore), fused in code with Reciprocal Rank Fusion:** an ordinary index, so no Free-cluster limit; also on the local and e2e MongoDB. No fuzzy matching (a typo finds nothing by words; meaning still helps), English stemming.
+- **Decision:** C.
+  1. **Indexes:** a text index per collection, declared in the schemas (Mongoose builds it): `product_text` (title 10, tags 5, description 1), `brief_text` (title 10, content 1).
+  2. **`HybridSearchService.rankedIds(kind, text, filter)`** (embedding module) runs both sides at once: `VectorSearchService` (D-52) and a `$text` query (same status filter, best textScore first, at most 200). The search text is passed as plain words: `"` and a leading `-` (phrase and negation in `$text`) become spaces.
+  3. **Fusion:** Reciprocal Rank Fusion, k = 60: each list gives a document 1 / (k + rank); the sums decide the order, ties keep the vector order. Only the positions are used, so a cosine score and a textScore are never compared.
+  4. Either side can be missing (no provider or vector index; text index not built yet): the other ranks alone. Only when neither answers do the lists fall back to the title match.
+  5. The lists use the fused ids exactly as D-52 used the semantic ones: match "ranked ids or a title containing the text", `relevance` = title matches first, then the fused order.
+- **Reason:** It fits the Free cluster with no new cost and no new dependency, and it is testable end to end. RRF needs no score tuning and is what `$rankFusion` does on the server, so moving to option A later changes one service, not the lists.
+- **Consequence:**
+  - A text search now ranks by words even without `VOYAGE_API_KEY`; the "Best match" sort (client) is meaningful without it.
+  - Typos are not forgiven by the keyword side. Moving to a paid tier (or to MongoDB 8.0+ with free indexes to spare) opens option A: replace `keywordIds` with `$search` (fuzzy) and, on 8.0+, the code fusion with `$rankFusion`.
+  - Mongoose builds the text indexes at startup (`autoIndex`); on a large collection the first build takes a while, and until then searches rank by meaning only.
+  - Next (not here): the RAG assistant on the same retrieval.
+

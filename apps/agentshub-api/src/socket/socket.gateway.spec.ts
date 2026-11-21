@@ -140,4 +140,23 @@ describe('SocketGateway (D-19, D-35, Step 13a item 6)', () => {
 		expect(errors(client)).toEqual([Message.NOT_AUTHENTICATED]);
 		expect(messages(client)).toEqual([]);
 	});
+
+	describe('publish (D-49): pushes a 1:1 chat event to the given members only', () => {
+		it('reaches every open socket of those members, never a guest or another member', async () => {
+			const other = { ...member, _id: new Types.ObjectId(), memberNick: 'bob' };
+			memberModel.resolve('findOne', member).resolve('findOne', member).resolve('findOne', other);
+			const aliceTab1 = await connect('token');
+			const aliceTab2 = await connect('token');
+			const bob = await connect('token');
+			const guest = await connect();
+
+			gateway.publish([member._id], 'chat:message', { conversationId: 'c1' });
+
+			const pushes = (client: FakeClient) => client.sent.filter((m) => m.event === 'chat:message');
+			expect(pushes(aliceTab1)).toEqual([{ event: 'chat:message', data: { conversationId: 'c1' } }]);
+			expect(pushes(aliceTab2)).toHaveLength(1);
+			expect(pushes(bob)).toEqual([]);
+			expect(pushes(guest)).toEqual([]);
+		});
+	});
 });

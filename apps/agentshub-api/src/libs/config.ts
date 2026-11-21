@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import { PipelineStage, Types } from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 import { MemberStatus, MemberType } from './enums/member.enum';
@@ -20,7 +20,9 @@ export const aviableCreatorSorts = [
 ];
 export const aviableMemberSorts = ['createdAt', 'updatedAt', 'memberLikes', 'memberViews'];
 
+// D-52: 'relevance' orders a text search by meaning; without a semantic search it falls back to createdAt
 export const aviableProductSorts = [
+	'relevance',
 	'createdAt',
 	'updatedAt',
 	'productLikes',
@@ -32,6 +34,7 @@ export const aviableProductSorts = [
 // briefBudget / briefDeadline are optional: empty values sort last in both directions (D-04, BriefService).
 // briefComments breaks ties by briefViews; briefDeadline ASC lists upcoming, then passed, then none (D-44)
 export const aviableBriefSorts = [
+	'relevance',
 	'createdAt',
 	'updatedAt',
 	'briefViews',
@@ -83,6 +86,95 @@ export const briefContentMaxLength = 3000;
 export const briefSaverTypes: MemberType[] = [MemberType.USER, MemberType.CREATOR];
 export const canSaveBriefs = (memberType: MemberType | null | undefined): boolean =>
 	!!memberType && briefSaverTypes.includes(memberType);
+
+/**  OFFER CONFIGURATION (D-48)  **/
+
+// a PENDING offer expires this many days after it was last sent or edited
+export const offerExpiryDays = 14;
+// offers sent or re-sent by one creator, invites sent by one user, in the last 24 hours
+export const offerDailyLimit = 20;
+export const inviteDailyLimit = 20;
+export const offerMessageMinLength = 20; // after trimming
+export const offerMessageMaxLength = 2000;
+export const offerDeliveryDaysMin = 1;
+export const offerDeliveryDaysMax = 365;
+
+/** The expiry of an offer sent or edited at `from` (D-48). */
+export const offerExpiresAt = (from: Date): Date => new Date(from.getTime() + offerExpiryDays * 24 * 60 * 60 * 1000);
+
+/**  LOGIN THROTTLE (D-51)  **/
+
+// failed logins allowed per client address and nick within the window, before login answers TOO_MANY_REQUESTS
+export const loginFailureLimit = 10;
+export const loginFailureWindowMs = 15 * 60 * 1000;
+// the throttle forgets the oldest keys beyond this many (memory bound under a spray of nicks)
+export const loginThrottleMaxKeys = 10_000;
+
+/**  WEBSOCKET (D-51)  **/
+
+// the largest frame a client may send: a 3000-character message (D-35) in 4-byte characters, plus its JSON wrapper.
+// ws closes the socket on a bigger one (its default is 100 MiB, kept in memory while it arrives)
+export const wsMaxPayloadBytes = 16 * 1024;
+
+/**  EMBEDDINGS AND VECTOR SEARCH (D-52)  **/
+
+// the length of every stored vector; the Atlas vectorSearch indexes are created with the same number
+export const embeddingDimensions = 1024;
+// texts sent in one provider request (the reconcile job and the backfill)
+export const embeddingBatchSize = 64;
+// a document that failed this many times is left FAILED until its text changes (then attempts start again)
+export const embeddingMaxAttempts = 5;
+// how long a document request may take (in the background) and how long a search waits for its query vector
+export const embeddingTimeoutMs = 15_000;
+export const queryEmbeddingTimeoutMs = 1_500;
+// query vectors kept in memory, so the same search text costs one provider request per TTL
+export const queryEmbeddingCacheSize = 500;
+export const queryEmbeddingCacheTtlMs = 10 * 60 * 1000;
+// the semantic candidates a list search takes from $vectorSearch (the list's other filters then apply to them),
+// and how many the index examines to find them (10-20x the limit is the usual advice)
+export const vectorSearchLimit = 200;
+export const vectorSearchCandidates = 2_000;
+// candidates below this score (vectorSearchScore, 0..1 for cosine) are not related enough to list. Tune on real data
+export const vectorSearchMinScore = 0.6;
+/** D-53: keyword ($text) candidates per search, best textScore first; fused with the vector ones. */
+export const keywordSearchLimit = 200;
+/** D-53: Reciprocal Rank Fusion constant (k in 1 / (k + rank)); 60 is the usual value, larger flattens the ranks. */
+export const rankFusionK = 60;
+export const productVectorIndex = 'product_embedding';
+export const briefVectorIndex = 'brief_embedding';
+
+/** Leaves the stored vector out of a pipeline's documents: nobody reads it outside the search itself (D-52). */
+export const withoutEmbedding: PipelineStage.Project = { $project: { embedding: 0 } };
+
+/**  GRAPHQL (D-51)  **/
+
+// the deepest operation the API runs (fields nested in fields); the client's deepest needs 5
+export const graphqlMaxDepth = 8;
+
+/**  LIST PAGES (D-51)  **/
+
+// the largest `limit` any list query accepts, unless a list sets its own smaller one
+export const listPageMax = 100;
+
+/**  CHAT CONFIGURATION (D-49)  **/
+
+// one page of a conversation's history (getMessages)
+export const chatHistoryPageMax = 50;
+// the last message as shown in the conversation list
+export const chatPreviewLength = 140;
+// at most one message per member in this window (the D-19 rule)
+export const chatMessageIntervalMs = 1000;
+// one page of the admin's conversation list
+export const chatAdminPageMax = 100;
+
+/**  NOTIFICATIONS (D-50)  **/
+
+// one page of getMyNotifications
+export const notificationPageMax = 50;
+// a comment's text as quoted in its notification
+export const notificationDescLength = 140;
+// a notification is removed this long after it was created (TTL index), read or not
+export const notificationTtlDays = 90;
 
 /**  TEXT LIMITS (D-35)  **/
 

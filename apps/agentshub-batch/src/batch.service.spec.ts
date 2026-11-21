@@ -4,21 +4,28 @@ import { Types } from 'mongoose';
 import { createMockModel, MockModel } from '../../agentshub-api/test/utils/mock-model';
 import { MemberStatus, MemberType } from '../../agentshub-api/src/libs/enums/member.enum';
 import { ProductStatus } from '../../agentshub-api/src/libs/enums/product.enum';
+import { OfferStatus } from '../../agentshub-api/src/libs/enums/offer.enum';
 import { BatchService } from './batch.service';
 
 describe('BatchService', () => {
 	let service: BatchService;
 	let productModel: MockModel;
 	let memberModel: MockModel;
+	let offerModel: MockModel;
+	let briefModel: MockModel;
 
 	beforeEach(async () => {
 		productModel = createMockModel();
 		memberModel = createMockModel();
+		offerModel = createMockModel();
+		briefModel = createMockModel();
 		const moduleRef = await Test.createTestingModule({
 			providers: [
 				BatchService,
 				{ provide: getModelToken('Product'), useValue: productModel },
 				{ provide: getModelToken('Member'), useValue: memberModel },
+				{ provide: getModelToken('Offer'), useValue: offerModel },
+				{ provide: getModelToken('Brief'), useValue: briefModel },
 			],
 		}).compile();
 		service = moduleRef.get(BatchService);
@@ -145,6 +152,38 @@ describe('BatchService', () => {
 				[String(a), 15],
 				[String(b), 15],
 			]);
+		});
+	});
+
+	describe('expireOffers (D-48)', () => {
+		const now = new Date('2026-11-13T01:30:00.000Z');
+		const due = (expiresAt: Date) => ({ _id: new Types.ObjectId(), briefId: new Types.ObjectId(), expiresAt });
+
+		it('stores EXPIRED on PENDING offers past their expiry and lowers each brief once per offer', async () => {
+			const first = due(new Date('2026-11-12T00:00:00.000Z'));
+			const second = due(new Date('2026-11-13T01:00:00.000Z'));
+			offerModel.resolve('find', [first, second]);
+			offerModel.resolve('updateOne', { modifiedCount: 1 }).resolve('updateOne', { modifiedCount: 1 });
+
+			await expect(service.expireOffers(now)).resolves.toBe(2);
+
+			expect(offerModel.find).toHaveBeenCalledWith({ offerStatus: OfferStatus.PENDING, expiresAt: { $lte: now } });
+			expect(offerModel.updateOne).toHaveBeenCalledWith(
+				{ _id: first._id, offerStatus: OfferStatus.PENDING, expiresAt: first.expiresAt },
+				{ $set: { offerStatus: OfferStatus.EXPIRED, closedAt: now }, $unset: { expiresAt: 1 } },
+			);
+			expect(briefModel.updateOne.mock.calls).toEqual([
+				[{ _id: first.briefId }, { $inc: { briefOffers: -1 } }],
+				[{ _id: second.briefId }, { $inc: { briefOffers: -1 } }],
+			]);
+		});
+
+		it('an offer re-sent, edited or accepted since the read matches nothing: its brief keeps its count', async () => {
+			offerModel.resolve('find', [due(new Date('2026-11-12T00:00:00.000Z'))]);
+			offerModel.resolve('updateOne', { modifiedCount: 0 });
+
+			await expect(service.expireOffers(now)).resolves.toBe(0);
+			expect(briefModel.updateOne).not.toHaveBeenCalled();
 		});
 	});
 });

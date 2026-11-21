@@ -90,11 +90,12 @@ Every GraphQL error has this shape (B14, B15):
   | Code | Meaning | Default UI reaction |
   |---|---|---|
   | `BAD_REQUEST` | Input failed a rule (validation or business rule) | Show the message; for validation, show `validationErrors` next to the fields |
-  | `GRAPHQL_VALIDATION_FAILED` | The query doesn't match the schema (unknown field or enum value, missing required argument) | A bug in the client: log it, show a generic error. Usually means a query still uses an old Nestar name |
+  | `GRAPHQL_VALIDATION_FAILED` | The query doesn't match the schema (unknown field or enum value, missing required argument), or is nested deeper than 8 fields (D-51) | A bug in the client: log it, show a generic error. Usually means a query still uses an old Nestar name |
   | `NOT_FOUND` | Missing, hidden, deleted, or not yours (see each page) | "Not found" page, or reload the list |
   | `CONFLICT` | Duplicate value (nick, phone, product title) | Show the message next to the field |
   | `UNAUTHENTICATED` | No / bad token, deleted member, failed login | Clear token, go to login (except on the login form itself) |
   | `FORBIDDEN` | Blocked member, or wrong role | Blocked: clear token, go to login. Role: show the message |
+  | `TOO_MANY_REQUESTS` | Too many failed logins from this address for this nick (D-51) | On the login form: "wait a few minutes"; don't clear anything |
   | `INTERNAL_SERVER_ERROR` | Real server fault | Generic "something went wrong" |
 
 - `extensions.reason` (D-33) is a machine-readable reason, present only on some errors. When it is there, branch on it instead of the message. Today there is one value:
@@ -156,7 +157,7 @@ All `update*` mutations follow one rule (B11):
 
 All list queries take `{ page, limit, sort?, direction?, search }`:
 
-- `page` and `limit` must be ≥ 1 → else `BAD_REQUEST`.
+- `page` and `limit` must be whole numbers ≥ 1, and `limit` at most **100** (D-51; some lists allow fewer: history 50, notifications 50) → else `BAD_REQUEST`.
 - `sort` must be one of the allowed values for that list (listed per page). An unknown or old Nestar sort (e.g. `propertyPrice`) → `BAD_REQUEST`.
 - `direction`: `ASC` or `DESC`.
 - `search` is required (send `{}` when there's no filter). `search.text` is at most 100 characters → else `BAD_REQUEST` (B16). Enum values inside `search` are checked too.
@@ -251,6 +252,12 @@ Suggested labels: `CUSTOMER_SUPPORT` "Customer support", `DATA_ANALYSIS` "Data a
 | — | `getBrief(briefId)`, `getBriefs` | everyone |
 | — | `getBriefFacets(input: BISearch): BriefFacets`, `getOpenBriefStats: OpenBriefStats` | everyone (D-44) |
 | — | `saveBrief(briefId)`, `unsaveBrief(briefId)`, `getSavedBriefs(input: OrdinaryInquiry)` | USER, CREATOR (D-47) |
+| — | `createOffer`, `updateOffer`, `withdrawOffer(offerId)`, `getMyOffers`, `getMyInvites` | CREATOR (D-48) |
+| — | `acceptOffer(offerId)`, `declineOffer(offerId)`, `getBriefOffers`, `inviteCreator(briefId, creatorId)` | USER, the brief's owner (D-48) |
+| — | `getOffer(offerId)` | the offer's creator, the brief's owner, ADMIN (D-48) |
+| — | `openConversation(offerId)` | USER, the brief's owner (D-49) |
+| — | `getConversation`, `getOfferConversation`, `getMyConversations`, `getChatUnreadCount`, `getMessages`, `sendMessage`, `markConversationRead` | the conversation's two members (D-49) |
+| — | `getConversationsByAdmin`, `lockConversationByAdmin` | ADMIN (D-49) |
 | — | `getAllBriefsByAdmin`, `updateBriefByAdmin`, `removeBriefByAdmin(briefId)` | ADMIN |
 | — | `getArticleFacets(input: BAISearch): ArticleFacets`, `getCommunityStats: CommunityStats` | everyone (D-46) |
 
@@ -260,12 +267,12 @@ Everything else keeps its name: `signup`, `login`, `getMember`, `updateMember`, 
 
 ### 2.5 Sort values
 
-| List | Allowed `sort` values (default `createdAt`) |
+| List | Allowed `sort` values (default `createdAt`; with a search `text` on `getProducts` / `getBriefs`, `relevance`) |
 |---|---|
-| Products (`getProducts`, `getCreatorProducts`, `getAllProductsByAdmin`) | `createdAt`, `updatedAt`, `productLikes`, `productViews`, `productRank`, `productPrice` |
+| Products (`getProducts`, `getCreatorProducts`, `getAllProductsByAdmin`) | `relevance` (D-52, see 3.3), `createdAt`, `updatedAt`, `productLikes`, `productViews`, `productRank`, `productPrice` |
 | Creators (`getCreators`) | `createdAt`, `updatedAt`, `memberLikes`, `memberViews`, `memberRank`, `memberProducts`, `memberFollowers`, `creatorProducts`, `creatorName` (D-45) |
 | Members (`getAllMembersByAdmin`) | `createdAt`, `updatedAt`, `memberLikes`, `memberViews` |
-| Briefs (`getBriefs`, `getMyBriefs`, `getAllBriefsByAdmin`) | `createdAt`, `updatedAt`, `briefViews`, `briefComments` (D-44), `briefBudget`, `briefDeadline` |
+| Briefs (`getBriefs`, `getMyBriefs`, `getAllBriefsByAdmin`) | `relevance` (D-52), `createdAt`, `updatedAt`, `briefViews`, `briefComments` (D-44), `briefBudget`, `briefDeadline` |
 | Board articles | `createdAt`, `updatedAt`, `articleLikes`, `articleViews`, `articleComments` (D-46) |
 | Comments | `createdAt`, `updatedAt` |
 
@@ -323,6 +330,7 @@ Old values (`propertyLikes`, `propertyViews`, `propertyRank`, `propertyPrice`, `
 | `signup`, `updateMember` | `BAD_REQUEST` | `Phone number must be in international format, …` | under phone |
 | `updateMember` | `BAD_REQUEST` | `WhatsApp number must be in international format, …` / `Please provide a valid email of at most 254 characters!` | under the field |
 | `login` | `UNAUTHENTICATED` | `Wrong member nick or password!` | one generic message |
+| `login` | `TOO_MANY_REQUESTS` | `Too many failed logins. Try again in a few minutes!` | "try again later"; the form stays filled (D-51) |
 | `login`, `getMe` | `FORBIDDEN` | `You have been blocked!` (`reason: MEMBER_BLOCKED`) | "Your account is blocked" screen |
 | `getMe` | `UNAUTHENTICATED` | `Bearer Token is not provided!` / `You are not authenticated, please login first!` | log out |
 | `changePassword` | `BAD_REQUEST` | `Wrong password, try again!` | under "current password" |
@@ -361,13 +369,15 @@ Old values (`propertyLikes`, `propertyViews`, `propertyRank`, `propertyPrice`, `
 | `pricingList` | `[ProductPricing!]` | any of these pricing models |
 | `pricesRange` | `{ start: Float!, end: Float! }`, both ≥ 0 | price between start and end. **Only matches `ONE_TIME` and `SUBSCRIPTION` products**, because free and custom products have no price (D-03). With `pricingList`, only the overlap is matched (e.g. `pricingList: [FREE]` + a range → no results) |
 | `tagList` | `[String!]`, max 10 | products that have **all** these tags. Tags are compared trimmed and lowercased |
-| `text` | `String`, max 100 | title search |
+| `text` | `String`, max 100 | search by meaning and by words (D-52, D-53): agents close to what was typed or with its words in the title, tags or description, plus any title containing it. If the server can rank neither way, title search |
 | `memberId` | id | one creator's products (used on the creator's profile) |
 | `periodsRange` | `{ start: DateTime!, end: DateTime! }` | created between |
 
 Removed (D-10): `locationList`, `typeList`, `roomsList`, `bedsList`, `options`, `squaresRange`.
 
 **Sorts:** see 2.5. `sort: productPrice` puts products **without a price last** in both directions. Ties are broken by newest first.
+
+**Relevance (D-52):** with a `text`, leave `sort` out or send `relevance` to list the best matches first (title matches, then by meaning and words fused, D-53); send another sort to order the same matches by it. Without a `text`, `relevance` means newest first. Offer a "Best match" sort option while there is a text, selected by default. The search costs a provider call per new text: send it on submit or after a pause in typing (~400 ms), not on every key.
 
 **Errors**
 
@@ -494,7 +504,7 @@ Send `updateProduct({ _id, productStatus })`:
 
 ### 3.6 Brief list and brief detail
 
-Briefs are new: a USER describes an AI agent they need, and creators contact them off-platform.
+Briefs are new: a USER describes an AI agent they need, and creators answer with an offer (3.6a, D-48) or contact them off-platform.
 
 **Operations**
 
@@ -504,8 +514,8 @@ Briefs are new: a USER describes an AI agent they need, and creators contact the
 **List** (`getBriefs`)
 
 - Returns only `OPEN` briefs by default. `search.briefStatus: CLOSED` lists closed ones instead; `DELETE` → `BAD_REQUEST` `"No data found!"`.
-- Filters (`BISearch`): `categoryList`, `budgetTypeList` (`FIXED`, `OPEN_TO_OFFERS`; D-44), `text` (title, max 100), `memberId` (one user's briefs, for their profile), `briefStatus`, `hidePastDeadline` (D-44: leaves out `OPEN` briefs whose deadline has passed).
-- Sorts: `createdAt` (default), `updatedAt`, `briefViews`, `briefComments` (ties by views), `briefBudget`, `briefDeadline`. Briefs **without** a budget / deadline are always listed last, in both directions. `briefDeadline` `ASC` lists upcoming deadlines (soonest first), then passed ones, then none (D-44).
+- Filters (`BISearch`): `categoryList`, `budgetTypeList` (`FIXED`, `OPEN_TO_OFFERS`; D-44), `text` (max 100; by meaning plus titles, D-52, as in 3.3), `memberId` (one user's briefs, for their profile), `briefStatus`, `hidePastDeadline` (D-44: leaves out `OPEN` briefs whose deadline has passed).
+- Sorts: `relevance` (D-52: the default with a `text`, as in 3.3), `createdAt` (default without one), `updatedAt`, `briefViews`, `briefComments` (ties by views), `briefBudget`, `briefDeadline`. Briefs **without** a budget / deadline are always listed last, in both directions. `briefDeadline` `ASC` lists upcoming deadlines (soonest first), then passed ones, then none (D-44).
 
 **Fields** (`Brief`)
 
@@ -521,6 +531,8 @@ Briefs are new: a USER describes an AI agent they need, and creators contact the
 | `closedAt`, `deletedAt` | nullable dates |
 | `memberData` | the user who posted it; contacts `null` for guests |
 | `meSaved` | D-47: `true` / `false` for a logged-in `USER` or `CREATOR` on `getBrief`, `getBriefs` and `getSavedBriefs`; `null` for guests, admins and the other lists |
+| `briefOffers` | D-48: `Int!`, `PENDING` + `ACCEPTED` offers; everyone sees the number ("7 offers"), never the offers |
+| `meOffer`, `meInvited` | D-48: for a logged-in `CREATOR` on `getBrief` only: their own offer on this brief (or `null`) and whether the owner invited them. `null` for everyone else and on every list |
 
 Briefs have no likes (`meLiked` doesn't exist on `Brief`); members save them instead (D-47, see 3.9).
 
@@ -536,6 +548,161 @@ Briefs have no likes (`meLiked` doesn't exist on `Brief`); members save them ins
 - On a closed brief: show its comments, but **no comment box** (see 3.8).
 - "Contact" box from `memberData` (logged-in only, 3.1). For a creator, this is how they respond to a brief.
 - A "Post a brief" button only for logged-in `USER` members.
+
+### 3.6a Offers and invites (D-48)
+
+A creator answers a brief with an **offer** (price, days, message, optionally one of their agents). The brief's owner accepts or declines it, and can **invite** a creator to send one. No payments: money still changes hands off the platform.
+
+**Operations**
+
+| Operation | Who | Returns |
+|---|---|---|
+| `createOffer(input: OfferInput!)` | CREATOR | `Offer`. Also "send again" (see below) |
+| `updateOffer(input: OfferUpdate!)` | the offer's creator | `Offer` |
+| `withdrawOffer(offerId)` | the offer's creator | `Offer` |
+| `getMyOffers(input: MyOffersInquiry!)` | CREATOR | `Offers` with `briefData` (+ its `memberData`) and `productData` |
+| `getMyInvites(input: OrdinaryInquiry!)` | CREATOR | `Invites` with `briefData` and `userData` |
+| `acceptOffer(offerId)`, `declineOffer(offerId)` | the brief's owner | `Offer` |
+| `getBriefOffers(input: BriefOffersInquiry!)` | the brief's owner | `Offers` with `creatorData`, `productData`, `invited` |
+| `inviteCreator(briefId, creatorId)` | the brief's owner | `Invite` |
+| `getOffer(offerId)` | the offer's creator, the brief's owner, an admin | `Offer` with `briefData`, `creatorData`, `productData` |
+
+A wrong role → `FORBIDDEN` `"Allowed only for members with specific roles!"`. Someone else's offer or brief → `NOT_FOUND` `"No data found!"` (the same as a missing one).
+
+**The offer form** (`OfferInput`; `OfferUpdate` takes the same fields, all optional, plus `_id`)
+
+| Field | Rule |
+|---|---|
+| `briefId` | an `OPEN` brief. `CLOSED` → `BAD_REQUEST` `"This brief is not open for offers!"`; deleted / missing → `NOT_FOUND` |
+| `offerPrice` | `Float`, USD, > 0 → else `"Price must be greater than 0!"` |
+| `offerDeliveryDays` | whole days, 1–365 |
+| `offerMessage` | 20–2000 characters **after trimming**; stored trimmed; plain text |
+| `productId` | optional: one of the caller's `ACTIVE` agents → else `"The agent must be one of your active agents!"`. In `updateOffer`, `null` detaches it |
+
+**Statuses** (`offerStatus`)
+
+| From | To | Who | Operation |
+|---|---|---|---|
+| `PENDING` | `ACCEPTED` | owner | `acceptOffer` (also needs the brief still `OPEN`) |
+| `PENDING` | `DECLINED` | owner | `declineOffer` |
+| `PENDING` | `WITHDRAWN` | creator | `withdrawOffer` |
+| `PENDING` | `EXPIRED` | time | 14 days after it was last sent or edited (`expiresAt`) |
+| `PENDING` | `DECLINED` (`offerCloseReason: BRIEF_CLOSED`) | the brief | the owner closes or deletes the brief |
+| `WITHDRAWN` / `EXPIRED` | `PENDING` | creator | `createOffer` again: the **same** offer (`_id`) comes back |
+| `DECLINED` with `BRIEF_CLOSED` | `PENDING` | creator | `createOffer` again, once the owner reopened the brief |
+
+`ACCEPTED` and `DECLINED` (by the owner) are final. Anything else → `BAD_REQUEST` `"This offer can no longer be changed this way!"`.
+
+- **One offer per creator and brief.** `createOffer` while yours is `PENDING` → `BAD_REQUEST` `"You already have a pending offer on this brief: edit it instead!"`: use `updateOffer`. Use `Brief.meOffer` on the detail page to choose between "Send offer", "Edit / Withdraw" and "Send again".
+- **Several offers can be accepted** (Upwork style). Accepting doesn't close the brief; the owner closes it when done.
+- **Expiry is live:** a `PENDING` offer past `expiresAt` is already answered as `EXPIRED` (with `expiresAt: null`), before the nightly job stores it. Accept / decline / edit / withdraw on it → `BAD_REQUEST` `"This offer has expired!"`. Show "Expires in N days" from `expiresAt`; editing restarts it.
+- **Limits:** 20 offers sent or re-sent per creator, 20 invites per owner, in 24 hours → `"You can send at most 20 offers in 24 hours!"` / `"…20 invites…"`.
+- Filters: `getMyOffers` and `getBriefOffers` take `search.offerStatus` (one status, as the caller sees it: `PENDING` leaves out expired ones, `EXPIRED` includes them). Both sort latest sent first (`sentAt`).
+
+**Invites**
+
+- `inviteCreator` only for your own `OPEN` brief and an `ACTIVE` `CREATOR` → else `BAD_REQUEST` `"Only an active creator can be invited!"`. Inviting again returns the same invite (not an error).
+- The creator sees it in `getMyInvites` and as `meInvited: true` on the brief; the owner sees `invited: true` on that creator's offer in `getBriefOffers`.
+
+**Concurrency:** if the owner and the creator act on one offer at the same moment, one wins; the other gets the error for the offer's state now (e.g. `"This offer can no longer be changed this way!"`). Refetch the offer on any `BAD_REQUEST` from these operations.
+
+**UI hints**
+
+- Brief detail, for a creator: "Send offer" (no `meOffer`), the offer with "Edit" / "Withdraw" (`PENDING`), "Send again" (`WITHDRAWN`, `EXPIRED`, or `DECLINED` + `BRIEF_CLOSED` on an open brief), a status badge otherwise; an "Invited" badge from `meInvited`.
+- Brief detail, for its owner: the offers list (`getBriefOffers`) with Accept / Decline on `PENDING` ones and an "Invited" badge; "Invite" on creator cards and profiles.
+- Everyone: "N offers" from `briefOffers`.
+- Dashboard: "My offers" and "Invites" for creators.
+
+### 3.6b 1:1 chat on an offer (D-49)
+
+A private conversation between the brief's owner and the creator of one offer. The owner opens it; then both write. The WebSocket only **tells** clients something changed; every read and write is GraphQL.
+
+**Operations**
+
+| Operation | Who | Notes |
+|---|---|---|
+| `openConversation(offerId)` | the brief's owner | on a `PENDING` (not expired) or `ACCEPTED` offer; else `BAD_REQUEST` `"A conversation can only be opened on a pending or accepted offer!"`. Opening again returns the same one |
+| `getOfferConversation(offerId)` | both members | the offer's conversation, or `null` if the owner hasn't opened one. Use it on the offer card / owner list to show "Open chat" vs "Message" |
+| `getMyConversations(input: OrdinaryInquiry!)` | both members | latest message first; never-written ones after them |
+| `getConversation(conversationId)` | both members | |
+| `getChatUnreadCount` | USER, CREATOR | `Int!`, for the nav badge |
+| `getMessages(input: MessagesInquiry!)` | both members | see History |
+| `sendMessage(input: SendMessageInput!)` | both members | returns the stored `ChatMessage` |
+| `markConversationRead(conversationId)` | both members | the caller's `meUnread` → 0; returns the conversation |
+
+Anyone else (a stranger, an admin) gets `NOT_FOUND` `"No data found!"`: messages are private. Admins only list metadata (`getConversationsByAdmin`, see 3.12) and lock / unlock (`lockConversationByAdmin(conversationId, locked)`).
+
+**`Conversation` fields:** `offerId`, `briefId`, `userId` (owner), `creatorId`, `userData`, `creatorData` (null when deleted, D-38), `briefData { briefTitle briefStatus }`, `offerData { offerStatus offerPrice offerDeliveryDays }` (status as seen now), `lastMessageAt`, `lastMessagePreview` (≤ 140 chars), `lastSenderId`, `meUnread`, `lockedByAdmin`, and:
+
+- `canWrite: Boolean!` — whether a message can be sent now.
+- `readOnlyReason` — `null` while writable, else `OFFER_CLOSED` (the offer is declined / withdrawn / expired), `MEMBER_UNAVAILABLE` (a member is blocked or deleted) or `LOCKED_BY_ADMIN`. Show the history, hide the send box, and say why.
+
+**Sending** (`SendMessageInput`)
+
+- `messageText`: 1–3000 characters after trimming; plain text. Else `BAD_REQUEST` `"Message must be text of 1 to 3000 characters!"`.
+- `clientMessageId`: a **UUID you generate per message** (`crypto.randomUUID()`). Retrying with the same id (after a timeout or a dropped connection) returns the stored message instead of a duplicate, so retry freely.
+- At most 1 message per second per member → `"You can send at most 1 message per second!"`; disable the send button for a second.
+- Read-only → `BAD_REQUEST` `"This conversation is read-only!"`: refetch the conversation for the reason.
+
+**History** (`MessagesInquiry`: `conversationId`, `limit` 1–50, optional `before` or `after`, a message `_id`)
+
+- The list is always **oldest first**.
+- No cursor: the latest `limit` messages; `hasMore` = older ones exist.
+- `before: <oldest shown _id>`: the page before it (scrolling up); `hasMore` = still older ones.
+- `after: <newest shown _id>`: newer messages (catching up after the socket reconnects); `hasMore` = still newer ones, ask again.
+- Both cursors at once → `BAD_REQUEST`.
+
+**WebSocket events** (the same socket as the community chat, 3.11; connect with the token, reconnect after login / logout)
+
+| `event` | `data` | Meaning |
+|---|---|---|
+| `chat:message` | `{ conversationId, message: ChatMessage }` | a message in one of your conversations (also your own, to your other tabs) |
+| `chat:read` | `{ conversationId }` | you read it in another tab: zero its badge |
+
+Pushes are best-effort: after a reconnect, call `getMessages(after: lastId)` for each open conversation and refetch `getChatUnreadCount`. De-duplicate incoming messages by `_id` (your own send returns the message **and** pushes it).
+
+**UI hints**
+
+- Owner: "Message" on each `PENDING` / `ACCEPTED` offer (opens or reuses the conversation). Creator: "Message" once `getOfferConversation` returns one.
+- Dashboard "Messages": `getMyConversations` (preview, time, unread badge); a thread view with history up top and the send box below.
+- Render `messageText` as text, never HTML. Mark read when a thread is open and visible.
+
+### 3.6c Notifications (D-50)
+
+A bell with an unread count and a list of what happened to the member: offers, invites, comments and new followers. USER and CREATOR only; an admin gets `FORBIDDEN` (hide the bell).
+
+**Operations**
+
+| Operation | Returns | Notes |
+|---|---|---|
+| `getMyNotifications(input: NotificationsInquiry!)` | `Notifications { list metaCounter }` | latest first; `page`, `limit` 1–50, optional `unreadOnly` |
+| `getNotificationUnreadCount` | `Int!` | for the bell badge |
+| `markNotificationRead(notificationId)` | `Notification` | someone else's → `NOT_FOUND`; already read changes nothing |
+| `markAllNotificationsRead` | `Int!` | how many changed |
+
+**`Notification` fields:** `notificationType`, `notificationStatus` (`WAIT` = unread, `READ`), `notificationGroup`, `notificationTitle`, `notificationDesc`, `authorId`, `authorData` (null when deleted, D-38), `receiverId`, `productId` / `briefId` / `articleId`, `createdAt`.
+
+**Word it on the client** from `notificationType` (translate it), with the author's name and `notificationTitle` (plain text):
+
+| `notificationType` | Sentence | Link |
+|---|---|---|
+| `OFFER_RECEIVED` | {author} sent an offer on "{title}" | the brief |
+| `OFFER_WITHDRAWN` | {author} withdrew their offer on "{title}" | the brief |
+| `OFFER_ACCEPTED` / `OFFER_DECLINED` | {author} accepted / declined your offer on "{title}" | the brief |
+| `INVITE` | {author} invited you to send an offer on "{title}" | the brief |
+| `COMMENT` | {author} commented on "{title}" (+ `notificationDesc`) | by `notificationGroup`: the agent, brief, article, or your profile |
+| `FOLLOW` | {author} started following you | the author's profile |
+
+Unknown types (added later): show a generic line and no link.
+
+**WebSocket events** (same socket as 3.6b)
+
+| `event` | `data` | Meaning |
+|---|---|---|
+| `notification:new` | `{ notificationId }` | refetch the count (and the list, if open) |
+| `notification:read` | `{}` | you read some in another tab: refetch the count |
+
+Pushes are best-effort: refetch the count after a reconnect.
 
 ### 3.7 My briefs (USER only)
 
@@ -765,7 +932,7 @@ A member blocked or deleted while connected gets `You are not authenticated, ple
 - Show the `error` messages to the sender (e.g. under the input); disable the send button for 1 second after sending.
 - Limit the input to 3000 characters.
 - Reconnect after login / logout so the socket uses the new token.
-- There is no private messaging (D-08); contact happens through the profile contacts.
+- Private messages are not in this socket chat: they are the 1:1 conversations on offers (3.6b, D-49), which push over the same socket.
 
 ### 3.12 Admin pages
 
@@ -797,6 +964,11 @@ All `*ByAdmin` operations need an `ADMIN` token; others get `FORBIDDEN` `"Allowe
 - `getAllBoardArticlesByAdmin`: `search` (`ABAISearch`): `articleStatus`, `articleCategory`.
 - `updateBoardArticleByAdmin`: same rules as the owner update.
 - `removeCommentByAdmin(commentId)`: hard delete; the target's comment counter drops by 1 if the comment was still active (B19).
+
+**Conversations (D-49)**
+
+- `getConversationsByAdmin(input: ConversationsAdminInquiry!)`: `page`, `limit` 1–100, optional `lockedByAdmin` (`true` → locked only, `false` → the others). Latest message first. The members, brief, offer, `lastMessageAt`, `lockedByAdmin` and `readOnlyReason` are there; **`lastMessagePreview` is always `null` for an admin** (messages are private), and `meUnread` too.
+- `lockConversationByAdmin(conversationId, locked)`: a locked conversation takes no messages (`readOnlyReason` `LOCKED_BY_ADMIN`); unlocking gives back whatever the offer and members allow. A missing one → `NOT_FOUND`. The members find out on their next read or send (no push).
 
 **Two-step remove (D-28)**
 
@@ -866,6 +1038,8 @@ Calling remove on an active / open / closed / paused or missing item → `NOT_FO
 - [ ] Create / edit form: budget > 0 or empty, future-only deadline picker.
 - [ ] Close / reopen / delete buttons; reopen asks for a new deadline (or none) when the deadline has passed, and sends it with the status change (D-31).
 - [ ] Save button on the list and the detail page for `USER` / `CREATOR` (not on your own brief), login prompt for guests, none for admins; "Saved briefs" in the dashboard (D-47).
+- [ ] Chat (D-49): owner opens on an offer, both write; `clientMessageId` UUIDs and retries; read-only states from `readOnlyReason`; cursor history; socket `chat:message` / `chat:read`, catch-up after reconnect; unread badge.
+- [ ] Offers (D-48): send / edit / withdraw / send again from `meOffer`; the owner's list with accept / decline; "N offers" from `briefOffers`; live expiry from `expiresAt`; invites; "My offers" and "Invites" in the creator dashboard.
 
 ### Comments, likes, follows
 
@@ -880,6 +1054,12 @@ Calling remove on an active / open / closed / paused or missing item → `NOT_FO
 
 - [ ] Article title / content limits; article content rendered as text.
 - [ ] Chat: plain-text rendering, send box hidden for guests, server errors shown, 500-character limit, public member fields only, reconnect on login / logout (D-19).
+
+### Notifications (D-50)
+
+- [ ] Bell with `getNotificationUnreadCount` for USER / CREATOR only; refetch on `notification:new` / `notification:read` and after reconnect.
+- [ ] Sentences from `notificationType` in every language; title and description as text; a deleted author shown as such.
+- [ ] Opening one marks it read; "Mark all as read".
 
 ### Admin
 
@@ -904,6 +1084,7 @@ The `message` strings the UI may need to match. Codes are those the API returns 
 | `Already used member nick or phone` | `CONFLICT` | signup, member updates |
 | `A product with this title already exists for this creator!` | `CONFLICT` | product create / update |
 | `Wrong member nick or password!` | `UNAUTHENTICATED` | login |
+| `Too many failed logins. Try again in a few minutes!` | `TOO_MANY_REQUESTS` | login, after 10 failures from one address for one nick in 15 minutes (D-51) |
 | `You have been blocked!` | `FORBIDDEN`, `reason: MEMBER_BLOCKED` | login, `getMe`, any logged-in operation |
 | `You are not authenticated, please login first!` | `UNAUTHENTICATED` | bad / expired token, deleted member; chat send as guest |
 | `Bearer Token is not provided!` | `UNAUTHENTICATED` | logged-in operation without a token |
@@ -922,12 +1103,23 @@ The `message` strings the UI may need to match. Codes are those the API returns 
 | `Budget must be greater than 0!` | `BAD_REQUEST` | brief create / update |
 | `Deadline must be in the future!` | `BAD_REQUEST` | brief create / update / reopen |
 | `Brief status can only change between OPEN and CLOSED, or to DELETE!` | `BAD_REQUEST` | brief update |
+| `This brief is not open for offers!` | `BAD_REQUEST` | `createOffer`, `acceptOffer`, `inviteCreator` on a closed brief (D-48) |
+| `Price must be greater than 0!` | `BAD_REQUEST` | offer form (D-48) |
+| `The agent must be one of your active agents!` | `BAD_REQUEST` | offer form (D-48) |
+| `This offer can no longer be changed this way!` | `BAD_REQUEST` | offer status changes (D-48) |
+| `You already have a pending offer on this brief: edit it instead!` | `BAD_REQUEST` | `createOffer` (D-48) |
+| `This offer has expired!` | `BAD_REQUEST` | accept / decline / edit / withdraw an expired offer (D-48) |
+| `You can send at most 20 offers in 24 hours!` | `BAD_REQUEST` | `createOffer` (D-48) |
+| `You can send at most 20 invites in 24 hours!` | `BAD_REQUEST` | `inviteCreator` (D-48) |
+| `Only an active creator can be invited!` | `BAD_REQUEST` | `inviteCreator` (D-48) |
+| `A conversation can only be opened on a pending or accepted offer!` | `BAD_REQUEST` | `openConversation` (D-49) |
+| `This conversation is read-only!` | `BAD_REQUEST` | `sendMessage` (D-49) |
 | `Self subscription is denied!` | `BAD_REQUEST` | `subscribe` |
 | `Not Allowed Request!` | `BAD_REQUEST` | liking yourself or your own product, saving your own brief (D-47) |
 | `Please provide jpg, jpeg or png images!` | `BAD_REQUEST` | image upload |
 | `Image must be at most 10 MB!` | `BAD_REQUEST` | image upload (Step 13a, D-41) |
 | `The file is not a readable image!` | `BAD_REQUEST` | image upload (D-41) |
 | `Image must be at most 50 megapixels!` | `BAD_REQUEST` | image upload (D-41) |
-| `Message must be text of 1 to 3000 characters!` | chat `error` event | chat |
-| `You can send at most 1 message per second!` | chat `error` event | chat |
+| `Message must be text of 1 to 3000 characters!` | chat `error` event; `BAD_REQUEST` from `sendMessage` (D-49) | chat |
+| `You can send at most 1 message per second!` | chat `error` event; `BAD_REQUEST` from `sendMessage` (D-49) | chat |
 | `Something went wrong!` | `INTERNAL_SERVER_ERROR` | server fault |

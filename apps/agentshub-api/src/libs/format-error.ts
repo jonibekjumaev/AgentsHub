@@ -6,7 +6,7 @@ import { redactDuplicateKey, redactSensitiveText } from './utils';
 
 // @nestjs/apollo gives only 400, 401, 403 and 422 their own code; any other HTTP status arrives as
 // INTERNAL_SERVER_ERROR plus extensions.status, so these get a stable code here (B15)
-const statusErrorCodes: Record<number, string> = { 404: 'NOT_FOUND', 409: 'CONFLICT' };
+const statusErrorCodes: Record<number, string> = { 404: 'NOT_FOUND', 409: 'CONFLICT', 429: 'TOO_MANY_REQUESTS' };
 
 /** The GraphQL `formatError` of the API (app.module.ts): every error the client sees passes through here. */
 export const formatGraphqlError = (formattedError: GraphQLFormattedError, error: unknown): GraphQLFormattedError => {

@@ -63,6 +63,11 @@ describe('formatGraphqlError', () => {
 		expect(conflict.extensions).toEqual({ code: 'CONFLICT' });
 	});
 
+	it('429 gets TOO_MANY_REQUESTS (D-51 login throttle)', () => {
+		const tooMany = formatGraphqlError(nestError('INTERNAL_SERVER_ERROR', { message: 'x' }, 429), new Error());
+		expect(tooMany.extensions).toEqual({ code: 'TOO_MANY_REQUESTS' });
+	});
+
 	it('redacts passwords echoed by graphql-js (S15)', () => {
 		const error: GraphQLFormattedError = {
 			message: 'Variable "$i" got invalid value { memberPassword: "secret1" }',

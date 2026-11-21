@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { MemberService } from '../member/member.service';
+import { NotificationService } from '../notification/notification.service';
 import { isValidObjectId, Model } from 'mongoose';
 import { ObjectId, T } from '../../libs/types/common';
 import { CommentInput, CommentsInquiry } from '../../libs/dto/comment/comment.input';
@@ -34,6 +35,7 @@ export class CommentService {
 		private readonly productService: ProductService,
 		private readonly briefService: BriefService,
 		private readonly boardArticleService: BoardArticleService,
+		private readonly notificationService: NotificationService,
 	) {}
 
 	public async createComment(memberId: ObjectId, input: CommentInput): Promise<Comment> {
@@ -48,6 +50,12 @@ export class CommentService {
 		}
 
 		await this.targetCommentsEditor(input.commentGroup, input.commentRefId, 1);
+		await this.notificationService.notifyComment(
+			memberId,
+			input.commentGroup,
+			input.commentRefId,
+			input.commentContent,
+		);
 		return result;
 	}
 
